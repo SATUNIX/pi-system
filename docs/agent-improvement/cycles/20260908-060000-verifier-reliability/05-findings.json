@@ -1,0 +1,55 @@
+{
+  "validated": [
+    {
+      "id": "F1",
+      "title": "Verification without a task contaminates the next request",
+      "reproduction": [
+        "pi-eval-1788850844147/hello",
+        "pi-eval-1788851624618/hello",
+        "pi-eval-1788850844147/clarification"
+      ],
+      "falsifier": "Normal greeting has no queued/pending verification or failing board",
+      "nullCheck": "Both host queue events and lifecycle pending flags contradict the null; clarification inspects .pi and times out.",
+      "rootCause": "extensions/orchestrator/index.ts agent_end runs on every answer; extensions/verify-gate/index.ts auto-checks each turn without task edits.",
+      "principles": [
+        "reliability",
+        "token efficiency"
+      ],
+      "priority": 1
+    },
+    {
+      "id": "F2",
+      "title": "Unawaited automatic checks outlive the active extension context",
+      "reproduction": [
+        "pi-eval-1788851624618/coding/host/stderr.log",
+        "same auto-check category in both greeting reproductions creates invalid no-script boards"
+      ],
+      "falsifier": "Independent slug assertions fail or process exit is caused by generated code",
+      "nullCheck": "Host validator exits successfully; stderr locates stale-context exception in verify-gate ChildProcess callback after final answer.",
+      "rootCause": "extensions/verify-gate/index.ts uses unawaited per-turn ChildProcess callbacks with captured ctx",
+      "principles": [
+        "reliability",
+        "correct completion"
+      ],
+      "priority": 1
+    }
+  ],
+  "rejected": [],
+  "inconclusive": [
+    {
+      "id": "F3",
+      "title": "General model coding competence",
+      "reason": "One small successful artifact does not establish engineering readiness."
+    },
+    {
+      "id": "F4",
+      "title": "Pentest report accuracy",
+      "reason": "Primary baseline and candidate cyber runs timed out. Longer guided diagnostic also timed out and retained unsupported generalizations, a sequential-ID claim and an incorrect evidence reference. These defects are observed, but their general frequency and causal relation to the verifier fix are not established; see 08-validation-report.md."
+    },
+    {
+      "id": "F5",
+      "title": "Timestamp-only verdict freshness and shell-only edit tracking",
+      "reason": "Known follow-up limitations; not tested as this cycle's primary fix."
+    }
+  ]
+}

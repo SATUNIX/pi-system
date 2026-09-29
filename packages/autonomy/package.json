@@ -1,0 +1,14 @@
+{
+  "name": "@satunix/pi-autonomy",
+  "version": "0.2.1-beta.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Supervisor, relay and container image for unattended improvement runs of pi-system (docs/autonomy.md)",
+  "bin": {
+    "pi-autonomy": "supervisor.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

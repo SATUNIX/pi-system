@@ -1,0 +1,156 @@
+name: security
+
+# SAST, secret scanning, dependency and supply-chain checks, and a security audit of the
+# workflows themselves. Findings go to the repository's Security tab (code scanning) as SARIF
+# where the tool supports it. Runs on every push to main, every PR, and weekly, so new
+# advisories against unchanged code are still caught.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # SAST: GitHub CodeQL with the extended security query suite (JS/TS extensions and tooling).
+  codeql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          languages: javascript-typescript, actions
+          queries: security-extended
+      - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          category: /language:javascript-typescript
+
+  # SAST: Semgrep community rules for JS/TS/Node, secrets and the OWASP top ten. Blocks on
+  # ERROR-severity findings; everything is uploaded for triage. Scope: .semgrepignore.
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    container:
+      image: semgrep/semgrep:1.178.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: >-
+          semgrep scan --metrics=off
+          --config p/javascript --config p/typescript --config p/nodejs
+          --config p/secrets --config p/owasp-top-ten
+          --sarif --output semgrep.sarif
+      - if: always()
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+      - run: >-
+          semgrep scan --metrics=off --severity ERROR --error
+          --config p/javascript --config p/typescript --config p/nodejs
+          --config p/secrets --config p/owasp-top-ten
+
+  # Secret scanning over the FULL git history, with the repository's .gitleaks.toml (default
+  # rules plus a line-level allowlist for synthetic test fixtures). The binary is fetched from
+  # the upstream release and verified against a pinned checksum.
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -fsSLo gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+      - run: ./gitleaks git --redact --verbose --exit-code 1 .
+
+  # Dependencies: known vulnerabilities (npm audit, OSV), registry signatures and provenance
+  # attestations (npm audit signatures), and lockfile integrity.
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run -s security:lockfile
+      - run: npm audit signatures
+      # The published package has no runtime dependencies; everything audited here is the
+      # dev toolchain (the pi framework, TypeScript, ajv). High and critical findings fail the
+      # job; triage accepted upstream advisories in docs/supply-chain.md.
+      - run: npm audit --audit-level=high
+
+  osv-scanner:
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+    with:
+      scan-args: |-
+        --lockfile=package-lock.json
+
+  # PRs only: block a change that introduces a dependency with a known high-severity
+  # vulnerability or a license outside the allowlist.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, BlueOak-1.0.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unlicense
+          comment-summary-in-pr: on-failure
+
+  # The workflows are code too: template injection, over-broad permissions, credential
+  # persistence, unpinned actions, dangerous triggers.
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4

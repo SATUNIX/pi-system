@@ -1,0 +1,11 @@
+{
+  "id": "pi-system",
+  "writable": [
+    "/srv/data/pi-system",
+    "/tmp"
+  ],
+  "read_only_rootfs": true,
+  "cap_drop": ["ALL"],
+  "no_new_privileges": true,
+  "pids_limit": 512
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "spec-plan",
+  "summary": "Encourages spec-before-code discipline: warns when large write/edit operations lack a corresponding plan or spec file in the project.",
+  "category": "planning",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": ["tool_call"],
+  "registers": { "tools": [], "commands": [] },
+  "profiles": ["balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_SPEC_PLAN_MIN_LINES", "PI_KIT_SPEC_PLAN_STRICT"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "stable"
+}

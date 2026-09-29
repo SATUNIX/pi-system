@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "goal-core",
+  "summary": "Explicit mission-goal management. Stores the active goal in .pi/GOAL.yaml and writes a contribution file for context-sieve to inject (survives compaction). /goal sets, shows, or clears the goal.",
+  "category": "planning",
+  "tier": "T3",
+  "layer": 4,
+  "entry": "index.ts",
+  "hooks": ["session_start"],
+  "registers": { "tools": [], "commands": ["/goal"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

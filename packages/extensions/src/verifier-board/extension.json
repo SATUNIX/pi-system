@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "verifier-board",
+  "summary": "Definition-of-done gate, not tied to a test runner. Checks, reviewers, and validators record verdicts (record_verdict); verdict_status shows verdicts plus goal, todo, task progress and the latest verification report. Stored in .pi/verdicts.json.",
+  "category": "execution",
+  "tier": "T2-T3",
+  "layer": 5,
+  "entry": "index.ts",
+  "hooks": [],
+  "registers": { "tools": ["record_verdict", "verdict_status"], "commands": ["/verdicts"] },
+  "profiles": ["long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path"],
+    "npm": [],
+    "piPeers": ["typebox"],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

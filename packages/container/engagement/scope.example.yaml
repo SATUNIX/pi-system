@@ -1,0 +1,31 @@
+schema_version: 1
+engagement_id: ENG-EXAMPLE-001
+name: Example Authorized Assessment
+
+allowed_assets:
+  web:
+    hosts:
+      - app.example.test
+      - api.example.test
+    url_prefixes:
+      - https://app.example.test/
+      - https://api.example.test/v1/
+    methods: [GET, POST, PUT, PATCH, DELETE]
+  network:
+    cidrs: []
+  cloud:
+    accounts: []
+  code:
+    repositories: []
+
+denied_assets:
+  url_prefixes:
+    - https://app.example.test/logout
+    - https://app.example.test/admin/destructive
+  hosts: []
+  cidrs: []
+
+scope_rules:
+  unknown_assets: deny
+  discovered_assets: candidate_only
+  mismatch_handling: narrowest_scope_wins

@@ -1,0 +1,49 @@
+apiVersion: lab.tcd/v1
+kind: AgentRole
+metadata:
+  name: reporter
+spec:
+  image: PENDING_SIGNED_DIGEST
+  entry: pi run --role reporter --workflow <workflow> --input /inputs/context.json --output /outputs/result.json
+  prompt: roles/reporter/SYSTEM.md
+  resultSchema: roles/reporter/result.schema.json
+  workTypes:
+  - audit
+  model:
+    litellmKey: openbao:agents/reporter/litellm
+    models:
+    - primary-reasoning
+    - local-fast
+    budget:
+      daily_usd: 1.00
+      per_run_tokens: 120000
+  kubernetes:
+    serviceAccount: agent-reporter
+    clusterRole: null
+    namespaces: []
+  openbao:
+    authRole: agent-reporter
+    tokenTTL: 15m
+    policy: agents/reporter/*
+  gitlab:
+    user: svc-agent-reporter
+    tokenPath: null
+  tools:
+  - labstat.read
+  - backup.status.read
+  - prom.query
+  - matrix.post
+  - ops.report.write
+  egress:
+  - litellm
+  - openbao
+  - prometheus
+  - matrix
+  escalation:
+    notifyOperatorOn:
+    - confidence<0.6
+    - budget_exceeded
+    - invalid_result
+  limits:
+    maxRuntime: 10m
+    maxConcurrent: 2

@@ -1,0 +1,24 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "_template",
+  "summary": "Copy-me starter extension. Rename the folder and update all fields.",
+  "category": "workflow",
+  "entry": "index.ts",
+  "hooks": ["tool_call"],
+  "registers": { "tools": [], "commands": [] },
+  "profiles": ["balanced"],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": [],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "experimental"
+}

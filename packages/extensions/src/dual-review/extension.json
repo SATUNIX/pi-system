@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "dual-review",
+  "summary": "Spawns a second pi reviewer agent on git diffs. /review or dual_review tool. Set DUAL_REVIEW_MODEL to route to a different model. Stub: uses primary model if unset.",
+  "category": "execution",
+  "tier": "T2-T4",
+  "layer": 5,
+  "entry": "index.ts",
+  "hooks": ["session_start", "input", "session_shutdown", "session_before_switch"],
+  "registers": { "tools": ["dual_review"], "commands": ["/review"] },
+  "profiles": ["self-improving"],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:child_process", "node:url"],
+    "npm": [],
+    "piPeers": ["typebox"],
+    "services": [],
+    "models": ["DUAL_REVIEW_MODEL"]
+  },
+  "pulls": [],
+  "env": ["DUAL_REVIEW_MODEL"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "experimental"
+}

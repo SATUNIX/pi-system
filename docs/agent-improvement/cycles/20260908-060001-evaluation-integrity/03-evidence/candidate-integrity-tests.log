@@ -1,0 +1,39 @@
+✔ empty cyber deliverable fails ("") (7.1514ms)
+✔ empty cyber deliverable fails (" \n\t") (7.6684ms)
+✔ complete matrix and nonempty prose passes behavior while full review stays pending (4.9015ms)
+✔ incomplete matrix fails and records the missing control (4.7546ms)
+✔ holdout: non-invoice paths and prior case requests cannot satisfy controls (4.0223ms)
+✔ missing target evidence gives structured error and preserves usage (3.9829ms)
+✔ malformed target evidence gives structured error and preserves usage (4.4146ms)
+✔ empty target evidence gives structured error and preserves usage (4.0871ms)
+✔ wrong_shape target evidence gives structured error and preserves usage (3.9684ms)
+✔ missing verdict board fails closed (4.068ms)
+✔ malformed verdict board fails closed (4.4973ms)
+✔ wrong_shape verdict board fails closed (4.5623ms)
+✔ valid failed verdict is a successful verify-failure control (7.1618ms)
+✔ malformed events.jsonl cannot silently pass (4.1355ms)
+✔ malformed lifecycle.jsonl cannot silently pass (4.054ms)
+✔ coding validation duration is separate from captured agent duration (3.4276ms)
+✔ coding validator execution failure preserves known token use (3.5311ms)
+✔ case exception and missing evidence persist, then later cases still run (8.599ms)
+✔ complete multi-message usage sums tokens, caches and cost once (0.196ms)
+✔ absent usage remains unknown, not zero (0.5044ms)
+✔ partial and invalid usage retain valid observed fields with explicit coverage (0.1139ms)
+✔ interrupted generation retains completed tokens as an incomplete observation (0.0759ms)
+✔ failed generation with zero-valued SDK usage is never complete consumption (0.0472ms)
+✔ absent optional cost stays unknown without invalidating complete token coverage (0.0623ms)
+✔ missing JSONL artifact returns a structured record without throwing (3.2874ms)
+✔ holdout: a truncated stream without agent_end cannot pass (3.7229ms)
+✔ holdout: an unfinished follow-up cannot borrow the first agent_end (3.7648ms)
+✔ holdout: structurally corrupt message cannot be silently ignored after valid evidence (3.5546ms)
+✔ pending report review cannot give CI a successful exit code (0.1633ms)
+✔ hung host process terminates even when container stop throws (122.6564ms)
+✔ completed host process clears timeout without stopping unrelated work (41.4796ms)
+ℹ tests 31
+ℹ suites 0
+ℹ pass 31
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 331.5095

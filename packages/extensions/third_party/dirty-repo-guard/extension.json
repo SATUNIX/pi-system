@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "dirty-repo-guard",
+  "summary": "Prompts (or blocks in non-interactive mode) when switching or forking sessions with uncommitted git changes.",
+  "category": "safety",
+  "tier": "T0",
+  "layer": 1,
+  "entry": "index.ts",
+  "hooks": ["session_before_switch", "session_before_fork"],
+  "registers": { "tools": [], "commands": [] },
+  "profiles": ["self-improving"],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": [],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "vendored" },
+  "homeRepo": null,
+  "status": "stable"
+}

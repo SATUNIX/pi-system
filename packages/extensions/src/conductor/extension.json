@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "conductor",
+  "summary": "Durable engagement lifecycle, independent validator dispatch, and verifier-board-gated phase transitions.",
+  "category": "planning",
+  "tier": "T3",
+  "layer": 4,
+  "entry": "index.ts",
+  "hooks": ["before_agent_start", "tool_call"],
+  "registers": { "tools": ["dispatch_validator", "dispatch_specialist"], "commands": ["/engagement"] },
+  "profiles": ["self-improving", "pentest"],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:child_process", "node:fs", "node:os", "node:path", "node:url"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

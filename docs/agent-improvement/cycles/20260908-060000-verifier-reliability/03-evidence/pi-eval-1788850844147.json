@@ -1,0 +1,122 @@
+{
+  "runId": "pi-eval-1788850844147",
+  "runtime": {
+    "kit": "C:\\Users\\Anthony Grace\\Cyber\\Development\\OffSec\\AI Area\\pi-kit-evaluation-baseline",
+    "variant": "focused",
+    "model": "qwen3.8-27b-uncensored",
+    "image": "fleet-capability-pi-agent:local",
+    "network": "pi-eval-1788850844147",
+    "internal": true,
+    "kitRevision": "4a7050ffb1912ed02631e7c2b43f98e4994a7165",
+    "security": [
+      "--user",
+      "10001:10001",
+      "--read-only",
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges:true",
+      "--pids-limit",
+      "128",
+      "--memory",
+      "768m",
+      "--cpus",
+      "1",
+      "--tmpfs",
+      "/tmp:rw,noexec,nosuid,size=128m",
+      "--no-healthcheck"
+    ],
+    "startedAt": "2026-09-08T07:00:45.743Z"
+  },
+  "results": [
+    {
+      "name": "hello",
+      "passed": false,
+      "timedOut": false,
+      "exitCode": 0,
+      "durationMs": 43417,
+      "toolCalls": 0,
+      "diagnostics": 0,
+      "queuedSteering": 1,
+      "pending": true,
+      "stopReason": "stop",
+      "completedMessageUsage": {
+        "input": 1543,
+        "output": 45,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1588
+      },
+      "usageCaveat": "Completed assistant messages only; interrupted requests may be absent. Zero cost is unpriced, not free.",
+      "artifacts": {
+        "host/events.jsonl": {
+          "sha256": "748ba05374706e39b51ec44602444c31a70f96fcac9ebeecd16c9ccf878ded06",
+          "bytes": 69822
+        },
+        "host/stderr.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        "logs/lifecycle.jsonl": {
+          "sha256": "4dbf989d56abf8afe404d953f131e2a2713686456579a5c395cf69a9e021024c",
+          "bytes": 64
+        },
+        "workspace/.pi/verdicts.json": {
+          "sha256": "1099f3193778ead11ea012b29fad26d8a42e806f72c1ac2e7af5379e0fa70a83",
+          "bytes": 205
+        }
+      }
+    },
+    {
+      "name": "clarification",
+      "passed": false,
+      "timedOut": true,
+      "exitCode": 143,
+      "durationMs": 120245,
+      "toolCalls": 3,
+      "diagnostics": 0,
+      "queuedSteering": 1,
+      "pending": true,
+      "stopReason": "toolUse",
+      "completedMessageUsage": {
+        "input": 318,
+        "output": 267,
+        "cacheRead": 4711,
+        "cacheWrite": 0,
+        "totalTokens": 5296
+      },
+      "usageCaveat": "Completed assistant messages only; interrupted requests may be absent. Zero cost is unpriced, not free.",
+      "artifacts": {
+        "host/events.jsonl": {
+          "sha256": "d1303de8c445dd1ff41a47c0a9e2029366b5a15b274fd89d5d4d64b7109028b8",
+          "bytes": 428131
+        },
+        "host/stderr.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        "logs/lifecycle.jsonl": {
+          "sha256": "4dbf989d56abf8afe404d953f131e2a2713686456579a5c395cf69a9e021024c",
+          "bytes": 64
+        },
+        "workspace/.pi/verdicts.json": {
+          "sha256": "cd77682d2a2e1f01c9060e4470caff65f86c239463f0f8626ef3826f8b8622b9",
+          "bytes": 205
+        },
+        "workspace/.pi/trace.jsonl": {
+          "sha256": "65893b43c4235429225d9abc047047db641b683f9add4d39a00862a369ecbbe1",
+          "bytes": 1046
+        }
+      }
+    }
+  ],
+  "isolation": {
+    "uid": 10001,
+    "capabilities": "none",
+    "noNewPrivileges": true,
+    "rootWriteBlocked": true,
+    "dockerSocket": false,
+    "arbitraryProxyPathBlocked": true,
+    "syntheticTargetReachable": true
+  }
+}

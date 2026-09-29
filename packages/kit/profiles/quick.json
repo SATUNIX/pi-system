@@ -1,0 +1,18 @@
+{
+  "name": "quick",
+  "description": "T0–T1 safe baseline: default-deny tool-firewall (+ destructive-command blocks), protected-paths, checkpoints, memory, todo. Minimal overhead.",
+  "firewall": { "mode": "manual", "policy": "coding" },
+  "skills": {
+    "excludeCategories": ["pentest", "mcp-governance", "evidence-reporting", "maintainer"],
+    "exclude": ["engagement-conductor", "dynamic-agent-synthesis"]
+  },
+  "prompts": {
+    "exclude": ["golden-path-pentest", "pentest-action-card", "pentest-compact", "pentest-plan", "pentest-report-finding", "pentest-triage-burp", "pentest-verify-evidence", "mcp-action-review", "report-export-review", "tool-policy-onboarding", "hypothesis-lifecycle"]
+  },
+  "include": [
+    "protected-paths", "tool-firewall", "human-console", "git-checkpoint", "auto-commit-on-exit",
+    "todo", "notify", "finish-reason-retry", "session-helpers", "kit-update", "compress", "save", "custom-footer", "trace-ledger", "tool-capture", "progress-guard", "memory-vault", "skill-router",
+    "caveman", "pi-lean-ctx",
+    "subagent", "orchestrator", "goal-core"
+  ]
+}

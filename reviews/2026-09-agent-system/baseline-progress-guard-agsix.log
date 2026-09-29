@@ -1,0 +1,5 @@
+  OK: repeated read-stalls eventually escalate (stable signature)
+  OK: a repeatedly-failing edit does not reset progress tracking
+  OK: a successful write still resets progress tracking
+
+[progress-guard-agsix-smoke] all 3 checks passed

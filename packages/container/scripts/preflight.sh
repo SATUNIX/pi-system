@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+set -eu
+
+DATA_ROOT="${PI_AGENT_DATA_ROOT:-${PENTEST_DATA_ROOT:-/srv/data/pi-system}}"
+
+sh scripts/check_template_contract.sh
+python3 scripts/validate-runtime-readiness.py
+python3 scripts/validate-scope-roe.py
+sh scripts/validate-pentest-env.sh
+sh scripts/validate-governance-mcp-server.sh
+python3 scripts/validate-engagement-overlays.py
+python3 scripts/validate-compose-parity.py
+python3 scripts/validate-ledgers.py --data-root "$DATA_ROOT"
+sh capability/tests/validate-compose.sh

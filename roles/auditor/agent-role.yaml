@@ -1,0 +1,59 @@
+apiVersion: lab.tcd/v1
+kind: AgentRole
+metadata:
+  name: auditor
+spec:
+  image: PENDING_SIGNED_DIGEST
+  entry: pi run --role auditor --workflow <workflow> --input /inputs/context.json --output /outputs/result.json
+  prompt: roles/auditor/SYSTEM.md
+  resultSchema: roles/auditor/result.schema.json
+  workTypes:
+  - audit
+  model:
+    litellmKey: openbao:agents/auditor/litellm
+    models:
+    - primary-reasoning
+    - local-fast
+    budget:
+      daily_usd: 5.00
+      per_run_tokens: 120000
+  kubernetes:
+    serviceAccount: agent-auditor
+    clusterRole: lab-agent-read
+    namespaces:
+    - '*'
+  openbao:
+    authRole: agent-auditor
+    tokenTTL: 15m
+    policy: agents/auditor/*
+  gitlab:
+    user: svc-agent-auditor
+    tokenPath: openbao:agents/auditor/gitlab
+  tools:
+  - prom.query
+  - loki.query
+  - k8s.read
+  - wazuh.alerts.read
+  - policyreport.read
+  - trivy.report.read
+  - backup.status.read
+  - tofu.plan.read
+  - ops.report.write
+  - ops.finding.write
+  - gitlab.issue.create
+  egress:
+  - litellm
+  - openbao
+  - kube-api
+  - prometheus
+  - loki
+  - wazuh-api
+  - gitlab
+  escalation:
+    notifyOperatorOn:
+    - confidence<0.6
+    - budget_exceeded
+    - invalid_result
+  limits:
+    maxRuntime: 45m
+    maxConcurrent: 2

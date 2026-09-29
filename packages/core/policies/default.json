@@ -1,0 +1,89 @@
+{
+  "version": 2,
+  "_comment": "Shipped firewall policy (v2). AUTHORITATIVE runtime copy: packages/core/policies/default.json is a byte-identical mirror (verify.mjs enforces it). Override with PI_KIT_FIREWALL_POLICY=/path/to/policy.json. Shell commands are analysed by tool-firewall's parser and classifier (tiers low/medium/high/critical), not by regexes; `tools` pins non-shell tools (allow = known, content still analysed; ask = always ask a human; deny = never). `defaults.unknown` applies to tools with no entry and no read-only name. `command_rules` are OPERATOR rules matched in every policy against the raw command and each parsed step (deny -> critical, ask -> high). `policies.pentest.command_rules` add the strict engagement rules (a superset of pentest-governance-domain's DESTRUCTIVE_COMMANDS, checked by verify.mjs) when firewall.json selects the pentest policy.",
+  "defaults": {
+    "unknown": "ask"
+  },
+  "tools": {
+    "read": { "decision": "allow", "risk_class": "read_only" },
+    "grep": { "decision": "allow", "risk_class": "read_only" },
+    "glob": { "decision": "allow", "risk_class": "read_only" },
+    "ls": { "decision": "allow", "risk_class": "read_only" },
+    "find": { "decision": "allow", "risk_class": "read_only" },
+    "ask_human": { "decision": "allow", "risk_class": "human_interaction" },
+    "todo": { "decision": "allow", "risk_class": "read_only" },
+    "write": { "decision": "allow", "risk_class": "file_write" },
+    "edit": { "decision": "allow", "risk_class": "file_write" },
+    "bash": { "decision": "allow", "risk_class": "shell" },
+    "subagent": { "decision": "allow", "risk_class": "delegation" },
+    "subagent_status": { "decision": "allow", "risk_class": "read_only" },
+    "subagent_stop": { "decision": "allow", "risk_class": "process_control" },
+    "dual_review": { "decision": "allow", "risk_class": "delegation" },
+    "task_create": { "decision": "allow", "risk_class": "task_state" },
+    "task_update": { "decision": "allow", "risk_class": "task_state" },
+    "task_complete": { "decision": "allow", "risk_class": "task_state" },
+    "task_list": { "decision": "allow", "risk_class": "read_only" },
+    "task_next": { "decision": "allow", "risk_class": "read_only" },
+    "record_verdict": { "decision": "allow", "risk_class": "verdict" },
+    "verdict_status": { "decision": "allow", "risk_class": "read_only" },
+    "memory_store": { "decision": "allow", "risk_class": "memory_write" },
+    "memory_delete": { "decision": "allow", "risk_class": "memory_write" },
+    "memory_search": { "decision": "allow", "risk_class": "read_only" },
+    "memory_stats": { "decision": "allow", "risk_class": "read_only" },
+    "mem0_add": { "decision": "allow", "risk_class": "memory_write" },
+    "mem0_search": { "decision": "allow", "risk_class": "read_only" },
+    "skill_synthesise": { "decision": "allow", "risk_class": "skill_write" },
+    "skill_archive": { "decision": "allow", "risk_class": "skill_write" },
+    "skill_score": { "decision": "allow", "risk_class": "read_only" },
+    "branch_create": { "decision": "allow", "risk_class": "branch_write" },
+    "branch_switch": { "decision": "allow", "risk_class": "branch_write" },
+    "branch_discard": { "decision": "allow", "risk_class": "branch_write" },
+    "branch_merge": { "decision": "allow", "risk_class": "branch_write" },
+    "branch_list": { "decision": "allow", "risk_class": "read_only" },
+    "memory_save": { "decision": "allow", "risk_class": "memory_write" },
+    "memory_forget": { "decision": "allow", "risk_class": "memory_write" },
+    "skill_search": { "decision": "allow", "risk_class": "read_only" },
+    "workflow_run": { "decision": "allow", "risk_class": "delegation" },
+    "workflow_status": { "decision": "allow", "risk_class": "read_only" },
+    "verify_completion": { "decision": "allow", "risk_class": "delegation" },
+    "lsp_diagnostics": { "decision": "allow", "risk_class": "read_only" },
+    "lens_diagnostics": { "decision": "allow", "risk_class": "read_only" },
+    "read_symbol": { "decision": "allow", "risk_class": "read_only" },
+    "goal_set": { "decision": "allow", "risk_class": "task_state" },
+    "goal_status": { "decision": "allow", "risk_class": "read_only" }
+  },
+  "command_rules": { "deny": [], "ask": [] },
+  "policies": {
+    "pentest": {
+      "command_rules": {
+        "deny": [
+          { "pattern": "\\brm\\s+(?:-\\S*\\s+)*-(?:[a-zA-Z]*[rR][a-zA-Z]*|-recursive)\\b", "flags": "i", "risk_class": "destructive", "reason": "recursive delete (rm -r)" },
+          { "pattern": "\\bshred\\b", "flags": "i", "risk_class": "destructive", "reason": "secure file wipe" },
+          { "pattern": "\\bdd\\s+if=", "flags": "i", "risk_class": "destructive", "reason": "raw disk/image write" },
+          { "pattern": "\\bmkfs\\b", "flags": "i", "risk_class": "destructive", "reason": "filesystem format" },
+          { "pattern": "\\bchmod\\s+777\\b", "flags": "i", "risk_class": "destructive", "reason": "world-writable permissions" },
+          { "pattern": "\\bchown\\b[^\\n]*\\s\\/(?:\\s|$)", "flags": "i", "risk_class": "destructive", "reason": "chown of filesystem root" },
+          { "pattern": "\\bfind\\b[^\\n]*\\s-delete\\b", "flags": "i", "risk_class": "destructive", "reason": "find -delete sweep" },
+          { "pattern": "\\bkubectl\\s+delete\\b", "flags": "i", "risk_class": "destructive", "reason": "kubernetes resource deletion" },
+          { "pattern": "\\bdocker\\s+(?:rm|rmi|system\\s+prune|volume\\s+rm)\\b", "flags": "i", "risk_class": "destructive", "reason": "docker resource removal" },
+          { "pattern": "\\btruncate\\s+-s\\s+0\\b", "flags": "i", "risk_class": "destructive", "reason": "truncate file to zero" },
+          { "pattern": ":\\(\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:", "flags": "", "risk_class": "destructive", "reason": "fork bomb" },
+          { "pattern": ">\\s*/dev/sd[a-z]", "flags": "i", "risk_class": "destructive", "reason": "write to raw block device" },
+          { "pattern": "\\bremove-item\\b[^\\n]*-recurse\\b", "flags": "i", "risk_class": "destructive", "reason": "PowerShell recursive delete (Remove-Item -Recurse)" },
+          { "pattern": "(?:require\\(['\"]fs['\"]\\)|\\bfs)(?:\\.promises)?\\.rm(?:Sync)?\\s*\\([^)]*recursive\\s*:\\s*true", "flags": "i", "risk_class": "destructive", "reason": "Node recursive delete (fs.rmSync/fs.rm with recursive:true)" },
+          { "pattern": "\\bgit\\s+clean\\b[^\\n]*-\\S*f", "flags": "i", "risk_class": "destructive", "reason": "git clean force-removes untracked files" }
+        ],
+        "ask": [
+          { "pattern": "\\bsudo\\b", "flags": "i", "risk_class": "privilege", "reason": "privilege escalation" },
+          { "pattern": "\\bchmod\\s+-R\\b", "flags": "i", "risk_class": "permissions", "reason": "recursive permission change" },
+          { "pattern": "(?:curl|wget)\\b[^\\n|]*\\|\\s*(?:sudo\\s+)?(?:ba)?sh\\b", "flags": "i", "risk_class": "remote_exec", "reason": "pipe remote script to shell" },
+          { "pattern": "\\bgit\\s+push\\b[^\\n]*--force", "flags": "i", "risk_class": "history_rewrite", "reason": "force push" },
+          { "pattern": "\\bgit\\s+reset\\s+--hard\\b", "flags": "i", "risk_class": "history_rewrite", "reason": "hard reset discards changes" },
+          { "pattern": "\\bnpm\\s+publish\\b", "flags": "i", "risk_class": "supply_chain", "reason": "package publish" },
+          { "pattern": "\\bssh\\b", "flags": "i", "risk_class": "remote_access", "reason": "SSH remote access (also covers commands run on a remote host over SSH)" },
+          { "pattern": "\\baws\\s", "flags": "i", "risk_class": "cloud_control", "reason": "AWS CLI cloud control-plane action" }
+        ]
+      }
+    }
+  }
+}

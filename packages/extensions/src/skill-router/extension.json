@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "skill-router",
+  "summary": "Progressive disclosure for skills: only core skills are listed in the system prompt; the rest (disable-model-invocation) are reachable through skill_search (BM25 over name/description/triggers) and deterministic trigger hints — one line per matching hidden skill, at most two per prompt, never repeated. /skills lists what is listed vs on-demand.",
+  "category": "workflow",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": ["session_start", "session_compact", "tool_call", "before_agent_start"],
+  "registers": { "tools": ["skill_search"], "commands": ["skills"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path"],
+    "npm": [],
+    "piPeers": ["typebox"],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

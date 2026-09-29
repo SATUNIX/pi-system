@@ -1,0 +1,5 @@
+{
+  "defaults": { "unknown": "allow" },
+  "tools": {},
+  "command_rules": { "deny": [], "ask": [] }
+}

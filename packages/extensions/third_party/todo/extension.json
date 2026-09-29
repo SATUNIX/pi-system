@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "todo",
+  "summary": "Registers a 'todo' tool for the LLM to manage a persistent TODO.md file (list, add, start, done, toggle, remove, clear) with an in-progress state; every action returns the whole list. Also registers /todos.",
+  "category": "workflow",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": [],
+  "registers": { "tools": ["todo"], "commands": ["/todos"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path"],
+    "npm": [],
+    "piPeers": ["typebox"],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_TODO_FILE"],
+  "provenance": { "origin": "vendored" },
+  "homeRepo": null,
+  "status": "stable"
+}

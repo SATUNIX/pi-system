@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "notify",
+  "summary": "Sends a native desktop notification when the pi agent finishes a turn and is waiting for input. Supports Windows Terminal, Kitty, and OSC 777 terminals.",
+  "category": "ui",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": ["agent_end"],
+  "registers": { "tools": [], "commands": [] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:child_process"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "vendored" },
+  "homeRepo": null,
+  "status": "stable"
+}

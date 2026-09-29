@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "handoff",
+  "summary": "Appends a timestamped handoff note to HANDOFF.md on session shutdown or via /handoff command. LM-powered summary is a future enhancement.",
+  "category": "workflow",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": ["session_shutdown"],
+  "registers": { "tools": [], "commands": ["/handoff"] },
+  "profiles": ["balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_HANDOFF_FILE", "PI_KIT_HANDOFF_AUTO"],
+  "provenance": { "origin": "vendored" },
+  "homeRepo": null,
+  "status": "stable"
+}

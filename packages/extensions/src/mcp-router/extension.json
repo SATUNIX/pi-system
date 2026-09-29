@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "mcp-router",
+  "summary": "Stub: does not route MCP tool calls or provide failover between MCP server instances yet; session_start only reports it loaded as a stub and tool_call is a no-op.",
+  "category": "execution",
+  "tier": "T3",
+  "layer": 2,
+  "entry": "index.ts",
+  "hooks": ["tool_call", "session_start"],
+  "registers": { "tools": [], "commands": [] },
+  "profiles": [],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": [],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "stub"
+}

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Launch pi with the agent profile. Attaches to the current terminal.
+# Usage: pi-agent [--kit <local-path>] [extra pi args]
+
+DATA_ROOT="${PI_AGENT_DATA_ROOT:-/srv/data/pi-system}"
+PI_KIT_PATH="${PI_KIT_PATH:-}"
+
+log() { echo "[pi-agent] $*" >&2; }
+
+# Prefer explicit PI_KIT_PATH; fall back to /opt/pi-system (dev mount point)
+if [ -z "$PI_KIT_PATH" ] && [ -d "/opt/pi-system" ]; then
+  PI_KIT_PATH="/opt/pi-system"
+fi
+
+# Install pi-kit if a local path is configured (dev mode)
+if [ -n "$PI_KIT_PATH" ] && [ -d "$PI_KIT_PATH" ]; then
+  log "Installing pi-kit from $PI_KIT_PATH..."
+  pi install "$PI_KIT_PATH" 2>/dev/null || log "WARN: pi install returned non-zero"
+  log "Applying ${PI_KIT_PROFILE:-balanced} profile..."
+  node "$PI_KIT_PATH/packages/core/install.mjs" --profile "${PI_KIT_PROFILE:-balanced}" --scope global 2>/dev/null || log "WARN: profile apply returned non-zero"
+fi
+
+log "Starting pi..."
+exec pi "$@"

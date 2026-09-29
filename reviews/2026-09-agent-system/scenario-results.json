@@ -1,0 +1,417 @@
+{
+  "baseline": "6460ef6392dc290038f5ad79835861f9e5e06134",
+  "seed": 646,
+  "runtime": "v24.14.0",
+  "fakeVerifyCalls": 2,
+  "forbiddenCalls": 0,
+  "cases": [
+    {
+      "id": "S00-pinned-runtime-dispatch-contract",
+      "status": "baseline-confirmed",
+      "observed": {
+        "actualRuntimeMethod": "Pi 0.76 ExtensionRunner.emit/emitToolCall",
+        "events": [
+          "first",
+          "error-observed",
+          "third"
+        ],
+        "toolShortCircuit": true
+      },
+      "events": []
+    },
+    {
+      "id": "S01-read-only-simple-completion",
+      "status": "baseline-confirmed",
+      "observed": {
+        "corrections": 0,
+        "result": "partial fix holds for simple read-only question"
+      },
+      "events": []
+    },
+    {
+      "id": "S02-complex-read-only-applicability",
+      "status": "baseline-confirmed",
+      "observed": {
+        "corrections": 1,
+        "writesRequiredByTask": false,
+        "bounded": true
+      },
+      "events": [
+        {
+          "event": "consume",
+          "kind": "custom",
+          "customType": "orchestrator-verification"
+        }
+      ]
+    },
+    {
+      "id": "S03-handler-order-orchestrator",
+      "status": "baseline-confirmed",
+      "observed": {
+        "order": [
+          "extensions/orchestrator/index.ts",
+          "extensions/verify-gate/index.ts"
+        ],
+        "corrections": 1,
+        "actualVerification": "scripted pass",
+        "result": "order-dependent stale diagnostic"
+      },
+      "events": [
+        {
+          "event": "consume",
+          "kind": "custom",
+          "customType": "orchestrator-verification"
+        }
+      ]
+    },
+    {
+      "id": "S03-handler-order-verify-gate",
+      "status": "baseline-confirmed",
+      "observed": {
+        "order": [
+          "extensions/verify-gate/index.ts",
+          "extensions/orchestrator/index.ts"
+        ],
+        "corrections": 0,
+        "actualVerification": "scripted pass",
+        "result": "order-dependent stale diagnostic"
+      },
+      "events": []
+    },
+    {
+      "id": "S04-board-provenance-and-freshness",
+      "status": "baseline-confirmed",
+      "observed": {
+        "missing": true,
+        "corrupt": true,
+        "empty": true,
+        "stale": true,
+        "unrelated": false
+      },
+      "events": []
+    },
+    {
+      "id": "S05-shell-write-not-dirty",
+      "status": "baseline-confirmed",
+      "observed": {
+        "verificationRuns": 0
+      },
+      "events": []
+    },
+    {
+      "id": "S06-shared-session-start-deletes-context",
+      "status": "baseline-confirmed",
+      "observed": {
+        "parentContributionSurvivesChildStart": false
+      },
+      "events": []
+    },
+    {
+      "id": "S07-compaction-discards-later-correction",
+      "status": "baseline-confirmed",
+      "observed": {
+        "correctionPreserved": false,
+        "charsBudget": 8000
+      },
+      "events": []
+    },
+    {
+      "id": "S08-task-dependency-bypass",
+      "status": "baseline-confirmed",
+      "observed": {
+        "taskComplete": "Cannot complete t2: unfinished dependencies (t1)",
+        "taskUpdate": "Updated t2: done"
+      },
+      "events": []
+    },
+    {
+      "id": "S09-suggest-mode-enters-recovery",
+      "status": "baseline-confirmed",
+      "observed": {
+        "mode": "suggest",
+        "uniqueProductiveReads": 10,
+        "recoveryContribution": true
+      },
+      "events": []
+    },
+    {
+      "id": "S10-invalid-loop-cap-and-terminal-followups",
+      "status": "baseline-confirmed",
+      "observed": {
+        "simulatedTurnsAtCutoff": 25,
+        "continuationStillQueued": true,
+        "turnsAfterStop": 1,
+        "claim": "bounded counterexample; not infinite real inference"
+      },
+      "events": [
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        }
+      ]
+    },
+    {
+      "id": "S11-security-composition-inert-inputs",
+      "status": "baseline-confirmed",
+      "observed": {
+        "blocked": {
+          "credential-read": false,
+          "audit-overwrite": false,
+          "policy-overwrite": false,
+          "headless-approval": true,
+          "known-destructive-denied": true
+        },
+        "effects": "handler decisions only; no command/read/write execution"
+      },
+      "events": []
+    },
+    {
+      "id": "S12-ledger-truncation-and-attribution",
+      "status": "baseline-confirmed",
+      "observed": {
+        "targetChars": 200,
+        "secretRedaction": false,
+        "truncationMarker": false,
+        "toolCallId": false,
+        "ecsVersion": false
+      },
+      "events": []
+    },
+    {
+      "id": "S13-installed-old-dod-approximation",
+      "status": "baseline-confirmed",
+      "observed": {
+        "simulatedTurnsAtCutoff": 25,
+        "repeatedDoD": true,
+        "queueStillNonempty": true,
+        "limitation": "actual installed hook with scripted scheduling; agent_end streaming race and live incident delivery NOT reproduced"
+      },
+      "events": [
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        }
+      ]
+    },
+    {
+      "id": "S14-five-extension-recovery-cap-does-not-stop-loop",
+      "status": "baseline-confirmed",
+      "observed": {
+        "recoveryCapped": true,
+        "modelTurnsAfterCap": 3,
+        "independentLoopEventuallyBounded": true,
+        "schedulerBlocked": false
+      },
+      "events": [
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        },
+        {
+          "event": "consume",
+          "kind": "user"
+        }
+      ]
+    }
+  ]
+}

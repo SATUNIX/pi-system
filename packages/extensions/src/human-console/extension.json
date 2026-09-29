@@ -1,0 +1,20 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "human-console",
+  "summary": "File-backed human approval and question broker for attended and headless sessions.",
+  "category": "ui",
+  "tier": "T1",
+  "layer": 2,
+  "entry": "index.ts",
+  "hooks": ["session_start", "session_shutdown"],
+  "registers": { "tools": ["ask_human"], "commands": [] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": { "nodeBuiltins": ["node:crypto", "node:fs", "node:path"], "npm": ["typebox"], "piPeers": [], "services": [], "models": [] },
+  "pulls": [],
+  "env": ["PI_KIT_HUMAN_CONSOLE_DIR"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

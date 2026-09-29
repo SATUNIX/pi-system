@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "save",
+  "summary": "/save writes a check-in snapshot of the session (pi's compaction summary) to disk or a vault project without compacting, and copies every compaction summary to the same log.",
+  "category": "memory",
+  "entry": "index.ts",
+  "hooks": ["session_compact"],
+  "registers": { "tools": [], "commands": ["save"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["fs", "path"],
+    "npm": [],
+    "piPeers": ["@earendil-works/pi-coding-agent"],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [
+    "PI_KIT_SAVE_VAULT",
+    "PI_KIT_SAVE_PROJECT",
+    "PI_KIT_SAVE_DIR",
+    "PI_KIT_SAVE_ON_COMPACT",
+    "PI_KIT_SAVE_TIMEOUT_MS",
+    "PI_KIT_SAVE_RESERVE_TOKENS"
+  ],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

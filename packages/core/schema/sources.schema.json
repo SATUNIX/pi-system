@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "sources.schema.json",
+  "title": "External sources registry",
+  "type": "object",
+  "required": ["external"],
+  "properties": {
+    "external": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "mode", "source", "provides", "profiles"],
+        "properties": {
+          "name": { "type": "string" },
+          "mode": { "type": "string", "enum": ["reference", "bundle"] },
+          "source": { "type": "string" },
+          "entry": {
+            "type": "string",
+            "description": "Entry path within the installed package (relative to its node_modules root) used when embedding the package into a generated surface."
+          },
+          "provides": { "type": "array", "items": { "type": "string" } },
+          "profiles": { "type": "array", "items": { "type": "string" } },
+          "review": { "type": "string" }
+        }
+      }
+    }
+  }
+}

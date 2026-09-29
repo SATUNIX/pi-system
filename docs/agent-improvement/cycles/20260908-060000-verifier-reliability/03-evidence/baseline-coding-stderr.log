@@ -1,0 +1,13 @@
+file:///usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/runner.js:297
+            throw new Error(this.staleMessage);
+                  ^
+
+Error: This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().
+    at ExtensionRunner.assertActive (file:///usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/runner.js:297:19)
+    at get ui (file:///usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/runner.js:382:24)
+    at ChildProcess.<anonymous> (/kit/extensions/verify-gate/index.ts:165:11)
+    at ChildProcess.emit (node:events:519:28)
+    at maybeClose (node:internal/child_process:1101:16)
+    at ChildProcess._handle.onexit (node:internal/child_process:304:5)
+
+Node.js v22.23.2

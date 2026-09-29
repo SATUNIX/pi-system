@@ -1,0 +1,1 @@
+Initial probe: validator timed out and was removed (inspect exit 1, no such object), but a case-sensitive /No such object/ assertion rejected Docker lowercase output. The assertion was corrected to /no such object/i before two repetitions. No product-code change resulted.

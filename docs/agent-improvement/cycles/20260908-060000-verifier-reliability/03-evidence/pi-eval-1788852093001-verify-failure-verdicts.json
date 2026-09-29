@@ -1,0 +1,10 @@
+{
+  "verdicts": {
+    "verify": {
+      "pass": false,
+      "summary": "fixture check failed",
+      "at": "2026-09-08T07:23:36.559Z"
+    }
+  },
+  "generation": 1
+}

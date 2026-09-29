@@ -1,0 +1,228 @@
+[
+  {
+    "name": "hello",
+    "passed": false,
+    "behavioralPassed": false,
+    "outcome": "failed",
+    "reportReview": null,
+    "timedOut": false,
+    "exitCode": 0,
+    "agentDurationMs": 66543,
+    "scoringDurationMs": 2,
+    "toolCalls": 0,
+    "diagnostics": 0,
+    "queuedSteering": 1,
+    "pending": true,
+    "stopReason": "stop",
+    "usage": [
+      {
+        "input": 1543,
+        "output": 54,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1597,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    ],
+    "usageSummary": {
+      "complete": true,
+      "reasons": [],
+      "startedAgentRuns": 1,
+      "completedAgentRuns": 1,
+      "startedMessages": 1,
+      "completedMessages": 1,
+      "messagesWithUsage": 1,
+      "observed": {
+        "input": 1543,
+        "output": 54,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1597
+      },
+      "totals": {
+        "input": 1543,
+        "output": 54,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 1597
+      },
+      "tokenCoverage": {
+        "input": {
+          "observed": 1543,
+          "messagesWithValue": 1
+        },
+        "output": {
+          "observed": 54,
+          "messagesWithValue": 1
+        },
+        "cacheRead": {
+          "observed": 0,
+          "messagesWithValue": 1
+        },
+        "cacheWrite": {
+          "observed": 0,
+          "messagesWithValue": 1
+        },
+        "totalTokens": {
+          "observed": 1597,
+          "messagesWithValue": 1
+        }
+      },
+      "observedValuesAreLowerBounds": false,
+      "cost": {
+        "observedTotal": 0,
+        "complete": true,
+        "total": 0
+      }
+    },
+    "response": "Hello! 👋 How can I help you today? I can read and edit files, run commands, and help with coding tasks in your workspace.",
+    "errors": [],
+    "durationMs": 66549
+  },
+  {
+    "name": "coding",
+    "passed": false,
+    "behavioralPassed": false,
+    "outcome": "error",
+    "reportReview": null,
+    "timedOut": true,
+    "exitCode": 137,
+    "agentDurationMs": 180300,
+    "scoringDurationMs": 377,
+    "toolCalls": 5,
+    "diagnostics": 0,
+    "queuedSteering": 2,
+    "pending": null,
+    "stopReason": "toolUse",
+    "usage": [
+      {
+        "input": 51,
+        "output": 66,
+        "cacheRead": 1532,
+        "cacheWrite": 0,
+        "totalTokens": 1649,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      {
+        "input": 92,
+        "output": 67,
+        "cacheRead": 1579,
+        "cacheWrite": 0,
+        "totalTokens": 1738,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      {
+        "input": 395,
+        "output": 339,
+        "cacheRead": 1667,
+        "cacheWrite": 0,
+        "totalTokens": 2401,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      {
+        "input": 372,
+        "output": 133,
+        "cacheRead": 2058,
+        "cacheWrite": 0,
+        "totalTokens": 2563,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    ],
+    "usageSummary": {
+      "complete": false,
+      "reasons": [
+        "timed_out",
+        "process_failed",
+        "missing_agent_end",
+        "unmatched_agent_runs"
+      ],
+      "startedAgentRuns": 1,
+      "completedAgentRuns": 0,
+      "startedMessages": 4,
+      "completedMessages": 4,
+      "messagesWithUsage": 4,
+      "observed": {
+        "input": 910,
+        "output": 605,
+        "cacheRead": 6836,
+        "cacheWrite": 0,
+        "totalTokens": 8351
+      },
+      "totals": null,
+      "tokenCoverage": {
+        "input": {
+          "observed": 910,
+          "messagesWithValue": 4
+        },
+        "output": {
+          "observed": 605,
+          "messagesWithValue": 4
+        },
+        "cacheRead": {
+          "observed": 6836,
+          "messagesWithValue": 4
+        },
+        "cacheWrite": {
+          "observed": 0,
+          "messagesWithValue": 4
+        },
+        "totalTokens": {
+          "observed": 8351,
+          "messagesWithValue": 4
+        }
+      },
+      "observedValuesAreLowerBounds": true,
+      "cost": {
+        "observedTotal": 0,
+        "complete": false,
+        "total": null
+      }
+    },
+    "response": "The failure shows the old implementation's output — let me verify the file actually updated:\n\n",
+    "errors": [
+      {
+        "artifact": "events.jsonl",
+        "code": "missing_agent_end"
+      },
+      {
+        "artifact": "events.jsonl",
+        "code": "unmatched_agent_runs"
+      },
+      {
+        "artifact": "lifecycle.jsonl",
+        "code": "missing"
+      }
+    ],
+    "durationMs": 180681
+  }
+]

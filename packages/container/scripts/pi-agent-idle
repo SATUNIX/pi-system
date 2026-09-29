@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+set -eu
+
+cat <<'EOF'
+pi-system is running.
+
+Start the governed Pi agent profile with:
+  pi-agent
+
+Attach with:
+  docker attach <container>
+
+Or use:
+  docker exec -it <container> pi-agent
+EOF
+
+exec /bin/bash -l

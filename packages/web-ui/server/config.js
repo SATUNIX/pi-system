@@ -1,0 +1,47 @@
+// config.js — central paths and server settings for pi-console.
+// All paths resolve from this module's own directory, never from process.cwd().
+import * as path from "node:path";
+import * as os from "node:os";
+import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const APP_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const HOME = os.homedir();
+
+const env = process.env; // node:os exposes homedir; process.env exposes getenv semantics
+export const PI_HOME =
+	env.PI_CODING_AGENT_DIR || path.join(HOME, ".pi", "agent");
+
+export const SESSIONS_DIR =
+	env.PI_CODING_AGENT_SESSION_DIR || path.join(PI_HOME, "sessions");
+
+// Default working directory for new sessions, and the candidate working directories.
+export const DEFAULT_CWD = env.PI_CONSOLE_DEFAULT_CWD || HOME;
+
+// User-level and project-level agent directories (YAML-frontmatter .md files).
+// Project agents ship with the kit package; override with PI_CONSOLE_PROJECT_AGENTS.
+export const PROJECT_AGENT_DIR =
+	env.PI_CONSOLE_PROJECT_AGENTS ||
+	path.join(APP_ROOT, "..", "kit", "agents");
+export const AGENT_DIRS = [path.join(HOME, ".pi", "agents"), PROJECT_AGENT_DIR];
+
+// Kit root (used for prompt templates and skills listings).
+export const KIT_ROOT = path.join(APP_ROOT, "..", "kit");
+export const PROMPTS_DIR = path.join(KIT_ROOT, "prompts");
+export const SKILLS_DIR = path.join(KIT_ROOT, "skills");
+
+export const SETTINGS_FILE = path.join(PI_HOME, "settings.json");
+export const MODELS_FILE = path.join(PI_HOME, "models.json");
+
+export const RUNTIME_DIR = path.join(APP_ROOT, ".runtime");
+export const PUBLIC_DIR = path.join(APP_ROOT, "public");
+
+// The pi entrypoint: resolved from PATH (works for nvm and system installs alike).
+export const PI_BIN = env.PI_BIN || "pi";
+
+export const HOST = env.PI_CONSOLE_HOST || "127.0.0.1";
+export const PORT = Number(env.PI_CONSOLE_PORT || "8123");
+
+export function ensureRuntimeDir() {
+	fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+}

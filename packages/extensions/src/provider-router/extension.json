@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "provider-router",
+  "summary": "Opt-in model router that switches between two operator-configured models (hot_path_model and strong_model) by task class from PI_KIT_ROUTING_POLICY; a no-op when the policy is unset, and it does not select providers by cost or availability or manage local model runtimes.",
+  "category": "execution",
+  "tier": "T3",
+  "layer": 4,
+  "entry": "index.ts",
+  "hooks": ["before_agent_start", "session_start"],
+  "registers": { "tools": [], "commands": [] },
+  "profiles": ["long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_ROUTING_POLICY"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

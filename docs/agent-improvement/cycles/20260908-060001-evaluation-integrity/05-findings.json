@@ -1,0 +1,70 @@
+{
+  "validated": [
+    {
+      "id": "EI-01",
+      "principles": [
+        "reliability",
+        "observability"
+      ],
+      "evidence": [
+        "03-evidence/baseline-probe.mjs",
+        "03-evidence/baseline-probe.log"
+      ],
+      "reproduction": "Two missing-target probes throw ENOENT; required lifecycle/board parsers share unguarded parse behavior.",
+      "rootCause": "kit/eval/live/run.mjs reads required artifacts and parses JSON inside an unguarded for loop.",
+      "falsifier": "Missing target evidence yields a structured failed case and later cases continue.",
+      "actualNullCheck": "Both probes threw before returning a result; no catch exists before the outer cleanup finally.",
+      "confidence": "high",
+      "impact": "An infrastructure/evidence error loses result coverage for this and all following cases.",
+      "cost": "medium",
+      "recommendation": "Case boundary plus strict evidence checks and persistent error records."
+    },
+    {
+      "id": "EI-02",
+      "principles": [
+        "task effectiveness",
+        "observability"
+      ],
+      "evidence": [
+        "03-evidence/baseline-probe.mjs",
+        "03-evidence/baseline-probe.log"
+      ],
+      "reproduction": "Two complete request matrices with existing empty reports passed.",
+      "rootCause": "kit/eval/live/run.mjs cyber block checks existsSync only and exposes a single passed boolean.",
+      "falsifier": "Empty report fails and report prose approval remains independent of behavioral checks.",
+      "actualNullCheck": "Two incomplete matrix controls failed, isolating the absent report-content/review gate.",
+      "confidence": "high",
+      "impact": "Cyber PASS can be mistaken for a useful verified security finding.",
+      "cost": "small",
+      "recommendation": "Nonempty deliverable check; explicit pending reportReview and behavioralPassed."
+    },
+    {
+      "id": "EI-03",
+      "principles": [
+        "efficiency",
+        "observability"
+      ],
+      "evidence": [
+        "03-evidence/baseline-probe.mjs",
+        "03-evidence/baseline-probe.log"
+      ],
+      "reproduction": "Source assertions locate duration after coding validation and usage as message_end-only raw array.",
+      "rootCause": "kit/eval/live/run.mjs starts timing before docker run and stops after evaluator checks; no usage coverage calculation.",
+      "falsifier": "Agent timing stops before scoring and incomplete usage is identifiable without consumer inference.",
+      "actualNullCheck": "Asserted both exact source patterns; no duration boundary or summed usage fields exist.",
+      "confidence": "high",
+      "impact": "Comparisons conflate scoring cost and omit unknown/partial token use.",
+      "cost": "medium",
+      "recommendation": "Separate timing boundaries; sum observed finite usage with explicit completeness and lower-bound semantics."
+    }
+  ],
+  "rejected": [],
+  "inconclusive": [
+    {
+      "id": "EI-04",
+      "claim": "Live agent competence or efficiency improvement",
+      "reason": "No live calls in this cycle yet; deterministic scoring corrections do not establish agent behavior gains."
+    }
+  ],
+  "validatedButDeferred": []
+}

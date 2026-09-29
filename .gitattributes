@@ -1,0 +1,29 @@
+# Normalize all text files to LF in the repo, checkout native.
+# Ends the "LF will be replaced by CRLF" churn that fired on every commit
+# (repo hygiene finding, improvement-roadmap §6 / plan Sprint 1.1).
+* text=auto eol=lf
+
+# Explicit text types (keep diffs clean cross-platform)
+*.ts     text eol=lf
+*.mjs    text eol=lf
+*.js     text eol=lf
+*.json   text eol=lf
+*.md     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.sh     text eol=lf
+
+# Native binaries and compiled/opaque assets — never touch line endings.
+# (readseek/ast-grep .node, lean-ctx .exe, WASM, images.)
+*.exe    binary
+*.dll    binary
+*.node   binary
+*.wasm   binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.pdf    binary
+*.gz     binary
+*.zip    binary

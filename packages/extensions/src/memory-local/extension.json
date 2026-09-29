@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "memory-local",
+  "summary": "Superseded by memory-vault (which imports its store once); kept for operators who load it explicitly. Persistent memory stored in ~/.pi/agent/memory-local with keyword fallback and optional LM Studio semantic embedding search. Automatically recalls relevant memories into a context-sieve contribution on non-trivial input, in addition to manual memory_search.",
+  "category": "memory",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": ["session_start", "input"],
+  "registers": { "tools": ["memory_store", "memory_search", "memory_delete", "memory_stats"], "commands": [] },
+  "profiles": [],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path", "node:os", "node:https", "node:http", "node:url"],
+    "npm": [],
+    "piPeers": ["typebox"],
+    "services": [],
+    "models": ["optional OpenAI-compatible embedding model"]
+  },
+  "pulls": [],
+  "env": ["PI_KIT_MEMORY_DIR", "PI_KIT_MEMORY_MAX_ENTRIES", "LMSTUDIO_BASE_URL", "PI_KIT_EMBED_MODEL"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "experimental"
+}

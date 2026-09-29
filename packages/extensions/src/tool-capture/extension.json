@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "tool-capture",
+  "summary": "Lossless tool I/O capture for audit and SIEM: every tool call's exact arguments and output (blocks and errors included) as rotating, gzip-compressed JSONL with content-addressed blobs for large values, joined to the firewall audit and trace-ledger by action hash. Self-manages its disk budget and never breaks the agent. /capture shows status.",
+  "category": "execution",
+  "tier": "T1-T4",
+  "layer": 6,
+  "entry": "index.ts",
+  "hooks": ["session_start", "tool_execution_start", "tool_execution_end", "session_shutdown"],
+  "registers": { "tools": [], "commands": ["capture"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path", "node:os", "node:crypto", "node:zlib", "node:stream/promises"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_CAPTURE", "PI_KIT_CAPTURE_DIR", "PI_KIT_CAPTURE_REDACT", "PI_KIT_CAPTURE_MAX_BYTES", "PI_KIT_CAPTURE_MIN_FREE_BYTES", "PI_KIT_CAPTURE_SEGMENT_BYTES", "PI_KIT_CAPTURE_INLINE_BYTES", "PI_KIT_CAPTURE_MAX_BLOB_BYTES"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

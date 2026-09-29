@@ -1,0 +1,30 @@
+# Keeps pinned action SHAs and the dev toolchain current. Updates are grouped so they
+# arrive as one reviewable PR per ecosystem per week, and every PR runs ci.yml and
+# security.yml (dependency review included) before it can merge.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Give new releases a week before proposing them: most malicious package versions are
+    # found and pulled within days.
+    cooldown:
+      default-days: 7
+    groups:
+      dev-toolchain:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps"

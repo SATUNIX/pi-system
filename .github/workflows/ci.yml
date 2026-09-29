@@ -1,0 +1,95 @@
+name: ci
+
+# The functional gate. Security scanning lives in security.yml; publishing in release.yml.
+# Actions are pinned to full commit SHAs (Dependabot keeps them current) and every job runs
+# with a read-only token.
+
+on:
+  push:
+    branches: [main, "experimental/**"]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      # Lifecycle scripts never run in CI: a compromised dependency cannot execute on install.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run -s security:lockfile
+      # One definition of done: check:all enumerates verify, eval, docs:check, every
+      # smoke:*/test:* script (including smoke:package, the published-tarball check) and
+      # profile:check per profile from package.json, so a new check is picked up without
+      # editing this workflow (matches .gitlab-ci.yml).
+      - run: npm run -s check:all
+
+  docs-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --user -r requirements-docs.txt
+      - run: python -m mkdocs build --strict
+
+  # Every profile loads on Linux and Windows.
+  profile-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        profile: [quick, balanced, long-horizon, autonomous, self-improving, pentest, lite]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run profile:check -- --profile ${{ matrix.profile }}
+
+  # Version pin discipline: verify at the supported floor AND the tested ceiling.
+  pi-compat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        pi: ["0.76.0", "0.79.6"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: >-
+          npm install --no-save --ignore-scripts
+          @earendil-works/pi-coding-agent@${{ matrix.pi }}
+      - run: npm run verify

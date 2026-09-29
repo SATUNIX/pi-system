@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <title>pi-console</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button
+        id="drawer-toggle"
+        class="icon-btn"
+        type="button"
+        aria-label="Toggle sessions"
+      >
+        ☰
+      </button>
+      <div class="brand">pi<span class="brand-sep">/</span>console</div>
+      <nav class="nav" aria-label="Primary">
+        <button class="nav-item is-active" type="button" data-view="sessions">
+          Sessions
+        </button>
+        <button class="nav-item" type="button" data-view="agents">
+          Agents
+        </button>
+        <button class="nav-item" type="button" data-view="config">
+          Config
+        </button>
+      </nav>
+      <div class="topbar-right">
+        <div class="panel-toggles" role="group" aria-label="Panel visibility">
+          <button
+            id="toggle-sidebar"
+            class="toggle-btn"
+            type="button"
+            title="Show/hide sessions"
+            aria-label="Show or hide the sessions panel"
+          >
+            <span class="tri tri-left"></span>
+          </button>
+          <button
+            id="toggle-inspector"
+            class="toggle-btn"
+            type="button"
+            title="Show/hide inspector"
+            aria-label="Show or hide the inspector panel"
+          >
+            <span class="tri tri-right"></span>
+          </button>
+          <button
+            id="toggle-composer"
+            class="toggle-btn"
+            type="button"
+            title="Show/hide input"
+            aria-label="Show or hide the input panel"
+          >
+            <span class="tri tri-down"></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside id="sidebar" class="sidebar" aria-label="Sessions">
+        <div class="sidebar-head">
+          <span class="label">Sessions</span>
+          <button id="new-session" class="btn btn-primary" type="button">
+            New
+          </button>
+        </div>
+        <input
+          id="session-filter"
+          class="input"
+          type="search"
+          placeholder="Filter sessions"
+          autocomplete="off"
+        />
+        <ul id="session-list" class="session-list" role="list"></ul>
+      </aside>
+
+      <section class="pane">
+        <!-- ---------------------------------------------------- sessions -->
+        <div id="sessions-view" class="view">
+          <div id="chat-view" class="view-inner">
+            <header class="chat-head">
+              <div class="chat-head-main">
+                <span id="chat-id" class="chat-id mono"
+                  >no session selected</span
+                >
+                <span id="chat-cwd" class="chat-cwd mono-sm"></span>
+              </div>
+              <div class="chat-head-actions">
+                <span id="wheel" class="wheel"><span class="wheel-dot"></span><span id="wheel-label">idle</span><span id="chat-elapsed" class="wheel-time"></span></span>
+                <label class="ctl">
+                  <span class="ctl-label">model</span>
+                  <select id="ctl-model" class="input input-sm"></select>
+                </label>
+                <label class="ctl">
+                  <span class="ctl-label">thinking</span>
+                  <select id="ctl-thinking" class="input input-sm">
+                    <option value="off">off</option>
+                    <option value="minimal">minimal</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="xhigh">xhigh</option>
+                  </select>
+                </label>
+                <button
+                  id="btn-fork"
+                  class="btn btn-ghost"
+                  type="button"
+                  title="Fork this session"
+                >
+                  Fork
+                </button>
+                <button
+                  id="btn-new"
+                  class="btn btn-ghost"
+                  type="button"
+                  title="Start a fresh session in place"
+                >
+                  Reset
+                </button>
+                <button
+                  id="abort-btn"
+                  class="btn btn-ghost"
+                  type="button"
+                  disabled
+                >
+                  Abort
+                </button>
+                <button
+                  id="stop-btn"
+                  class="btn btn-ghost"
+                  type="button"
+                  disabled
+                >
+                  Stop
+                </button>
+              </div>
+            </header>
+
+            <div class="chat-wrap">
+              <div id="chat-log" class="chat-log" aria-live="polite">
+                <div class="empty">
+                  <p class="empty-title">No session open</p>
+                  <p class="empty-sub">
+                    Pick a session on the left, or create a new one.
+                  </p>
+                </div>
+              </div>
+              <button
+                id="go-end"
+                class="go-end hidden"
+                type="button"
+                title="Scroll to the latest message"
+                aria-label="Scroll to the latest message"
+              >
+                <span class="tri tri-down"></span>
+                <span class="go-end-text">latest</span>
+              </button>
+            </div>
+
+            <form id="composer" class="composer">
+              <div class="composer-row">
+                <select
+                  id="template-select"
+                  class="input input-sm composer-template"
+                ></select>
+                <button
+                  id="template-insert"
+                  class="btn btn-ghost"
+                  type="button"
+                >
+                  Insert
+                </button>
+              </div>
+              <textarea
+                id="prompt-input"
+                class="composer-input"
+                rows="3"
+                placeholder="Send a prompt to this session…  (Ctrl/Cmd+Enter to send)"
+                disabled
+              ></textarea>
+              <div class="composer-actions">
+                <button
+                  id="send-btn"
+                  class="btn btn-primary"
+                  type="submit"
+                  disabled
+                >
+                  Send
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- ------------------------------------------------------ agents -->
+        <div id="agents-view" class="view hidden">
+          <div class="view-head">
+            <h1 class="view-title">Agents</h1>
+            <p class="view-sub">
+              Agent definitions from the user and project agent directories.
+              Create, edit, or remove them here.
+            </p>
+            <button id="new-agent" class="btn btn-primary" type="button">
+              New agent
+            </button>
+          </div>
+          <div id="agent-grid" class="agent-grid"></div>
+        </div>
+
+        <!-- ------------------------------------------------------ config -->
+        <div id="config-view" class="view hidden">
+          <div class="view-head">
+            <h1 class="view-title">Configuration</h1>
+            <p class="view-sub">
+              How this Pi installation and the console are configured.
+            </p>
+          </div>
+          <div id="config-grid" class="config-grid"></div>
+          <div class="split">
+            <section class="split-col">
+              <h2 class="section-title">
+                Prompt templates <span id="prompts-count" class="badge"></span>
+              </h2>
+              <ul id="prompts-list" class="resource-list"></ul>
+            </section>
+            <section class="split-col">
+              <h2 class="section-title">
+                Skills <span id="skills-count" class="badge"></span>
+              </h2>
+              <ul id="skills-list" class="resource-list"></ul>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------- inspector ---- -->
+      <aside id="inspector" class="inspector" aria-label="Session inspector">
+        <div class="inspector-tabs" role="tablist">
+          <button class="tab is-active" type="button" data-panel="stats">
+            Stats
+          </button>
+          <button class="tab" type="button" data-panel="todos">Todos</button>
+          <button class="tab" type="button" data-panel="lens">Lens</button>
+          <button
+            id="inspector-close"
+            class="tab tab-close"
+            type="button"
+            aria-label="Hide inspector"
+          >
+            ✕
+          </button>
+        </div>
+        <div id="panel-stats" class="panel">
+          <div id="stats-body" class="kv"></div>
+        </div>
+        <div id="panel-todos" class="panel hidden">
+          <ul id="todos-list" class="todo-list"></ul>
+        </div>
+        <div id="panel-lens" class="panel hidden">
+          <div id="lens-body" class="kv"></div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span id="footer-health" class="mono-sm">server: —</span>
+      <span id="footer-count" class="mono-sm">sessions: —</span>
+    </footer>
+
+    <!-- ------------------------------------------------------ dialogs --- -->
+    <dialog id="new-dialog" class="dialog">
+      <form id="new-form" method="dialog">
+        <header class="dialog-head">
+          <h2 class="dialog-title">New session</h2>
+          <button
+            class="btn btn-ghost dialog-x"
+            type="button"
+            data-close-dialog="new-dialog"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </header>
+        <div class="dialog-body">
+          <div class="field">
+            <label for="f-cwd">Working directory</label>
+            <select id="f-cwd" class="input"></select>
+          </div>
+          <div class="field">
+            <label for="f-agent">Agent</label>
+            <select id="f-agent" class="input"></select>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="f-provider">Provider</label>
+              <select id="f-provider" class="input"></select>
+            </div>
+            <div class="field">
+              <label for="f-model">Model</label>
+              <select id="f-model" class="input"></select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="f-thinking">Thinking level</label>
+            <select id="f-thinking" class="input">
+              <option value="off">off</option>
+              <option value="minimal">minimal</option>
+              <option value="low">low</option>
+              <option value="medium" selected>medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+            </select>
+          </div>
+          <p id="dialog-error" class="dialog-error" hidden></p>
+        </div>
+        <footer class="dialog-foot">
+          <button
+            class="btn btn-ghost"
+            type="button"
+            data-close-dialog="new-dialog"
+          >
+            Cancel
+          </button>
+          <button id="dialog-create" class="btn btn-primary" type="submit">
+            Create
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="agent-dialog" class="dialog dialog-wide">
+      <form id="agent-form" method="dialog">
+        <header class="dialog-head">
+          <h2 id="agent-dialog-title" class="dialog-title">New agent</h2>
+          <button
+            class="btn btn-ghost dialog-x"
+            type="button"
+            data-close-dialog="agent-dialog"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </header>
+        <div class="dialog-body">
+          <div class="field-row">
+            <div class="field">
+              <label for="a-name">Name</label>
+              <input
+                id="a-name"
+                class="input"
+                placeholder="reviewer"
+                autocomplete="off"
+              />
+            </div>
+            <div class="field">
+              <label for="a-source">Scope</label>
+              <select id="a-source" class="input">
+                <option value="user">user (~/.pi/agents)</option>
+                <option value="project">project (kit .pi/agents)</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="a-description">Description</label>
+            <input
+              id="a-description"
+              class="input"
+              placeholder="Validates a deliverable. Read-only."
+              autocomplete="off"
+            />
+          </div>
+          <div class="field">
+            <label for="a-model"
+              >Model override <span class="muted">(optional)</span></label
+            >
+            <input
+              id="a-model"
+              class="input"
+              placeholder="provider/model"
+              autocomplete="off"
+            />
+          </div>
+          <div class="field">
+            <label>Tools</label>
+            <div id="a-tools" class="tool-picker"></div>
+          </div>
+          <div class="field">
+            <label for="a-body">System prompt</label>
+            <textarea
+              id="a-body"
+              class="input input-body"
+              rows="10"
+              placeholder="You are a …"
+            ></textarea>
+          </div>
+          <p id="agent-error" class="dialog-error" hidden></p>
+        </div>
+        <footer class="dialog-foot">
+          <button id="agent-delete" class="btn btn-danger" type="button" hidden>
+            Delete
+          </button>
+          <span class="spacer"></span>
+          <button
+            class="btn btn-ghost"
+            type="button"
+            data-close-dialog="agent-dialog"
+          >
+            Cancel
+          </button>
+          <button id="agent-save" class="btn btn-primary" type="submit">
+            Save
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <div id="drawer-scrim" class="scrim hidden"></div>
+    <div id="toast" class="toast hidden" role="status"></div>
+
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>

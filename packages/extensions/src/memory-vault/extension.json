@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "memory-vault",
+  "summary": "Durable memory in an Obsidian-compatible vault (default ~/.pi/vault): memory_save/search/forget tools, /remember and /memory, automatic per-turn recaps by a configurable cheap model (Projects/<project>/Recaps), promotion of flagged decisions/preferences/gotchas to deduplicated notes, and relevance-gated recall injected as a hidden message (never the system prompt). Replaces memory-local and imports its store once.",
+  "category": "memory",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": ["session_start", "session_compact", "before_agent_start", "agent_end", "session_shutdown"],
+  "registers": { "tools": ["memory_save", "memory_search", "memory_forget"], "commands": ["remember", "memory"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path", "node:os"],
+    "npm": [],
+    "piPeers": ["typebox", "@earendil-works/pi-ai"],
+    "services": [],
+    "models": ["the session model, or PI_KIT_RECAP_MODEL (provider/id), for recaps"]
+  },
+  "pulls": [],
+  "env": ["PI_KIT_VAULT", "PI_KIT_RECAPS", "PI_KIT_RECAP_MODEL", "PI_KIT_MEMORY_AUTOPROMOTE", "PI_KIT_MEMORY_RECALL_LIMIT", "PI_KIT_MEMORY_MIN_SCORE", "PI_KIT_MEMORY_DIR"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

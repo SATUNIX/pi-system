@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "trigger-compact",
+  "summary": "Automatically triggers context compaction when token usage crosses a fixed threshold (default 100k, configurable), but only while pi auto-compaction (compaction.enabled in /settings) is on. Registers /trigger-compact for manual compaction and /compact-threshold [amount|off|on|reset|status].",
+  "category": "workflow",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": ["turn_end"],
+  "registers": { "tools": [], "commands": ["/trigger-compact", "/compact-threshold"] },
+  "profiles": ["long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["fs", "os", "path"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_COMPACT_THRESHOLD_TOKENS"],
+  "provenance": { "origin": "vendored" },
+  "homeRepo": null,
+  "status": "stable"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "autonomous",
+  "description": "T0–T3 set-and-walk-away: long-horizon + armed autonomous-loop. Default-deny tool-firewall; headless approvals fail closed.",
+  "firewall": { "mode": "auto", "policy": "coding" },
+  "skills": {
+    "excludeCategories": ["pentest", "mcp-governance", "evidence-reporting", "maintainer"],
+    "exclude": ["engagement-conductor", "dynamic-agent-synthesis"]
+  },
+  "prompts": {
+    "exclude": ["golden-path-pentest", "pentest-action-card", "pentest-compact", "pentest-plan", "pentest-report-finding", "pentest-triage-burp", "pentest-verify-evidence", "mcp-action-review", "report-export-review", "tool-policy-onboarding", "hypothesis-lifecycle"]
+  },
+  "include": [
+    "protected-paths", "tool-firewall", "human-console", "git-checkpoint", "auto-commit-on-exit",
+    "todo", "notify", "finish-reason-retry", "memory-vault", "skill-router",
+    "context-sieve", "guidelines", "spec-plan", "verify-gate",
+    "autonomous-loop", "trigger-compact", "session-helpers", "kit-update", "compress", "save", "custom-footer", "web-console", "handoff", "trace-ledger", "tool-capture", "progress-guard", "recovery-orchestrator",
+    "goal-core", "task-graph", "subagent", "branch-lab",
+    "verifier-board", "provider-router",
+    "caveman", "pi-lean-ctx", "pi-lens", "pi-impact-analyzer", "pi-readseek",
+    "orchestrator"
+  ]
+}

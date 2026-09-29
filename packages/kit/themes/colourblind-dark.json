@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "name": "colourblind-dark",
+  "vars": { "bg":"#101114", "panel":"#181a1f", "panelMuted":"#252932", "panelSuccess":"#15251f", "panelError":"#2a1b24", "panelCustom":"#1b2028", "text":"#f2f2f2", "muted":"#b0b6bd", "dim":"#7b838d", "border":"#444b55", "borderMuted":"#30353d", "blue":"#56b4e9", "cyan":"#00bfc4", "green":"#009e73", "yellow":"#f0e442", "orange":"#e69f00", "red":"#d55e00", "purple":"#cc79a7" },
+  "colors": {
+    "accent":"blue", "border":"border", "borderAccent":"cyan", "borderMuted":"borderMuted", "success":"green", "error":"red", "warning":"yellow", "muted":"muted", "dim":"dim", "text":"text", "thinkingText":"muted",
+    "selectedBg":"panelMuted", "userMessageBg":"panel", "userMessageText":"text", "customMessageBg":"panelCustom", "customMessageText":"text", "customMessageLabel":"purple", "toolPendingBg":"panelMuted", "toolSuccessBg":"panelSuccess", "toolErrorBg":"panelError", "toolTitle":"text", "toolOutput":"muted",
+    "mdHeading":"yellow", "mdLink":"blue", "mdLinkUrl":"dim", "mdCode":"cyan", "mdCodeBlock":"green", "mdCodeBlockBorder":"border", "mdQuote":"muted", "mdQuoteBorder":"border", "mdHr":"border", "mdListBullet":"orange",
+    "toolDiffAdded":"green", "toolDiffRemoved":"red", "toolDiffContext":"muted", "syntaxComment":"green", "syntaxKeyword":"blue", "syntaxFunction":"purple", "syntaxVariable":"orange", "syntaxString":"cyan", "syntaxNumber":"yellow", "syntaxType":"green", "syntaxOperator":"text", "syntaxPunctuation":"muted",
+    "thinkingOff":"borderMuted", "thinkingMinimal":"dim", "thinkingLow":"blue", "thinkingMedium":"cyan", "thinkingHigh":"purple", "thinkingXhigh":"red", "bashMode":"orange"
+  },
+  "export": { "pageBg":"bg", "cardBg":"panel", "infoBg":"panelMuted" }
+}

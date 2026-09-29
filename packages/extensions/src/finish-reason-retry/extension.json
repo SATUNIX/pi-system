@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "finish-reason-retry",
+  "summary": "Makes pi's built-in auto-retry recognize 'Provider finish_reason: error' (raw OpenAI-completions providers, e.g. OpenRouter, completing a response with an unrecognized/error finish_reason) as a transient error, so it gets the same backoff-retry-then-reset handling as a 500 or rate limit instead of surfacing as a hard failure that needs a manual 'continue'.",
+  "category": "safety",
+  "tier": "T0",
+  "layer": 1,
+  "entry": "index.ts",
+  "hooks": ["message_end"],
+  "registers": { "tools": [], "commands": [] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": [],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

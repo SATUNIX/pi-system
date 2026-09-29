@@ -1,0 +1,189 @@
+# GitLab CI for the pi-system monorepo.
+#
+# This GitLab project is the origin and the delivery channel: pi installs the kit straight from
+# it (git delivery, packages/core/distribution.json). `next` is every commit on main; a
+# release is a pushed vX.Y.Z tag, which this pipeline gates with the full check suite and the
+# security scans, then turns into a GitLab Release with notes from CHANGELOG.md. Nothing is
+# published to npm (that pipeline is .github/workflows/release.yml, paused). See
+# docs/releasing.md and docs/ci-security.md.
+#
+# Jobs are untagged so they run on any available shared runner. Add `tags:` to pin a specific
+# runner if this instance only offers tagged runners. The security jobs need a Docker
+# executor (they run pinned scanner images).
+
+stages:
+  - validate
+  - test
+  - security
+  - docs
+  - release
+
+# GitLab's own analyzers feed the project's Security dashboard / MR widget. SAST and secret
+# detection run on every tier; results are reports, not blockers. The blocking checks are the
+# explicit jobs below, identical to .github/workflows/security.yml.
+include:
+  # Lab-wide baseline (yaml-syntax, conventional-commit on MRs). The local gitleaks job below
+  # overrides the template's; the stage list above carries the template's `validate` stage.
+  - project: lab/ci-templates
+    ref: main
+    file: /base.yml
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+variables:
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  SAST_EXCLUDED_PATHS: "docs, reviews, tests, node_modules, .pi"
+  SECRET_DETECTION_HISTORIC_SCAN: "true"
+
+default:
+  image: node:22-bookworm
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+
+# The whole check suite. packages/core/check-all.mjs enumerates it from package.json - every
+# smoke:* and test:* script (smoke:package included: the published tarball packs, contains
+# exactly the allowlist, and every profile resolves from the unpacked copy), plus verify, eval,
+# docs:check and profile:check once per profile - so a newly added check is picked up here
+# without editing this file.
+checks:
+  stage: test
+  script:
+    - npm ci --ignore-scripts --no-audit --no-fund
+    - npm run -s check:all
+
+# WP-070: the `pi run` interface contract and the role-runner image hardening are
+# checked offline. Pushing, scanning and cosign-signing the image attach to the
+# shared images.yml pipeline once WP-081 is proven; `pi-agents` is still pending
+# in gitops/versions.lock.yaml, so no tag or digest is pinned here.
+role-runner-contract:
+  stage: test
+  script:
+    - node tests/role-runner-smoke.mjs
+    - test "$(grep -c '^USER 10001:10001$' packages/role-runner/Containerfile)" -ge 1
+    - grep -q 'AS check' packages/role-runner/Containerfile
+    - grep -q 'AS runtime' packages/role-runner/Containerfile
+    - '! grep -Eiq "ARG (API_KEY|TOKEN|SECRET)|ENV (API_KEY|TOKEN|SECRET)" packages/role-runner/Containerfile'
+
+# CTL-034 static subset (08 §3). The shared lab-contract schema check runs in the
+# lab/tools pipeline; this job enforces the agent-specific rules and the §8.7
+# entry point.
+role-contracts:
+  stage: test
+  image: python:3.13.7-alpine3.22
+  cache: []
+  script:
+    - python3 -m pip install --no-cache-dir PyYAML==6.0.3
+    - python3 roles/validate.py
+
+# Secret scanning over the full history with the repository's .gitleaks.toml (default rules
+# plus a line-level allowlist for synthetic fixtures). Blocking.
+gitleaks:
+  stage: security
+  image:
+    name: ghcr.io/gitleaks/gitleaks:v8.30.1
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "0"
+  dependencies: []   # scan the repository, not other jobs' reports (see semgrep)
+  script:
+    - gitleaks git --redact --verbose --exit-code 1 .
+  cache: []
+
+# SAST with the same rulesets as GitHub; fails on ERROR-severity findings. Scope: .semgrepignore.
+semgrep:
+  stage: security
+  image: semgrep/semgrep:1.178.0
+  variables:
+    # The image sets SEMGREP_IN_DOCKER, which makes semgrep scan /src (a `docker run -v` mount)
+    # and exit 2 when it is empty. GitLab checks the repository out here instead.
+    SEMGREP_SRC_DIRECTORY: "$CI_PROJECT_DIR"
+  # Scan the repository only. By default a job downloads the artifacts of every earlier stage,
+  # and the GitLab analyzers' reports (gl-secret-detection-report.json, ...) quote the fake
+  # credentials they found in test fixtures, which the p/secrets rules then block on.
+  dependencies: []
+  script:
+    - >-
+      semgrep scan --metrics=off --severity ERROR --error
+      --config p/javascript --config p/typescript --config p/nodejs
+      --config p/secrets --config p/owasp-top-ten
+  cache: []
+
+# Supply chain: lockfile integrity (registry-only sources, sha512 hashes, reviewed install
+# scripts), registry signatures + provenance attestations, and known vulnerabilities.
+dependencies:
+  stage: security
+  script:
+    - npm ci --ignore-scripts --no-audit --no-fund
+    - npm run -s security:lockfile
+    - npm audit signatures
+    - npm audit --audit-level=high
+
+# The one gate that needs Python/mkdocs instead of Node. It is strict: a link to a path
+# outside docs_dir aborts the build, so repository-relative references stay as code spans
+# rather than markdown links.
+docs:
+  stage: docs
+  image: python:3.12-slim
+  cache: []
+  script:
+    - pip install --no-cache-dir -r requirements-docs.txt
+    - python -m mkdocs build --strict
+
+# --- release: a pushed vX.Y.Z tag -------------------------------------------------------------
+# Runs only for version tags, after every check and scan above passed for the tagged commit.
+# pi users on the `latest` channel see the new tag with /update (git ls-remote), so the tag is
+# the release; the GitLab Release adds the notes and makes it visible in the project.
+
+# Jobs that call back to this GitLab server from inside their container (git fetch, the
+# Releases API) must trust its certificate authority. The runner trusts it for the checkout,
+# but the job image does not. GitLab exposes the runner's CA file as CI_SERVER_TLS_CA_FILE
+# when the runner has `tls-ca-file` set (or a CA in its certs directory); failing that, add a
+# File-type CI/CD variable GITLAB_CA_FILE holding the CA. With a public CA, neither is needed.
+.gitlab-ca:
+  before_script:
+    - export GITLAB_CA="${CI_SERVER_TLS_CA_FILE:-${GITLAB_CA_FILE:-}}"
+    - if [ -n "$GITLAB_CA" ]; then git config --global "http.${CI_SERVER_URL}.sslCAInfo" "$GITLAB_CA"; export NODE_EXTRA_CA_CERTS="$GITLAB_CA"; fi
+
+# The release job's path on every other pipeline, without writing anything: the CA, the fetch
+# of the default branch, the notes for the current version, and read access to the Releases
+# API. A tag then only adds the write, so a release does not fail on its first attempt.
+release-preflight:
+  stage: release
+  extends: .gitlab-ca
+  # Branch pipelines only (not tags, not merge-request pipelines): a catch-all rule would also
+  # start a merge-request pipeline holding just this job, which the MR would show as its status.
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+  dependencies: []
+  cache: []
+  script:
+    - git fetch --no-tags origin "$CI_DEFAULT_BRANCH"
+    - node packages/core/release-notes.mjs "$(node -p 'require("./package.json").version')" --out release-notes.md
+    - node packages/core/gitlab-release.mjs --check
+
+gitlab-release:
+  stage: release
+  extends: .gitlab-ca
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/'
+  needs: [checks, gitleaks, semgrep, dependencies, docs]
+  variables:
+    GIT_DEPTH: "0"
+  cache: []
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    # The tag must match package.json and point at a commit on the default branch.
+    - test "$(node -p 'require("./package.json").version')" = "$VERSION" || { echo "tag $CI_COMMIT_TAG does not match package.json version"; exit 1; }
+    - git fetch --no-tags origin "$CI_DEFAULT_BRANCH"
+    - git merge-base --is-ancestor "$CI_COMMIT_SHA" FETCH_HEAD || { echo "$CI_COMMIT_TAG is not on $CI_DEFAULT_BRANCH"; exit 1; }
+    - node packages/core/release-notes.mjs "$VERSION" --out release-notes.md
+    - cat release-notes.md
+    # Creates the release, or updates it when the job is re-run (packages/core/gitlab-release.mjs).
+    - node packages/core/gitlab-release.mjs "$CI_COMMIT_TAG" --name "pi-system $CI_COMMIT_TAG" --notes release-notes.md
+  artifacts:
+    paths: [release-notes.md]
+    expire_in: 1 week

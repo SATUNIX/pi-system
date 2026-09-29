@@ -1,0 +1,24 @@
+# Dev override: mounts a local pi-kit clone so edits are picked up without rebuilding.
+# Usage:
+#   docker compose -f capability/compose/compose.yaml \
+#                  -f capability/compose/compose.dev.yaml \
+#                  --env-file capability/env/defaults.env \
+#                  up -d --build
+#
+# Set PI_KIT_PATH to the absolute path of your pi-system clone.
+# Example: PI_KIT_PATH=/home/user/dev/pi-system docker compose ... up -d
+
+name: pi-system
+
+services:
+  pi-agent:
+    build:
+      args:
+        BUILD_MODE: dev
+    environment:
+      PI_KIT_PATH: ${PI_KIT_PATH:-}
+    volumes:
+      - type: bind
+        source: ${PI_KIT_PATH:?PI_KIT_PATH must be set for dev mode}
+        target: /opt/pi-system
+        read_only: true

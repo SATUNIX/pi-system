@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "skill-forge",
+  "summary": "Deterministically mines trace-ledger sessions to synthesise a candidate SKILL.md into .pi/skill-proposals/ (never a live model, never auto-installed), scores the kit against the eval harness for a real regression baseline, and archives superseded skills. Powers the self-improvement loop.",
+  "category": "execution",
+  "tier": "T4",
+  "layer": 6,
+  "entry": "index.ts",
+  "hooks": [],
+  "registers": { "tools": ["skill_synthesise", "skill_score", "skill_archive"], "commands": [] },
+  "profiles": ["self-improving"],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path", "node:child_process"],
+    "npm": [],
+    "piPeers": ["typebox"],
+    "services": [],
+    "models": []
+  },
+  "pulls": ["trace-ledger"],
+  "env": [],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

@@ -1,0 +1,36 @@
+{
+  "name": "@satunix/pi-core",
+  "version": "0.2.1-beta.0",
+  "private": true,
+  "description": "pi-system runtime, installer, verification gate, registry, schemas, and policies.",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "**/*.mjs",
+    "lib/**",
+    "schema/**",
+    "policies/**",
+    "helpers/**",
+    "sources.json",
+    ".env.example",
+    "!eval/**"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "pi-system-install": "./install.mjs",
+    "pi-system-verify": "./verify.mjs"
+  },
+  "dependencies": {
+    "ajv": "^8.12.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.76.0",
+    "typebox": "*"
+  }
+}

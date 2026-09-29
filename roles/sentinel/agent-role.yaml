@@ -1,0 +1,61 @@
+apiVersion: lab.tcd/v1
+kind: AgentRole
+metadata:
+  name: sentinel
+spec:
+  image: PENDING_SIGNED_DIGEST
+  entry: pi run --role sentinel --workflow <workflow> --input /inputs/context.json --output /outputs/result.json
+  prompt: roles/sentinel/SYSTEM.md
+  resultSchema: roles/sentinel/result.schema.json
+  workTypes:
+  - triage
+  model:
+    litellmKey: openbao:agents/sentinel/litellm
+    models:
+    - primary-reasoning
+    - local-fast
+    budget:
+      daily_usd: 3.00
+      per_run_tokens: 400000
+  kubernetes:
+    serviceAccount: agent-sentinel
+    clusterRole: lab-agent-read
+    namespaces:
+    - '*'
+  openbao:
+    authRole: agent-sentinel
+    tokenTTL: 15m
+    policy: agents/sentinel/*
+  gitlab:
+    user: svc-agent-sentinel
+    tokenPath: openbao:agents/sentinel/gitlab
+  tools:
+  - prom.query
+  - loki.query
+  - k8s.read
+  - wazuh.alerts.read
+  - argocd.app.read
+  - gitlab.issue.create
+  - gitlab.mr.create
+  - matrix.post
+  - safe_action.request
+  egress:
+  - litellm
+  - openbao
+  - kube-api
+  - prometheus
+  - loki
+  - wazuh-api
+  - argocd
+  - gitlab
+  - matrix
+  escalation:
+    notifyOperatorOn:
+    - severity=critical
+    - confidence<0.6
+    - safe_action_denied
+    - budget_exceeded
+    - invalid_result
+  limits:
+    maxRuntime: 20m
+    maxConcurrent: 2

@@ -1,0 +1,12 @@
+node_modules/
+.env
+*.local
+dist/
+site/
+*.js.map
+docs/registry.json
+.claude/
+.pi/
+.review-npm-cache/*
+__pycache__/
+*.pyc

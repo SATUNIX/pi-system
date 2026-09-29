@@ -1,0 +1,24 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "session-helpers",
+  "summary": "Manual session-control helpers: /clear guidance, a /kit cheatsheet, in-place /profile switching (keeps overrides, reloads without restart; applies the default profile to a bare npm install), /compaction status and toggles, and a lean-ctx binary preflight.",
+  "category": "ui",
+  "entry": "index.ts",
+  "hooks": ["session_start"],
+  "registers": { "tools": [], "commands": ["clear", "kit", "helpers", "profile", "compaction"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["fs", "os", "path", "url"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_ROOT", "PI_KIT_AUTO_PROFILE"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

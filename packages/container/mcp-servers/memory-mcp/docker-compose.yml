@@ -1,0 +1,15 @@
+name: pi-kit-memory-mcp
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.6
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - type: volume
+        source: qdrant-data
+        target: /qdrant/storage
+    restart: unless-stopped
+
+volumes:
+  qdrant-data:

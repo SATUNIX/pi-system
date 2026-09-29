@@ -1,0 +1,4 @@
+  OK: recovery report is grounded in real trace-ledger data
+  OK: recovery report degrades gracefully with no trace data
+
+[recovery-grounding-smoke] all 2 checks passed

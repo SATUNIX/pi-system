@@ -1,0 +1,45 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "custom-footer",
+  "summary": "GitOps status bar: configurable default, light, and heavy footers; an ASCII-safe footer for ISO/ANSI/TTY themes; live activity, tips, and a todo checklist. Configure with /footer config.",
+  "category": "ui",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": [
+    "session_start",
+    "agent_start",
+    "message_update",
+    "message_end",
+    "tool_execution_start",
+    "tool_execution_end",
+    "turn_end",
+    "agent_end",
+    "model_select",
+    "thinking_level_select"
+  ],
+  "registers": { "tools": [], "commands": ["/footer", "/tips"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["child_process", "fs", "os", "path"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [
+    "PI_KIT_COST_INPUT_PER_MTOK",
+    "PI_KIT_COST_OUTPUT_PER_MTOK",
+    "PI_KIT_COST_CACHE_READ_PER_MTOK",
+    "PI_KIT_COST_CACHE_WRITE_PER_MTOK",
+    "PI_KIT_TIPS",
+    "PI_KIT_TODO_WIDGET",
+    "PI_KIT_TODO_FILE"
+  ],
+  "provenance": { "origin": "vendored" },
+  "homeRepo": null,
+  "status": "stable"
+}

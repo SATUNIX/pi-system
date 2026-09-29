@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "packages/extensions/src/**/*.ts",
+    "packages/extensions/third_party/**/*.ts"
+  ],
+  "exclude": [
+    "packages/extensions/src/_template",
+    "node_modules"
+  ]
+}

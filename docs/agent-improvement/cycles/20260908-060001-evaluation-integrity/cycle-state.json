@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 2,
+  "cycleId": "20260908-060001-evaluation-integrity",
+  "focus": "Fail-closed evaluation evidence and honest efficiency measurements",
+  "integrationBranch": "improvement/pi-autonomous",
+  "integrationBaseCommit": "858ecc0a1dd085efd61c4372aac75769a5c9738c",
+  "cycleBranch": "improvement/pi/20260908-060001-evaluation-integrity",
+  "baselineRef": "origin/main",
+  "harnessCommit": "858ecc0a1dd085efd61c4372aac75769a5c9738c",
+  "dependencies": [],
+  "outcome": "successful",
+  "reviewStatus": "awaiting_human_review",
+  "pullRequest": {
+    "number": 1,
+    "url": "http://10.0.2.73:3080/coding-agent-a01/misc-agents-pi-kit/pulls/1",
+    "repository": "coding-agent-a01/misc-agents-pi-kit",
+    "base": "improvement/pi-autonomous",
+    "head": "improvement/pi/20260908-060001-evaluation-integrity"
+  },
+  "currentPhase": 6,
+  "phaseStatus": "complete",
+  "phases": {
+    "1": {
+      "name": "baseline",
+      "status": "complete",
+      "startedAt": "2026-09-08T07:00:58.188Z",
+      "completedAt": "2026-09-08T07:00:58.188Z",
+      "commit": "35e4750"
+    },
+    "2": {
+      "name": "evaluate",
+      "status": "complete",
+      "completedAt": "2026-09-08T07:14:56.497278+00:00",
+      "note": "Deterministic baseline probes complete; live smoke pending serialized capacity."
+    },
+    "3": {
+      "name": "report-triage",
+      "status": "complete",
+      "completedAt": "2026-09-08T07:14:56.497278+00:00",
+      "commit": "8fe936b"
+    },
+    "4": {
+      "name": "plan",
+      "status": "complete",
+      "completedAt": "2026-09-08T07:15:17.502006+00:00",
+      "commit": "fb0c342"
+    },
+    "5": {
+      "name": "implement",
+      "status": "complete",
+      "completedAt": "2026-09-08T07:20:44.150725+00:00",
+      "commit": "bfa2c96"
+    },
+    "6": {
+      "name": "verify-review",
+      "status": "complete",
+      "completedAt": "2026-09-08T07:32:38.078015+00:00",
+      "reviewNote": "Coordinator independently reviewed code and reran 31 tests; actual cycle PR #1 submitted and awaiting human review."
+    }
+  },
+  "repos": {
+    "misc-agents-pi-kit": {
+      "path": "C:\\Users\\Anthony Grace\\Cyber\\Development\\OffSec\\AI Area\\pi-cycle-evaluation",
+      "baselineCommit": "4a7050ffb1912ed02631e7c2b43f98e4994a7165",
+      "latestCommit": "5094ee8",
+      "branch": "improvement/pi/20260908-060001-evaluation-integrity"
+    }
+  },
+  "sandbox": {
+    "engine": "isolated-docker",
+    "model": {
+      "provider": "pentest",
+      "id": "qwen3.8-27b-uncensored",
+      "api": "openai-responses",
+      "contextLength": null
+    },
+    "imageId": "sha256:f7e2db957dbcee1dd8668625def48e1721c87dff984fa942a0edc629e0a95294",
+    "resourcesCleaned": true
+  },
+  "selectedTests": [
+    "baseline-scorer-probe",
+    "live-evaluation-integrity-smoke"
+  ],
+  "requiredArtifacts": {
+    "1": [
+      "01-baseline.md",
+      "02-evaluation-definition.md"
+    ],
+    "2": [
+      "03-evidence/"
+    ],
+    "3": [
+      "04-evaluation-report.md",
+      "05-findings.json"
+    ],
+    "4": [
+      "06-improvement-plan.md"
+    ],
+    "5": [
+      "07-implementation-record.md"
+    ],
+    "6": [
+      "08-validation-report.md",
+      "09-final-summary.md"
+    ]
+  },
+  "validatedFindingIds": [
+    "EI-01",
+    "EI-02",
+    "EI-03"
+  ],
+  "rejectedFindingIds": [],
+  "approvedImprovementIds": [
+    "I-EI-01",
+    "I-EI-02",
+    "I-EI-03"
+  ],
+  "modifiedFiles": [
+    "kit/eval/live/run.mjs",
+    "kit/eval/live/scoring.mjs",
+    "kit/eval/live/README.md",
+    "tests/live-evaluation-integrity.test.mjs",
+    "kit/eval/live/process.mjs"
+  ],
+  "testCommands": [
+    "npm run verify",
+    "npm run test:security",
+    "npm run eval",
+    "node --test tests/live-evaluation-integrity.test.mjs",
+    "node kit/eval/live/run.mjs --provider pentest --cases hello,coding --timeout 180",
+    "node docs/agent-improvement/cycles/20260908-060001-evaluation-integrity/03-evidence/validator-timeout-probe.mjs"
+  ],
+  "validationStatus": "passed",
+  "blockers": [],
+  "nextPhase": null,
+  "createdAt": "2026-09-08T07:00:58.188Z",
+  "updatedAt": "2026-09-08T07:48:56.424268+00:00",
+  "testResults": {
+    "baseline-scorer-probe": "passed (reproduced defects and null controls)",
+    "live-evaluation-integrity-smoke": "completed: hello failed queued-message control; coding timeout error with correct artifact; both durable and cleanup verified",
+    "candidate-integrity-tests": "31/31 passed",
+    "verify": "passed",
+    "test:security": "2/2 passed",
+    "eval": "13/13 passed",
+    "real-event-schema": "2 reused source streams compatible",
+    "validator-timeout-cleanup": "2/2 passed after correcting test-only case-sensitive Docker text assertion",
+    "coding-artifact-recheck": "7/7 passed"
+  },
+  "implementationCommits": [
+    "c01a015",
+    "58e2963",
+    "470bf3f",
+    "fb78d73",
+    "5094ee8"
+  ],
+  "evaluationOutcome": "failed",
+  "implementationStatus": "complete",
+  "latestUpstreamCommit": "329c344996056a2664b4e63ebc72ea24fef12858",
+  "upstreamAdvanceNote": "Human merged PR6 during the cycle; pinned baseline preserved. Coordinator assesses latest main separately.",
+  "liveCandidateCommit": "fb78d730d427b09be876069d22fdd30f659963be",
+  "finalCodeCommit": "5094ee8",
+  "liveRuns": [
+    "pi-eval-1788852302507"
+  ]
+}

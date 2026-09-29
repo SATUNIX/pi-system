@@ -1,0 +1,39 @@
+{"type": "agent_start"}
+{"type": "message_start", "message": {"role": "user"}}
+{"type": "message_end", "message": {"role": "user"}}
+{"type": "message_start", "message": {"role": "assistant", "stopReason": "stop", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}
+{"type": "message_end", "message": {"role": "assistant", "stopReason": "toolUse", "usage": {"input": 51, "output": 66, "cacheRead": 1532, "cacheWrite": 0, "totalTokens": 1649, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}
+{"type": "tool_execution_start", "toolName": "bash", "toolCallId": "call_5vtzFH9gZ52EOLI8HKSheeDI73L7qv8r|fc_5vtzFH9gZ52EOLI8HKSheeDI73L7qv8r"}
+{"type": "tool_execution_end", "toolName": "bash", "toolCallId": "call_5vtzFH9gZ52EOLI8HKSheeDI73L7qv8r|fc_5vtzFH9gZ52EOLI8HKSheeDI73L7qv8r", "isError": false}
+{"type": "message_start", "message": {"role": "toolResult"}}
+{"type": "message_end", "message": {"role": "toolResult"}}
+{"type": "queue_update", "steeringCount": 1, "followUpCount": 0}
+{"type": "message_start", "message": {"role": "assistant", "stopReason": "stop", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}
+{"type": "message_end", "message": {"role": "assistant", "stopReason": "toolUse", "usage": {"input": 92, "output": 67, "cacheRead": 1579, "cacheWrite": 0, "totalTokens": 1738, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}
+{"type": "tool_execution_start", "toolName": "read", "toolCallId": "call_Nng9xBjPkj0CVYwtHtkTCnoUu6f9eOY6|fc_Nng9xBjPkj0CVYwtHtkTCnoUu6f9eOY6"}
+{"type": "tool_execution_start", "toolName": "read", "toolCallId": "call_euHwyQvChIpPvCgeDKXUI4IEbBJ4VerV|fc_euHwyQvChIpPvCgeDKXUI4IEbBJ4VerV"}
+{"type": "tool_execution_end", "toolName": "read", "toolCallId": "call_euHwyQvChIpPvCgeDKXUI4IEbBJ4VerV|fc_euHwyQvChIpPvCgeDKXUI4IEbBJ4VerV", "isError": false}
+{"type": "tool_execution_end", "toolName": "read", "toolCallId": "call_Nng9xBjPkj0CVYwtHtkTCnoUu6f9eOY6|fc_Nng9xBjPkj0CVYwtHtkTCnoUu6f9eOY6", "isError": false}
+{"type": "message_start", "message": {"role": "toolResult"}}
+{"type": "message_end", "message": {"role": "toolResult"}}
+{"type": "message_start", "message": {"role": "toolResult"}}
+{"type": "message_end", "message": {"role": "toolResult"}}
+{"type": "queue_update", "steeringCount": 0, "followUpCount": 0}
+{"type": "message_start", "message": {"role": "user"}}
+{"type": "message_end", "message": {"role": "user"}}
+{"type": "queue_update", "steeringCount": 1, "followUpCount": 0}
+{"type": "message_start", "message": {"role": "assistant", "stopReason": "stop", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}
+{"type": "message_end", "message": {"role": "assistant", "stopReason": "toolUse", "usage": {"input": 395, "output": 339, "cacheRead": 1667, "cacheWrite": 0, "totalTokens": 2401, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}
+{"type": "tool_execution_start", "toolName": "write", "toolCallId": "call_GXo5IFsUvybNRw1v8yNEjrr7nEDkpzCD|fc_GXo5IFsUvybNRw1v8yNEjrr7nEDkpzCD"}
+{"type": "tool_execution_end", "toolName": "write", "toolCallId": "call_GXo5IFsUvybNRw1v8yNEjrr7nEDkpzCD|fc_GXo5IFsUvybNRw1v8yNEjrr7nEDkpzCD", "isError": false}
+{"type": "message_start", "message": {"role": "toolResult"}}
+{"type": "message_end", "message": {"role": "toolResult"}}
+{"type": "queue_update", "steeringCount": 0, "followUpCount": 0}
+{"type": "message_start", "message": {"role": "user"}}
+{"type": "message_end", "message": {"role": "user"}}
+{"type": "message_start", "message": {"role": "assistant", "stopReason": "stop", "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}
+{"type": "message_end", "message": {"role": "assistant", "stopReason": "toolUse", "usage": {"input": 372, "output": 133, "cacheRead": 2058, "cacheWrite": 0, "totalTokens": 2563, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}
+{"type": "tool_execution_start", "toolName": "bash", "toolCallId": "call_MK5MKdm3HRXTyKgwTes1GyIZnlNwinex|fc_MK5MKdm3HRXTyKgwTes1GyIZnlNwinex"}
+{"type": "tool_execution_end", "toolName": "bash", "toolCallId": "call_MK5MKdm3HRXTyKgwTes1GyIZnlNwinex|fc_MK5MKdm3HRXTyKgwTes1GyIZnlNwinex", "isError": false}
+{"type": "message_start", "message": {"role": "toolResult"}}
+{"type": "message_end", "message": {"role": "toolResult"}}

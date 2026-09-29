@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "branch-lab",
+  "summary": "Worktree/branch manager for isolated pi sessions. Creates, lists, switches, discards, and merges git branches for risky or experimental task isolation.",
+  "category": "execution",
+  "tier": "T3",
+  "layer": 1,
+  "entry": "index.ts",
+  "hooks": ["session_start"],
+  "registers": { "tools": ["branch_create", "branch_list", "branch_switch", "branch_discard", "branch_merge"], "commands": [] },
+  "profiles": ["long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:child_process", "node:fs", "node:os", "node:path"],
+    "npm": [],
+    "piPeers": ["typebox"],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_BRANCH_LEASES_FILE", "PI_KIT_MAX_BRANCHES"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

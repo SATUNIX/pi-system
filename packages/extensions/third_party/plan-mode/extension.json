@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "plan-mode",
+  "summary": "Read-only exploration mode: /plan toggle or --plan flag restricts tools to read-only set. Write/edit/bash are blocked until plan mode is exited.",
+  "category": "planning",
+  "tier": "T3",
+  "layer": 4,
+  "entry": "index.ts",
+  "hooks": ["session_start", "tool_call"],
+  "registers": { "tools": [], "commands": ["/plan"] },
+  "profiles": ["self-improving"],
+  "enabledByDefault": false,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": [],
+  "provenance": { "origin": "vendored" },
+  "homeRepo": null,
+  "status": "stable"
+}

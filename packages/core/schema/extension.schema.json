@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "extension.schema.json",
+  "title": "Extension metadata",
+  "type": "object",
+  "required": ["name", "summary", "category", "entry", "hooks", "profiles", "platforms", "runtime", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Stable identity — never changes across avenues"
+    },
+    "summary": { "type": "string", "minLength": 10 },
+    "category": {
+      "type": "string",
+      "enum": ["safety", "workflow", "planning", "memory", "execution", "ui"]
+    },
+    "tier": {
+      "type": "string",
+      "enum": ["T0", "T1", "T2", "T3", "T4", "T1-T4", "T2-T4", "T2-T3", "T1-T3"],
+      "description": "Capability tier from NORTH_STAR §4"
+    },
+    "layer": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 6,
+      "description": "Architecture layer from NORTH_STAR §5 (1=substrate, 2=tool-surface, 3=context+memory, 4=orchestration, 5=verification, 6=observability)"
+    },
+    "entry": { "type": "string", "pattern": "\\.ts$" },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "tool_call", "tool_result",
+          "project_trust", "resources_discover",
+          "session_start", "session_info_changed", "session_shutdown",
+          "session_before_switch", "session_before_fork", "session_before_compact",
+          "session_compact", "session_compact_failed", "session_before_tree", "session_tree",
+          "before_agent_start", "agent_start", "agent_end", "agent_settled",
+          "before_provider_request", "before_provider_headers", "after_provider_response",
+          "ui_prompt_start", "ui_prompt_end",
+          "turn_start", "turn_end",
+          "message_start", "message_update", "message_end",
+          "tool_execution_start", "tool_execution_update", "tool_execution_end",
+          "context", "user_bash", "input",
+          "model_select", "thinking_level_select"
+        ]
+      },
+      "minItems": 0
+    },
+    "registers": {
+      "type": "object",
+      "properties": {
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "commands": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"]
+      },
+      "minItems": 0,
+      "description": "NORTH_STAR §7 profiles the extension ships in. quick=T0-T1, balanced=T0-T3 core, long-horizon=T0-T3 full, autonomous=T0-T3+loop, self-improving=T0-T4, pentest=security-engagement-optimised Conductor composition, lite=low-context set for small local models. Empty [] means quarantined (status stub) — kept in-repo but shipped in no profile. verify.mjs cross-checks this list against profiles/*.json exactly."
+    },
+    "enabledByDefault": { "type": "boolean" },
+    "platforms": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["windows", "linux", "darwin"] },
+      "minItems": 1
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["nodeBuiltins", "npm", "piPeers", "services", "models"],
+      "properties": {
+        "nodeBuiltins": { "type": "array", "items": { "type": "string" } },
+        "npm": { "type": "array", "items": { "type": "string" } },
+        "piPeers": { "type": "array", "items": { "type": "string" } },
+        "services": { "type": "array", "items": { "type": "string" } },
+        "models": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "pulls": { "type": "array" },
+    "env": { "type": "array", "items": { "type": "string" } },
+    "provenance": {
+      "type": "object",
+      "required": ["origin"],
+      "properties": {
+        "origin": { "type": "string", "enum": ["custom", "vendored", "external"] }
+      }
+    },
+    "homeRepo": { "type": ["string", "null"] },
+    "status": {
+      "type": "string",
+      "enum": ["stable", "beta", "experimental", "stub"],
+      "description": "Maturity. stable/beta may ship in any profile; experimental/stub may ship only in experimental profiles (see profiles/*.json \"experimental\": true). stub = advertises capability it does not yet have; must be quarantined (profiles []) or confined to an experimental profile."
+    }
+  }
+}

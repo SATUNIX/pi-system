@@ -1,0 +1,53 @@
+apiVersion: lab.tcd/v1
+kind: AgentRole
+metadata:
+  name: reviewer
+spec:
+  image: PENDING_SIGNED_DIGEST
+  entry: pi run --role reviewer --workflow <workflow> --input /inputs/context.json --output /outputs/result.json
+  prompt: roles/reviewer/SYSTEM.md
+  resultSchema: roles/reviewer/result.schema.json
+  workTypes:
+  - review
+  - verify
+  model:
+    litellmKey: openbao:agents/reviewer/litellm
+    models:
+    - primary-reasoning
+    - local-fast
+    budget:
+      daily_usd: 4.00
+      per_run_tokens: 120000
+  kubernetes:
+    serviceAccount: agent-reviewer
+    clusterRole: lab-agent-read
+    namespaces:
+    - '*'
+  openbao:
+    authRole: agent-reviewer
+    tokenTTL: 15m
+    policy: agents/reviewer/*
+  gitlab:
+    user: svc-agent-reviewer
+    tokenPath: openbao:agents/reviewer/gitlab
+  tools:
+  - gitlab.mr.read
+  - gitlab.ci.read
+  - gitlab.mr.comment
+  - gitlab.repo.read
+  - render.verify
+  - test.run
+  - k8s.read
+  egress:
+  - litellm
+  - openbao
+  - gitlab
+  - kube-api
+  escalation:
+    notifyOperatorOn:
+    - confidence<0.6
+    - budget_exceeded
+    - invalid_result
+  limits:
+    maxRuntime: 30m
+    maxConcurrent: 2

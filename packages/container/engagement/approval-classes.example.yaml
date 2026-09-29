@@ -1,0 +1,24 @@
+schema_version: 1
+
+classes:
+  read_only:
+    default: allow_if_configured
+    description: Reads local workspace, evidence, or tool metadata.
+  passive_recon:
+    default: ask_or_allow_by_roe
+    description: Low-impact information gathering.
+  low_risk_active_validation:
+    default: ask
+    description: Small controlled requests or benign validation.
+  intrusive_scan_fuzz:
+    default: ask_every_time
+    description: High-volume scans, fuzzing, or active scanning.
+  exploit_demonstration:
+    default: ask_with_explicit_roe_allowance
+    description: Controlled exploitability demonstration.
+  destructive_disallowed:
+    default: deny
+    description: Destructive, persistence, malware, credential abuse, or unsafe action.
+  unknown:
+    default: deny
+    description: Tool cannot be safely classified.

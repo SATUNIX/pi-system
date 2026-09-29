@@ -1,0 +1,87 @@
+// Runs INSIDE a container started with the agent's exact arguments (supervisor.mjs boundary).
+// Every way out except the relay's inference paths must fail; no credential may be visible.
+// Prints one JSON line: { pass, checks: [{ name, ok, detail }] }.
+import dns from "node:dns/promises";
+import fs from "node:fs";
+import net from "node:net";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+
+const checks = [];
+const expect = async (name, fn) => {
+  try { const detail = await fn(); checks.push({ name, ok: true, detail: detail ?? "" }); }
+  catch (e) { checks.push({ name, ok: false, detail: String(e.message ?? e).slice(0, 300) }); }
+};
+const mustFail = async (promise, what) => {
+  try { await promise; } catch (e) { return `blocked (${e.code ?? e.message})`; }
+  throw new Error(`${what} succeeded`);
+};
+const connect = (host, port, ms = 4000) => new Promise((resolve, reject) => {
+  const s = net.connect({ host, port, timeout: ms });
+  s.on("connect", () => { s.destroy(); resolve(); });
+  s.on("timeout", () => { s.destroy(); reject(Object.assign(new Error("timeout"), { code: "ETIMEDOUT" })); });
+  s.on("error", reject);
+});
+const relay = (path, init) => fetch(`http://inference:8081${path}`, { ...init, signal: AbortSignal.timeout(20_000) });
+
+for (const host of ["gitlab.home.internal", "git.home.internal", "openrouter.ai", "example.com", "registry.npmjs.org", "github.com"]) {
+  await expect(`dns ${host} fails`, () => mustFail(dns.lookup(host), `resolving ${host}`));
+}
+for (const [host, port] of [["1.1.1.1", 443], ["8.8.8.8", 53], ["172.17.0.1", 22], ["172.17.0.1", 2375], ["169.254.169.254", 80], ["192.168.1.1", 443]]) {
+  await expect(`tcp ${host}:${port} fails`, () => mustFail(connect(host, port), `connecting to ${host}:${port}`));
+}
+await expect("relay refuses non-inference paths", async () => {
+  for (const [method, path] of [["GET", "/v1/keys"], ["GET", "/api/v1/credits"], ["POST", "/v1/embeddings"], ["GET", "/"]]) {
+    const r = await relay(path, { method });
+    if (r.status !== 403) throw new Error(`${method} ${path} -> ${r.status}`);
+  }
+  return "403 on all";
+});
+await expect("relay refuses other models and web search", async () => {
+  const post = (body) => relay("/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const other = await post({ model: "openai/gpt-4o", messages: [{ role: "user", content: "hi" }], max_tokens: 1 });
+  const online = await post({ model: `${process.env.PI_MODEL}:online`, messages: [{ role: "user", content: "hi" }], max_tokens: 1 });
+  if (other.status !== 403 || online.status !== 403) throw new Error(`other ${other.status}, online ${online.status}`);
+  return "403";
+});
+await expect("relay serves the model list (inference path works)", async () => {
+  const r = await relay("/v1/models", { method: "GET" });
+  if (r.status !== 200) throw new Error(`status ${r.status}`);
+  return "200";
+});
+await expect("no credentials in the environment", () => {
+  const bad = Object.entries(process.env).filter(([k, v]) => (/key|token|secret|passw|auth/i.test(k) && k !== "AUTONOMY_KEY_SHA256") || /sk-or-|glpat-|sk-ant-|ghp_/.test(v ?? ""));
+  if (bad.length) throw new Error(`found ${bad.map(([k]) => k).join(", ")}`);
+});
+// The repository itself holds synthetic keys (test fixtures, the gitleaks allowlist), so key
+// shapes alone prove nothing. The supervisor passes only the SHA-256 of the real key; every
+// key-shaped token in the mounts is hashed and compared.
+await expect("the real API key is in no mounted file", () => {
+  const want = process.env.AUTONOMY_KEY_SHA256;
+  if (!/^[0-9a-f]{64}$/.test(want ?? "")) throw new Error("no key hash given to the probe");
+  const out = execFileSync("sh", ["-c", "grep -rIhoE 'sk-or-v1-[0-9a-f]{32,}' /state /git /work /reference 2>/dev/null | sort -u | head -5000 || true"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const tokens = out.split("\n").filter(Boolean);
+  if (tokens.some((t) => createHash("sha256").update(t).digest("hex") === want)) throw new Error("the relay's key is readable in a mount");
+  return `${tokens.length} key-shaped token(s) checked, none is the real key`;
+});
+await expect("no git credential helpers or remotes beyond the bare repo", () => {
+  const helpers = execFileSync("sh", ["-c", "git config --show-origin --get-all credential.helper || true"], { encoding: "utf8" }).trim();
+  if (helpers) throw new Error(`credential.helper: ${helpers}`);
+  if (fs.existsSync("/work/.git")) {
+    const remotes = execFileSync("git", ["-C", "/work", "remote", "-v"], { encoding: "utf8" }).trim();
+    if (remotes && !/^origin\s+\/git\/remote\.git/.test(remotes)) throw new Error(remotes);
+  }
+});
+await expect("no container engine socket, no host home", () => {
+  const sockets = ["/var/run/docker.sock", "/run/docker.sock", "/run/podman/podman.sock", `/run/user/${process.getuid()}/podman/podman.sock`, `/run/user/${process.getuid()}/docker.sock`];
+  for (const p of [...sockets, "/root/.ssh"]) if (fs.existsSync(p)) throw new Error(`${p} exists`);
+  const homes = fs.readdirSync("/home").filter((h) => h !== "node"); // node: the base image's own user
+  if (homes.length) throw new Error(`/home has ${homes.join(", ")}`);
+});
+await expect("root filesystem read-only, not root user", () => {
+  try { fs.writeFileSync("/usr/probe", "x"); throw new Error("wrote to /usr"); } catch (e) { if (e.message === "wrote to /usr") throw e; }
+  if (process.getuid() === 0 && process.env.AUTONOMY_ROOTLESS !== "1") throw new Error("running as uid 0");
+  return `uid ${process.getuid()}`;
+});
+
+console.log(JSON.stringify({ pass: checks.every((c) => c.ok), checks }));

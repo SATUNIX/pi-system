@@ -1,0 +1,29 @@
+
+> @gitops/pi-kit@1.0.0 eval
+> node kit/eval/run.mjs
+
+(node:26384) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+[eval] pi-kit eval harness v1
+
+  memory
+    PASS  skill-forge/synthesises-conforming-skill (151ms)
+    PASS  skill-forge/score-is-eval-tied (344ms)
+    PASS  self-improvement/proposes-diff-without-autocommit (9ms)
+    PASS  dream-mode/touches-only-allowlisted-paths (54ms)
+  orchestration
+    PASS  orchestrator/refuses-mission-complete-on-failing-verdict (20ms)
+    PASS  orchestrator/delegation-trigger-on-complex-only (16ms)
+  recovery
+    PASS  progress-guard/autonomous-arm-flips-mode-to-auto (15ms)
+    PASS  progress-guard/oscillation-detected (12ms)
+    PASS  recovery-orchestrator/escalation-enters-recovery-flow (16ms)
+  security
+    PASS  firewall/destructive-denied-benign-allowed (88ms)
+    PASS  secret-guard/blocks-secrets-and-exfil (13ms)
+  verification
+    PASS  verify-gate/records-pass-and-fail-verdicts (10ms)
+    PASS  verify-gate+orchestrator/failing-verify-blocks-mission-complete (330ms)
+
+[eval] 13/13 fixtures passed.

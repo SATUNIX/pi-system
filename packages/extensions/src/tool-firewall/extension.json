@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "tool-firewall",
+  "summary": "Autonomy gate for every tool call: parses shell commands into their real effects, tiers them (low/medium/high/critical) with session history, auto-allows routine work, judges medium actions in auto mode, learns from operator decisions and denies critical ones.",
+  "category": "safety",
+  "tier": "T0",
+  "layer": 2,
+  "entry": "index.ts",
+  "hooks": ["tool_call", "session_start", "before_agent_start"],
+  "registers": { "tools": [], "commands": ["/firewall:status", "/firewall:reload", "/auto", "/auto-mode"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:crypto", "node:fs", "node:os", "node:path", "node:url"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_AUTO_MODE", "PI_KIT_AUTO_MODE_MODEL", "PI_KIT_AUTO_MODE_STATE_DIR", "PI_KIT_FIREWALL_CONFIG", "PI_KIT_FIREWALL_PROFILE", "PI_KIT_FIREWALL_POLICY", "PI_KIT_FIREWALL_AUDIT_LOG", "PI_KIT_FIREWALL_FEEDBACK", "PI_KIT_FIREWALL_SESSIONS_DIR", "PI_KIT_FIREWALL_JUDGEMENTS", "PI_KIT_FIREWALL_LEARNED_PROFILE", "PI_KIT_FIREWALL_ROOT_SESSION", "PI_KIT_HUMAN_CONSOLE_DIR", "PI_KIT_HUMAN_CONSOLE_TIMEOUT_MS"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}

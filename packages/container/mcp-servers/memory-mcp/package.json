@@ -1,0 +1,17 @@
+{
+  "name": "@satunix/pi-kit-memory-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "pi-kit-memory-mcp": "./index.js"
+  },
+  "scripts": {
+    "smoke": "node ./smoke.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "better-sqlite3": "^11.9.1",
+    "zod": "4.4.3"
+  }
+}

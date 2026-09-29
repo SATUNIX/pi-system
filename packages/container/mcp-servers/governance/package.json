@@ -1,0 +1,16 @@
+{
+  "name": "pi-system-governance-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "pi-system-governance-mcp": "./index.js"
+  },
+  "scripts": {
+    "smoke": "node ./smoke.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.4.3"
+  }
+}

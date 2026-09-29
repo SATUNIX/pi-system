@@ -1,0 +1,13 @@
+{
+  "run": "perpetual-20260925",
+  "cycles": 50,
+  "model": "deepseek/deepseek-v4.1-flash",
+  "managerModel": "deepseek/deepseek-v4.1-flash",
+  "gitRemote": "https://gitlab.home.internal/lab/pi-system.git",
+  "baseRef": "main",
+  "image": "pi-autonomy:local",
+  "engine": "podman",
+  "budget": { "perCycleUsd": 5, "perCycleHardUsd": 10, "totalUsd": 100 },
+  "limits": { "softMinutes": 180, "hardMinutes": 300, "idleMinutes": 20, "noCommitMinutes": 90 },
+  "references": { "agentic-repo-kit": "/home/you/Development/agentic-repo-kit" }
+}

@@ -1,0 +1,6 @@
+  OK: durably refuses a depth-cap runaway with structured reservation audits
+  OK: refuses exhausted fan-out budget before spawning
+  OK: blocks generic delegation and protects the specialist ledger
+  OK: serializes phase and dispatch writers through one lock
+
+[conductor-recursion-smoke] all 4 checks passed

@@ -1,0 +1,35 @@
+{
+  "name": "@satunix/pi-extensions",
+  "version": "0.2.1-beta.0",
+  "private": true,
+  "description": "First-party pi extensions plus vendored third-party extensions with attribution.",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "src/**/*.ts",
+    "src/**/*.md",
+    "src/**/*.json",
+    "third_party/**/*.ts",
+    "third_party/**/*.md",
+    "third_party/**/*.json",
+    "!src/_template/**"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "pi": {
+    "extensions": [
+      "src/*/index.ts",
+      "third_party/*/index.ts",
+      "!src/_template/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.76.0",
+    "typebox": "*"
+  }
+}

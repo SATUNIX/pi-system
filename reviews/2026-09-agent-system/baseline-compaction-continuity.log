@@ -1,0 +1,7 @@
+  OK: context-sieve returns a real compaction with the active goal
+  OK: context-sieve includes a pending-verdict/handoff contribution in the real summary
+  OK: context-sieve includes the real transcript, not just the continuity template
+  OK: context-sieve falls through to default summarization with nothing to protect
+  OK: custom-compaction applies its configured template via the real return contract
+
+[compaction-continuity-smoke] all 5 checks passed

@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "guidelines",
+  "summary": "Injects project-specific guidelines from a GUIDELINES.md file into the agent context at session start.",
+  "category": "workflow",
+  "tier": "T1",
+  "layer": 3,
+  "entry": "index.ts",
+  "hooks": ["session_start"],
+  "registers": { "tools": [], "commands": [] },
+  "profiles": ["balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["node:fs", "node:path"],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_GUIDELINES_PATH"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "stable"
+}

@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-09-14T00:40:46.718Z",
+  "sourceBaseline": "6460ef6392dc290038f5ad79835861f9e5e06134",
+  "nodeVersion": "v24.14.0",
+  "runtimeVersion": "0.76.0",
+  "runtimeDirectory": "C:\\Users\\Anthony Grace\\Cyber\\Development\\Gitlab\\repos\\misc-agents-pi-kit\\node_modules\\@earendil-works\\pi-coding-agent",
+  "sourceSha256": "e63c5540e00dfd74c741544df8779731b9bfebcdf3297a4a26aa15562a6eb979",
+  "runtimeFileSha256": "d43d73add61efc5c54303247d99c301428f24279809327c17ededd2adf926856",
+  "runtimeMethodSha256": "4cd3fc2422a273cfe9beceae0ff4ba6f44702fe24e502644c62fa2ff9cfe9efb",
+  "methodology": "Actual extension loaded with Node type stripping; actual runtime setExtensionFooter method executed with synthetic UI. No inference, real terminal rendering, live session, transcript or network access.",
+  "syntheticInput": {
+    "usage": {
+      "input": 1000,
+      "output": 500,
+      "cacheRead": 200,
+      "cacheWrite": 0,
+      "totalTokens": 1700,
+      "cost": {
+        "total": 0.0022
+      }
+    },
+    "contextTokens": 42
+  },
+  "expectedHealthyBehavior": {
+    "builtinFooterAttached": true,
+    "attachedComponentCount": 1,
+    "input": 1000,
+    "output": 500,
+    "cumulativeTokens": 1700
+  },
+  "observed": {
+    "builtinFooterAttached": false,
+    "attachedComponentCount": 0,
+    "lastStatus": "input 0 | output 0 | total 42 | est $0.00 | synthetic-model | no-git | 1% ctx"
+  },
+  "findings": {
+    "OI_01_reproduced": true,
+    "OI_02_reproduced": true
+  },
+  "limitations": [
+    "Checks the runtime method contract, not full TUI rendering or web integration",
+    "Does not establish bytes loaded by earlier Pi processes",
+    "Findings true indicate reproduced defects, not release acceptance"
+  ]
+}

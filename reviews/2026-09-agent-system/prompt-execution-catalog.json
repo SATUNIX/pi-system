@@ -1,0 +1,332 @@
+{
+  "prompts": [
+    {
+      "file": "extensions/autonomous-loop/index.ts",
+      "line": 46,
+      "source": "includeInCompact: true,"
+    },
+    {
+      "file": "extensions/autonomous-loop/index.ts",
+      "line": 64,
+      "source": "pi.registerCommand(\"loop\", {"
+    },
+    {
+      "file": "extensions/autonomous-loop/index.ts",
+      "line": 97,
+      "source": "await pi.sendUserMessage(`Continue: ${loopGoal}`, { deliverAs: \"followUp\" });"
+    },
+    {
+      "file": "extensions/conductor/index.ts",
+      "line": 307,
+      "source": "includeInCompact: true,"
+    },
+    {
+      "file": "extensions/conductor/index.ts",
+      "line": 332,
+      "source": "pi.registerCommand(\"engagement\", {"
+    },
+    {
+      "file": "extensions/context-sieve/index.ts",
+      "line": 11,
+      "source": "includeInCompact?: boolean;"
+    },
+    {
+      "file": "extensions/context-sieve/index.ts",
+      "line": 150,
+      "source": "systemPrompt: event.systemPrompt + \"\\n\\n\" + assembled.join(\"\\n\\n\"),"
+    },
+    {
+      "file": "extensions/context-sieve/index.ts",
+      "line": 167,
+      "source": "// ctx-contribution marked includeInCompact) - the common case with nothing to protect"
+    },
+    {
+      "file": "extensions/context-sieve/index.ts",
+      "line": 177,
+      "source": "const contributions = readContributions(dir).filter(c => c.includeInCompact);"
+    },
+    {
+      "file": "extensions/dual-review/index.ts",
+      "line": 34,
+      "source": "await pi.sendUserMessage(`## Code Review\\n\\n${out.trim() || \"(no output)\"}`, { deliverAs: \"followUp\" });"
+    },
+    {
+      "file": "extensions/dual-review/index.ts",
+      "line": 45,
+      "source": "pi.registerCommand(\"review\", {"
+    },
+    {
+      "file": "extensions/goal-core/index.ts",
+      "line": 38,
+      "source": "includeInCompact: true,"
+    },
+    {
+      "file": "extensions/goal-core/index.ts",
+      "line": 71,
+      "source": "pi.registerCommand(\"goal\", {"
+    },
+    {
+      "file": "extensions/guidelines/index.ts",
+      "line": 31,
+      "source": "includeInCompact: false,"
+    },
+    {
+      "file": "extensions/memory-local/index.ts",
+      "line": 217,
+      "source": "includeInCompact: false,"
+    },
+    {
+      "file": "extensions/memory-local/index.ts",
+      "line": 241,
+      "source": "pi.on(\"input\", async (event, ctx) => {"
+    },
+    {
+      "file": "extensions/orchestrator/index.ts",
+      "line": 195,
+      "source": "includeInCompact: false,"
+    },
+    {
+      "file": "extensions/orchestrator/index.ts",
+      "line": 362,
+      "source": "pi.sendMessage({ customType: \"orchestrator-verification\", content: message, display: true },"
+    },
+    {
+      "file": "extensions/orchestrator/index.ts",
+      "line": 371,
+      "source": "pi.on(\"input\", async (event, ctx) => {"
+    },
+    {
+      "file": "extensions/orchestrator/index.ts",
+      "line": 401,
+      "source": "pi.registerCommand(\"orchestrate\", {"
+    },
+    {
+      "file": "extensions/orchestrator/index.ts",
+      "line": 431,
+      "source": "pi.registerCommand(\"orchestrate-plan\", {"
+    },
+    {
+      "file": "extensions/orchestrator/index.ts",
+      "line": 452,
+      "source": "pi.registerCommand(\"orchestrate-implement-review\", {"
+    },
+    {
+      "file": "extensions/pentest-governance-domain/index.ts",
+      "line": 717,
+      "source": "pi.registerCommand(\"pentest:reload-policy\", {"
+    },
+    {
+      "file": "extensions/pentest-governance-domain/index.ts",
+      "line": 728,
+      "source": "pi.registerCommand(\"pentest:status\", {"
+    },
+    {
+      "file": "extensions/pentest-governance-domain/index.ts",
+      "line": 737,
+      "source": "pi.registerCommand(\"pentest:actions\", {"
+    },
+    {
+      "file": "extensions/progress-guard/index.ts",
+      "line": 126,
+      "source": "fs.writeFileSync(p, JSON.stringify({ id: CONTRIB_ID, priority: 78, budgetTokens: 320, content, includeInCompact: false }), \"utf8\");"
+    },
+    {
+      "file": "extensions/progress-guard/index.ts",
+      "line": 276,
+      "source": "pi.registerCommand(\"reflect\", {"
+    },
+    {
+      "file": "extensions/progress-guard/index.ts",
+      "line": 296,
+      "source": "pi.registerCommand(\"boost\", {"
+    },
+    {
+      "file": "extensions/recovery-orchestrator/index.ts",
+      "line": 202,
+      "source": "fs.writeFileSync(p, JSON.stringify({ id: CONTRIB_ID, priority: 90, budgetTokens: 480, content, includeInCompact: true }), \"utf8\");"
+    },
+    {
+      "file": "extensions/recovery-orchestrator/index.ts",
+      "line": 256,
+      "source": "pi.registerCommand(\"recover\", {"
+    },
+    {
+      "file": "extensions/self-improvement/index.ts",
+      "line": 111,
+      "source": "pi.registerCommand(\"improve\", {"
+    },
+    {
+      "file": "extensions/session-helpers/index.ts",
+      "line": 123,
+      "source": "pi.registerCommand(\"clear\", {"
+    },
+    {
+      "file": "extensions/session-helpers/index.ts",
+      "line": 130,
+      "source": "pi.registerCommand(\"kit\", {"
+    },
+    {
+      "file": "extensions/session-helpers/index.ts",
+      "line": 137,
+      "source": "pi.registerCommand(\"helpers\", {"
+    },
+    {
+      "file": "extensions/tool-firewall/index.ts",
+      "line": 373,
+      "source": "pi.registerCommand(\"firewall:reload\", {"
+    },
+    {
+      "file": "extensions/tool-firewall/index.ts",
+      "line": 384,
+      "source": "pi.registerCommand(\"firewall:status\", {"
+    },
+    {
+      "file": "extensions/trace-ledger/index.ts",
+      "line": 165,
+      "source": "pi.registerCommand(\"trace\", {"
+    },
+    {
+      "file": "extensions/verifier-board/index.ts",
+      "line": 106,
+      "source": "pi.registerCommand(\"verdicts\", {"
+    },
+    {
+      "file": "extensions/verify-gate/index.ts",
+      "line": 121,
+      "source": "pi.on(\"input\", async (event) => {"
+    },
+    {
+      "file": "extensions/verify-gate/index.ts",
+      "line": 129,
+      "source": "pi.registerCommand(\"verify\", {"
+    },
+    {
+      "file": "extensions/verify-gate/index.ts",
+      "line": 168,
+      "source": "pi.sendMessage({ customType: \"verify-gate-result\", display: true,"
+    },
+    {
+      "file": "vendor/caveman/index.ts",
+      "line": 103,
+      "source": "includeInCompact: false,"
+    },
+    {
+      "file": "vendor/caveman/index.ts",
+      "line": 172,
+      "source": "pi.on(\"input\", async (event, ctx) => {"
+    },
+    {
+      "file": "vendor/caveman/index.ts",
+      "line": 184,
+      "source": "pi.registerCommand(\"caveman\", {"
+    },
+    {
+      "file": "vendor/custom-footer/index.ts",
+      "line": 237,
+      "source": "pi.registerCommand(\"footer\", {"
+    },
+    {
+      "file": "vendor/handoff/index.ts",
+      "line": 41,
+      "source": "pi.registerCommand(\"handoff\", {"
+    },
+    {
+      "file": "vendor/plan-mode/index.ts",
+      "line": 22,
+      "source": "JSON.stringify({ id: \"plan-mode\", priority: 90, budgetTokens: 200, content: PLAN_NOTICE, includeInCompact: false }),"
+    },
+    {
+      "file": "vendor/plan-mode/index.ts",
+      "line": 57,
+      "source": "pi.registerCommand(\"plan\", {"
+    },
+    {
+      "file": "vendor/todo/index.ts",
+      "line": 91,
+      "source": "pi.registerCommand(\"todos\", {"
+    },
+    {
+      "file": "vendor/trigger-compact/index.ts",
+      "line": 31,
+      "source": "pi.registerCommand(\"trigger-compact\", {"
+    }
+  ],
+  "execution": [
+    {
+      "file": "extensions/branch-lab/index.ts",
+      "line": 78,
+      "source": "execFile(\"git\", args, { cwd }, (error, stdout, stderr) => {"
+    },
+    {
+      "file": "extensions/conductor/index.ts",
+      "line": 242,
+      "source": "const proc = spawn(\"pi\", [\"--mode\", \"json\", \"-p\", \"--no-session\", \"--tools\", definition.tools.join(\",\"), \"--append-system-prompt\", promptFile, `Task: ${task}`], { cwd, shell: process.platform === \"win32\", stdio: [\"ignore\", \"pipe\", \"pipe\"], env: { ...process.env, PI_KIT_CONDUCTOR_DEPTH: String(childDepth), PI_KIT_PROTECTED_PATHS: specialistProtectedPaths() } }); let buffer = \"\"; let stderr = \"\"; const messages: Array<{ role?: unknown; content?: unknown }> = [];"
+    },
+    {
+      "file": "extensions/dual-review/index.ts",
+      "line": 24,
+      "source": "const child = spawn(\"pi\", args, { cwd, shell: true });"
+    },
+    {
+      "file": "extensions/dual-review/index.ts",
+      "line": 41,
+      "source": "execFile(\"git\", gitArgs, { cwd, shell: true }, (_err, stdout) => resolve(stdout));"
+    },
+    {
+      "file": "extensions/skill-forge/index.ts",
+      "line": 157,
+      "source": "const out = execFileSync(\"node\", [\"kit/eval/run.mjs\", \"--json\"], { cwd, encoding: \"utf8\", stdio: [\"ignore\", \"pipe\", \"ignore\"] });"
+    },
+    {
+      "file": "extensions/verify-gate/index.ts",
+      "line": 27,
+      "source": "execFile(configured || \"npm\", configured ? [] : [\"run\", \"verify\"], { cwd, shell: true, timeout: 120_000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {"
+    },
+    {
+      "file": "vendor/auto-commit-on-exit/index.ts",
+      "line": 5,
+      "source": "const { stdout: status, code } = await pi.exec(\"git\", [\"status\", \"--porcelain\"]);"
+    },
+    {
+      "file": "vendor/auto-commit-on-exit/index.ts",
+      "line": 27,
+      "source": "await pi.exec(\"git\", [\"add\", \"-A\"]);"
+    },
+    {
+      "file": "vendor/auto-commit-on-exit/index.ts",
+      "line": 28,
+      "source": "const { code: commitCode } = await pi.exec(\"git\", [\"commit\", \"-m\", commitMessage]);"
+    },
+    {
+      "file": "vendor/custom-footer/index.ts",
+      "line": 115,
+      "source": "return execFileSync(\"git\", [\"rev-parse\", \"--abbrev-ref\", \"HEAD\"], {"
+    },
+    {
+      "file": "vendor/dirty-repo-guard/index.ts",
+      "line": 8,
+      "source": "const { stdout, code } = await pi.exec(\"git\", [\"status\", \"--porcelain\"]);"
+    },
+    {
+      "file": "vendor/git-checkpoint/index.ts",
+      "line": 39,
+      "source": "const { stdout } = await pi.exec(\"git\", [\"stash\", \"create\"]);"
+    },
+    {
+      "file": "vendor/git-checkpoint/index.ts",
+      "line": 61,
+      "source": "await pi.exec(\"git\", [\"stash\", \"apply\", ref]);"
+    },
+    {
+      "file": "vendor/notify/index.ts",
+      "line": 27,
+      "source": "execFile(\"powershell.exe\", [\"-NoProfile\", \"-Command\", windowsToastScript(title, body)]);"
+    },
+    {
+      "file": "vendor/subagent/index.ts",
+      "line": 182,
+      "source": "const proc = spawn(\"pi\", args, {"
+    }
+  ],
+  "caveat": "Static source lead index. Dynamic imports, optional external packages and active tool/resource selection require separate validation."
+}

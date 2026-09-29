@@ -1,0 +1,13 @@
+# The /pi-improve workflow writes per-cycle artefacts under
+# docs/agent-improvement/cycles/<cycle-id>/: cycle-state.json, the numbered phase
+# reports, raw evidence and findings. See docs/agent-improvement/README.md for the
+# schema and the six-phase contract, and docs/agent-improvement/autonomous-workflow.md
+# for the Codex variant.
+#
+# The two dated directories alongside this file are historical cycle records, ported
+# from the predecessor kit so the loop's output format has real worked examples. They
+# are archives, not tracking of current work. A new cycle is written here as it runs;
+# whether its raw evidence is committed is a per-cycle decision.
+#
+# This placeholder keeps the expected destination directory present so the workflow
+# and its resume hook can always find it.

@@ -1,0 +1,8 @@
+# Changes to CI/CD, release tooling and the security layer need owner review.
+/.github/                                   @SATUNIX
+/packages/core/release.mjs                  @SATUNIX
+/packages/core/publish-plan.mjs             @SATUNIX
+/packages/core/lockfile-check.mjs           @SATUNIX
+/packages/extensions/src/tool-firewall/     @SATUNIX
+/packages/extensions/src/secret-guard/      @SATUNIX
+/packages/extensions/src/kit-update/        @SATUNIX

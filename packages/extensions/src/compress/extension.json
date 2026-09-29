@@ -1,0 +1,24 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "compress",
+  "summary": "Instant deterministic /compress: compacts through pi's native pipeline but builds the summary from user asks and assistant replies only, with no model call.",
+  "category": "workflow",
+  "entry": "index.ts",
+  "hooks": ["session_before_compact"],
+  "registers": { "tools": [], "commands": ["compress"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": [],
+    "npm": [],
+    "piPeers": [],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_COMPRESS_MAX_CHARS"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta"
+}
