@@ -1,0 +1,2 @@
+Gave my AI coding agent a firewall. It tried `rm -rf /`, got a red CRITICAL stamp, and moved on.
+pi-system: the safety-first kit for the pi coding agent. Seven profiles, MIT.

