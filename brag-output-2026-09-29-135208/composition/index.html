@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>pi-system brag (long)</title>
+    <script src="assets/vendor/gsap.min.js"></script>
+    <script src="assets/music-rms.js"></script>
+    <style>
+      @font-face { font-family: "Space Grotesk"; font-weight: 500; src: url("assets/fonts/space-grotesk-latin-500-normal.woff2") format("woff2"); font-display: block; }
+      @font-face { font-family: "Space Grotesk"; font-weight: 700; src: url("assets/fonts/space-grotesk-latin-700-normal.woff2") format("woff2"); font-display: block; }
+      @font-face { font-family: "JetBrains Mono"; font-weight: 400; src: url("assets/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); font-display: block; }
+      @font-face { font-family: "JetBrains Mono"; font-weight: 700; src: url("assets/fonts/jetbrains-mono-latin-700-normal.woff2") format("woff2"); font-display: block; }
+      :root { --bg:#1f2123; --panel:#161b22; --panel2:#1b2028; --panel-error:#2a1718; --border:#30363d; --text:#fff; --soft:#e6edf3; --muted:#a1abb5; --lime:#c2fe0b; --low:#3fb950; --med:#d29922; --high:#f0883e; --crit:#f85149; }
+      * { margin:0; padding:0; box-sizing:border-box; }
+      html, body { width:1920px; height:1080px; overflow:hidden; background:var(--bg); }
+      #root { position:relative; width:1920px; height:1080px; overflow:hidden; background:var(--bg); color:var(--text); font-family:"Space Grotesk", ui-sans-serif, system-ui, sans-serif; }
+      .mono { font-family:"JetBrains Mono", ui-monospace, monospace; }
+      .scene { position:absolute; left:0; top:0; width:1920px; height:1080px; z-index:2; }
+      .abs { position:absolute; }
+      #glow { position:absolute; left:260px; top:-160px; width:1400px; height:1400px; z-index:1; border-radius:50%; background:radial-gradient(closest-side, rgba(194,254,11,0.12), rgba(194,254,11,0.04) 55%, rgba(194,254,11,0) 100%); opacity:.35; }
+      #vignette { position:absolute; inset:0; z-index:4; pointer-events:none; background:radial-gradient(ellipse at center, rgba(0,0,0,0) 58%, rgba(0,0,0,0.34) 100%); }
+
+      /* progress strip */
+      #prog { position:absolute; left:120px; top:1006px; z-index:3; display:flex; gap:10px; opacity:0; }
+      #prog i { display:block; width:92px; height:6px; border-radius:3px; background:#30363d; }
+
+      /* chapter grammar */
+      .ctag { left:120px; top:120px; font-size:30px; color:var(--lime); font-weight:700; letter-spacing:.06em; opacity:0; }
+      .ctitle { left:120px; top:170px; width:720px; font-size:100px; font-weight:700; letter-spacing:-0.03em; line-height:1; opacity:0; white-space:nowrap; }
+      .cclaim { left:120px; top:320px; width:660px; font-size:42px; line-height:1.28; color:var(--soft); font-weight:500; opacity:0; }
+      .ctwist { left:120px; top:770px; width:660px; border:2px solid var(--lime); border-radius:14px; padding:16px 24px 18px; background:rgba(194,254,11,.07); opacity:0; }
+      .ctwist small { display:block; font-family:"JetBrains Mono", monospace; font-size:21px; color:var(--lime); letter-spacing:.14em; margin-bottom:8px; }
+      .ctwist span { font-size:35px; font-weight:700; line-height:1.15; }
+      .vis { left:860px; top:110px; width:940px; height:820px; }
+      .chip { display:inline-block; border:2px solid var(--border); background:var(--panel); border-radius:12px; padding:8px 18px; font-family:"JetBrains Mono", monospace; font-size:26px; color:var(--soft); }
+      .tier { color:#1f2123; font-family:"JetBrains Mono", monospace; font-weight:700; letter-spacing:.04em; border-radius:9px; padding:6px 16px; font-size:28px; display:inline-block; }
+
+      /* 1 hook */
+      #audit { left:70px; top:40px; font-size:26px; line-height:44px; color:rgba(139,148,158,.20); white-space:nowrap; }
+      #h1, #h2 { left:170px; font-size:270px; font-weight:700; letter-spacing:-0.045em; line-height:1; opacity:0; white-space:nowrap; }
+      #h1 { top:150px; } #h2 { top:460px; color:var(--lime); }
+
+      /* 2 reveal */
+      #pi { left:476px; top:120px; width:384px; height:384px; }
+      .blk { position:absolute; width:96px; height:96px; background:#fff; opacity:0; }
+      #wordmark { left:930px; top:322px; width:620px; height:222px; clip-path:inset(0 100% 0 0); }
+      #wordmark img { width:620px; height:222px; display:block; }
+      #tag { left:0; top:640px; width:1920px; text-align:center; font-weight:500; font-size:64px; letter-spacing:-0.01em; opacity:0; }
+      #tag .l { color:var(--lime); font-weight:700; }
+      #stats { left:0; top:810px; width:1920px; display:flex; justify-content:center; gap:90px; }
+      .stat { text-align:center; opacity:0; }
+      .stat b { display:block; font-size:80px; color:var(--lime); font-weight:700; letter-spacing:-0.02em; line-height:1; }
+      .stat span { font-family:"JetBrains Mono", monospace; font-size:26px; color:var(--muted); }
+
+      /* 3 firewall */
+      .trow { position:absolute; left:0; width:940px; height:124px; background:var(--panel); border:2px solid var(--border); border-radius:16px; display:flex; align-items:center; padding:0 26px; gap:22px; opacity:0; }
+      .trow .tier { width:190px; text-align:center; }
+      .trow .tmid { flex:1; min-width:0; }
+      .trow .tcmd { font-size:28px; font-weight:700; white-space:nowrap; }
+      .trow .tdesc { font-size:23px; color:var(--muted); margin-top:6px; }
+      .trow .tverd { width:120px; text-align:right; font-size:38px; font-weight:700; }
+      #fr1 { top:0; } #fr2 { top:146px; } #fr3 { top:292px; } #fr4 { top:438px; background:var(--panel-error); border-color:#5a2426; }
+      #ffoot { left:0; top:610px; width:940px; }
+      #ffoot .chip { margin-right:14px; margin-bottom:14px; opacity:0; font-size:24px; }
+      #ffoot .chip b { color:var(--lime); font-weight:700; }
+
+      /* 4 judge */
+      #jact { left:0; top:0; width:940px; height:118px; background:var(--panel); border:2px solid var(--border); border-radius:16px; padding:22px 26px; opacity:0; }
+      #jact .c { font-size:28px; font-weight:700; margin-top:10px; white-space:nowrap; }
+      #jcard { left:0; top:170px; width:940px; height:470px; background:var(--panel2); border:2px solid var(--border); border-radius:18px; padding:28px 30px; opacity:0; }
+      #jcard h3 { font-size:44px; font-weight:700; letter-spacing:-0.02em; }
+      #jcard h3 small { font-family:"JetBrains Mono", monospace; font-size:22px; color:var(--muted); font-weight:400; margin-left:16px; letter-spacing:0; }
+      #jchips { margin-top:20px; }
+      #jchips .chip { margin:0 12px 12px 0; opacity:0; font-size:25px; }
+      #jverd { position:absolute; left:30px; right:30px; bottom:28px; display:flex; align-items:center; gap:24px; opacity:0; }
+      #jverd .tier { font-size:40px; padding:8px 26px; }
+      #jverd .r { font-size:30px; color:var(--soft); }
+      #jnote { left:0; top:668px; width:940px; font-size:24px; color:var(--muted); opacity:0; line-height:1.4; }
+
+      /* 5 subagents */
+      .node { position:absolute; background:var(--panel); border:2px solid var(--border); border-radius:14px; padding:14px 16px; opacity:0; }
+      .node b { display:block; font-family:"JetBrains Mono", monospace; font-size:27px; font-weight:700; }
+      .node span { display:block; font-size:19px; color:var(--muted); margin-top:6px; line-height:1.25; font-family:"JetBrains Mono", monospace; }
+      .node.ok { border-color:var(--low); background:#18251d; }
+      .edge { position:absolute; background:#4a525c; opacity:0; }
+      #sfoot { left:0; top:620px; width:940px; }
+      #sfoot .chip { margin:0 14px 14px 0; opacity:0; font-size:25px; }
+
+      /* 6 skills */
+      #sgrid { left:0; top:0; width:940px; height:560px; }
+      .sk { position:absolute; width:452px; height:78px; background:var(--panel); border:2px solid var(--border); border-radius:12px; padding:0 20px; display:flex; align-items:center; font-family:"JetBrains Mono", monospace; font-size:22px; opacity:0; }
+      #prop { left:60px; top:230px; width:820px; height:410px; background:#171d16; border:3px dashed var(--lime); border-radius:20px; padding:30px 36px; opacity:0; }
+      #prop small { font-family:"JetBrains Mono", monospace; font-size:24px; color:var(--lime); letter-spacing:.06em; }
+      #prop h3 { font-size:58px; font-weight:700; letter-spacing:-0.02em; margin:12px 0 18px; }
+      #prop p { font-family:"JetBrains Mono", monospace; font-size:27px; color:var(--soft); line-height:1.6; }
+      #pstamp { right:34px; bottom:30px; border:3px solid var(--lime); color:var(--lime); border-radius:10px; padding:8px 18px; font-family:"JetBrains Mono", monospace; font-size:30px; font-weight:700; letter-spacing:.04em; opacity:0; transform:rotate(-3deg); }
+
+      /* 7 profiles */
+      .prow { position:absolute; left:0; width:940px; height:88px; background:var(--panel); border:2px solid var(--border); border-radius:14px; display:flex; align-items:center; padding:0 22px; gap:20px; opacity:0; }
+      .prow .pn { width:292px; font-size:30px; font-weight:700; white-space:nowrap; }
+      .prow .pbar { width:150px; height:34px; background:#242b33; border-radius:8px; position:relative; overflow:hidden; }
+      .prow .pbar i { position:absolute; left:0; top:0; bottom:0; width:0; background:var(--lime); border-radius:8px; }
+      .prow .pr { width:98px; font-size:20px; color:var(--soft); white-space:nowrap; }
+      .prow .pa { flex:1; font-size:21px; color:var(--muted); white-space:nowrap; }
+
+      /* 8 autonomy */
+      #cbox { left:0; top:40px; width:480px; height:640px; border:4px solid #4a525c; border-radius:22px; background:rgba(22,27,34,.6); opacity:0; }
+      #cbox .lab { position:absolute; left:24px; top:20px; right:24px; font-size:21px; color:var(--muted); line-height:1.5; }
+      #agent { left:80px; top:290px; width:320px; height:160px; background:var(--panel2); border:2px solid var(--lime); border-radius:16px; padding:34px 24px; opacity:0; text-align:center; }
+      #agent b { display:block; font-size:44px; font-weight:700; }
+      #agent span { font-size:22px; color:var(--muted); }
+      .exit { position:absolute; left:480px; width:460px; height:78px; display:flex; align-items:center; opacity:0; }
+      .exit .ln { width:70px; height:4px; }
+      .exit .lb { flex:1; height:78px; border-radius:12px; padding:0 20px; display:flex; align-items:center; font-family:"JetBrains Mono", monospace; font-size:24px; font-weight:700; }
+      .exit.ok .ln { background:var(--low); } .exit.ok .lb { background:#18251d; border:2px solid var(--low); color:var(--soft); }
+      .exit.no .ln { background:var(--crit); } .exit.no .lb { background:var(--panel-error); border:2px solid #5a2426; color:var(--muted); text-decoration:line-through; }
+      .exit.no .lb::before { content:"\2715"; color:var(--crit); margin-right:14px; text-decoration:none; display:inline-block; font-size:30px; }
+      .exit.ok .lb::before { content:"\2713"; color:var(--low); margin-right:14px; font-size:30px; }
+      #probe { left:0; top:730px; width:940px; opacity:0; }
+      #probe .chip { border-color:var(--lime); font-size:25px; }
+
+      /* 9 costs */
+      #sbar { left:0; top:110px; width:940px; height:330px; background:var(--panel); border:2px solid var(--border); border-radius:16px; padding:22px 26px; font-size:26px; line-height:1.5; opacity:0; }
+      #sbar .l1 { color:var(--muted); } #sbar .l1 b { color:var(--soft); font-weight:700; }
+      #sbar .l2 { margin-top:16px; display:flex; align-items:center; gap:16px; white-space:nowrap; }
+      #ctxbar { width:250px; height:22px; background:#242b33; border-radius:6px; position:relative; overflow:hidden; flex:0 0 250px; }
+      #ctxfill { position:absolute; left:0; top:0; bottom:0; width:47%; background:var(--low); }
+      #ctxpct { width:70px; font-weight:700; }
+      #sbar .l3 { margin-top:16px; color:var(--muted); }
+      #sbar .tot { color:var(--soft); }
+      #sbar .tot b { color:var(--lime); font-weight:700; }
+      #work { left:0; top:20px; font-size:28px; color:var(--lime); opacity:0; white-space:nowrap; }
+      #cjson { left:0; top:490px; width:520px; background:var(--panel2); border:2px solid var(--border); border-radius:16px; padding:22px 26px; font-size:25px; line-height:1.55; opacity:0; }
+      #cjson small { display:block; color:var(--lime); font-size:21px; letter-spacing:.06em; margin-bottom:8px; }
+      #cjson .k { color:var(--muted); } #cjson .v { color:var(--soft); }
+      #cnote { left:560px; top:520px; width:380px; font-size:34px; font-weight:700; line-height:1.2; opacity:0; }
+      #cnote span { color:var(--lime); }
+
+      /* 10 web console */
+      #wframe { left:-40px; top:130px; width:1040px; height:585px; border:2px solid var(--border); border-radius:8px; overflow:hidden; opacity:0; background:#000; }
+      #wimg { position:absolute; left:0; top:0; width:1040px; height:585px; transform-origin:0 0; }
+      #wc1, #wc2 { left:0; top:760px; opacity:0; }
+      #wc1 .chip, #wc2 .chip { border-color:var(--lime); font-size:27px; }
+
+      /* 11 modular */
+      .lane { position:absolute; left:0; width:940px; height:142px; background:var(--panel); border:2px solid var(--border); border-radius:16px; padding:18px 26px; opacity:0; }
+      .lane b { font-size:40px; font-weight:700; letter-spacing:-0.02em; }
+      .lane .p { font-size:24px; color:var(--lime); margin-top:4px; }
+      .lane .n { font-size:22px; color:var(--muted); margin-top:4px; }
+      #rule { left:0; top:486px; width:940px; opacity:0; }
+      #rule .chip { font-size:25px; margin-right:12px; }
+      #rule .chip.x { border-color:#5a2426; background:var(--panel-error); }
+      #mterm { left:0; top:582px; width:940px; height:150px; background:var(--panel); border:2px solid var(--border); border-radius:16px; padding:30px 34px; font-size:38px; font-weight:700; opacity:0; }
+      #mterm .prompt { color:var(--lime); margin-right:18px; }
+      #mtyped { display:inline-block; vertical-align:bottom; width:0; overflow:hidden; white-space:nowrap; flex:0 0 auto; }
+      #mcur { display:inline-block; width:22px; height:42px; background:var(--lime); margin-left:6px; vertical-align:bottom; }
+      #mnote { left:0; top:754px; font-size:26px; color:var(--muted); opacity:0; }
+
+      /* 12 outro */
+      #o1, #o2 { left:0; width:1920px; text-align:center; font-size:150px; font-weight:700; letter-spacing:-0.035em; line-height:1; opacity:0; white-space:nowrap; }
+      #o1 { top:110px; } #o2 { top:280px; color:var(--lime); }
+      #install { left:210px; top:500px; width:1500px; height:124px; background:var(--panel); border:2px solid var(--border); border-radius:20px; display:flex; align-items:center; padding:0 44px; font-size:44px; font-weight:700; opacity:0; }
+      #install .prompt { color:var(--lime); margin-right:22px; }
+      #typed2 { display:block; flex:0 0 auto; width:0; overflow:hidden; white-space:nowrap; }
+      #cursor2 { width:26px; height:54px; background:var(--lime); margin-left:6px; }
+      #endrow { left:0; top:730px; width:1920px; display:flex; align-items:center; justify-content:center; gap:40px; opacity:0; }
+      #endrow .pkg { font-size:84px; font-weight:700; letter-spacing:-0.02em; }
+      #endrow .lic { font-size:40px; color:var(--muted); border:2px solid var(--border); border-radius:12px; padding:8px 20px; }
+      #minipi { position:relative; width:120px; height:120px; flex:0 0 120px; }
+      .mblk { position:absolute; width:30px; height:30px; background:#fff; }
+      #robot { left:1590px; top:812px; width:300px; height:248px; opacity:0; }
+      #robot img { width:300px; height:248px; display:block; }
+      #here { left:1240px; top:944px; font-size:34px; font-weight:700; color:var(--lime); letter-spacing:.06em; transform:rotate(-7deg); opacity:0; white-space:nowrap; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="63.5" data-width="1920" data-height="1080">
+      <div id="glow"></div>
+      <div id="vignette"></div>
+      <div id="prog"><i id="p1"></i><i id="p2"></i><i id="p3"></i><i id="p4"></i><i id="p5"></i><i id="p6"></i><i id="p7"></i><i id="p8"></i><i id="p9"></i></div>
+
+      <!-- 1 hook -->
+      <section id="s1" class="clip scene" data-start="0" data-duration="3.02" data-track-index="1">
+        <div id="audit" class="abs mono">{"event":"tool_seen","toolName":"bash","risk_class":"low"}<br>{"event":"tool_blocked","toolName":"bash","risk_class":"critical"}<br>{"event":"auto_mode_approved","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_approved","toolName":"bash","risk_class":"low"}<br>{"event":"tool_seen","toolName":"write","risk_class":"low"}<br>{"event":"tool_seen","toolName":"read","risk_class":"low"}<br>{"event":"tool_seen","toolName":"edit","risk_class":"low"}<br>{"event":"auto_mode_blocked","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_seen","toolName":"bash","risk_class":"high"}<br>{"event":"tool_seen","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_seen","toolName":"bash","risk_class":"low"}<br>{"event":"tool_blocked","toolName":"bash","risk_class":"critical"}<br>{"event":"auto_mode_approved","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_approved","toolName":"bash","risk_class":"low"}<br>{"event":"tool_seen","toolName":"write","risk_class":"low"}<br>{"event":"tool_seen","toolName":"read","risk_class":"low"}<br>{"event":"tool_seen","toolName":"edit","risk_class":"low"}<br>{"event":"auto_mode_blocked","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_seen","toolName":"bash","risk_class":"high"}<br>{"event":"tool_seen","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_seen","toolName":"bash","risk_class":"low"}<br>{"event":"tool_blocked","toolName":"bash","risk_class":"critical"}<br>{"event":"auto_mode_approved","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_approved","toolName":"bash","risk_class":"low"}<br>{"event":"tool_seen","toolName":"write","risk_class":"low"}<br>{"event":"tool_seen","toolName":"read","risk_class":"low"}<br>{"event":"tool_seen","toolName":"edit","risk_class":"low"}<br>{"event":"auto_mode_blocked","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_seen","toolName":"bash","risk_class":"high"}<br>{"event":"tool_seen","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_seen","toolName":"bash","risk_class":"low"}<br>{"event":"tool_blocked","toolName":"bash","risk_class":"critical"}<br>{"event":"auto_mode_approved","toolName":"bash","risk_class":"medium"}<br>{"event":"tool_approved","toolName":"bash","risk_class":"low"}</div>
+        <div id="h1" class="abs">Set it.</div>
+        <div id="h2" class="abs">Walk away.</div>
+      </section>
+
+      <!-- 2 reveal -->
+      <section id="s2" class="clip scene" data-start="3.02" data-duration="4.0" data-track-index="1">
+        <div id="pi" class="abs">
+          <div class="blk" style="left:0;top:0"></div><div class="blk" style="left:96px;top:0"></div><div class="blk" style="left:192px;top:0"></div>
+          <div class="blk" style="left:0;top:96px"></div><div class="blk" style="left:192px;top:96px"></div>
+          <div class="blk" style="left:0;top:192px"></div><div class="blk" style="left:96px;top:192px"></div><div class="blk" style="left:288px;top:192px"></div>
+          <div class="blk" style="left:0;top:288px"></div><div class="blk" style="left:288px;top:288px"></div>
+        </div>
+        <div id="wordmark" class="abs"><img src="assets/img/wordmark.png" alt="SYSTEM wordmark" /></div>
+        <div id="tag" class="abs"><span class="l">Safety-first</span> kit for the pi coding agent.</div>
+        <div id="stats" class="abs">
+          <div class="stat"><b>52</b><span>extensions</span></div>
+          <div class="stat"><b>35</b><span>skills</span></div>
+          <div class="stat"><b>17</b><span>themes</span></div>
+          <div class="stat"><b>7</b><span>profiles</span></div>
+        </div>
+      </section>
+
+      <!-- 3 firewall -->
+      <section id="s3" class="clip scene" data-start="7.02" data-duration="6.0" data-track-index="1">
+        <div class="ctag abs mono">01 / 09</div>
+        <div class="ctitle abs">Firewall</div>
+        <div class="cclaim abs">Shell commands are parsed, not pattern-matched. Every call gets a tier.</div>
+        <div class="ctwist abs"><small>WHY IT'S DIFFERENT</small><span>Unparseable input is never auto-allowed.</span></div>
+        <div class="vis abs">
+          <div id="fr1" class="trow"><div class="tier" style="background:var(--low)">LOW</div><div class="tmid"><div class="tcmd mono">npm ci &amp;&amp; npm run build</div><div class="tdesc mono">routine work</div></div><div class="tverd" style="color:var(--low)">allow</div></div>
+          <div id="fr2" class="trow"><div class="tier" style="background:var(--med)">MEDIUM</div><div class="tmid"><div class="tcmd mono">git push origin main</div><div class="tdesc mono">worth a look</div></div><div class="tverd" style="color:var(--med)">ask</div></div>
+          <div id="fr3" class="trow"><div class="tier" style="background:var(--high)">HIGH</div><div class="tmid"><div class="tcmd mono">curl -fsSL get.example.sh | sh</div><div class="tdesc mono">needs an operator</div></div><div class="tverd" style="color:var(--high)">ask</div></div>
+          <div id="fr4" class="trow"><div class="tier" style="background:var(--crit)">CRITICAL</div><div class="tmid"><div class="tcmd mono">dd if=/dev/zero of=/dev/sda</div><div class="tdesc mono">never automatic</div></div><div class="tverd" style="color:var(--crit)">deny</div></div>
+          <div id="ffoot" class="abs"><span class="chip mono">r''m &rarr; rm <b>still HIGH</b></span><span class="chip mono">every decision <b>audited</b></span></div>
+        </div>
+      </section>
+
+      <!-- 4 judge -->
+      <section id="s4" class="clip scene" data-start="13.02" data-duration="6.0" data-track-index="1">
+        <div class="ctag abs mono">02 / 09</div>
+        <div class="ctitle abs">The judge</div>
+        <div class="cclaim abs">Medium-risk calls go to a model that can say no. Critical is never its call.</div>
+        <div class="ctwist abs"><small>WHY IT'S DIFFERENT</small><span>It learns from your approvals: 3 approvals, 2 sessions.</span></div>
+        <div class="vis abs">
+          <div id="jact" class="abs mono"><span class="tier" style="background:var(--med);font-size:22px;padding:3px 12px">MEDIUM</span><div class="c">curl -d @report.json https://api.example.com/upload</div></div>
+          <div id="jcard" class="abs">
+            <h3>judge<small>in-process &middot; 15s timeout</small></h3>
+            <div id="jchips">
+              <span class="chip mono">your latest request</span><span class="chip mono">session goal</span><span class="chip mono">last few actions</span><span class="chip mono">parsed effects</span><span class="chip mono">5 past decisions</span>
+            </div>
+            <div id="jverd"><span class="tier" style="background:var(--crit)">BLOCK</span><span class="r mono">sends your file to an unnamed host</span></div>
+          </div>
+          <div id="jnote" class="abs mono">&rarr; returned to the agent with the reason, so it can change course.<br>example verdict &middot; judge unavailable = it asks you instead.</div>
+        </div>
+      </section>
+
+      <!-- 5 subagents -->
+      <section id="s5" class="clip scene" data-start="19.02" data-duration="6.0" data-track-index="1">
+        <div class="ctag abs mono">03 / 09</div>
+        <div class="ctitle abs">Subagents</div>
+        <div class="cclaim abs">A planner, parallel implementers and an independent reviewer, each in its own process.</div>
+        <div class="ctwist abs"><small>WHY IT'S DIFFERENT</small><span>Done means verdicts pass, not "looks done".</span></div>
+        <div class="vis abs">
+          <div id="nscout" class="node" style="left:0;top:225px;width:158px;height:150px"><b>scout</b><span>fast recon, read-only</span></div>
+          <div id="nplan" class="node" style="left:196px;top:225px;width:164px;height:150px"><b>planner</b><span>plans, read-only</span></div>
+          <div id="ni1" class="node" style="left:410px;top:50px;width:206px;height:140px"><b>implementer</b><span>isolated context</span></div>
+          <div id="ni2" class="node" style="left:410px;top:230px;width:206px;height:140px"><b>implementer</b><span>isolated context</span></div>
+          <div id="ni3" class="node" style="left:410px;top:410px;width:206px;height:140px"><b>implementer</b><span>isolated context</span></div>
+          <div id="nrev" class="node" style="left:650px;top:225px;width:160px;height:150px"><b>reviewer</b><span>the final gate</span></div>
+          <div id="nok" class="node ok" style="left:846px;top:255px;width:94px;height:90px;text-align:center;padding-top:20px"><b style="font-size:44px;color:var(--low)">&#10003;</b></div>
+          <div class="edge e1" style="left:158px;top:298px;width:38px;height:4px"></div>
+          <div class="edge e2" style="left:360px;top:298px;width:26px;height:4px"></div>
+          <div class="edge e2" style="left:384px;top:118px;width:4px;height:364px"></div>
+          <div class="edge e2" style="left:384px;top:118px;width:26px;height:4px"></div>
+          <div class="edge e2" style="left:384px;top:298px;width:26px;height:4px"></div>
+          <div class="edge e2" style="left:384px;top:478px;width:26px;height:4px"></div>
+          <div class="edge e3" style="left:616px;top:118px;width:20px;height:4px"></div>
+          <div class="edge e3" style="left:616px;top:298px;width:34px;height:4px"></div>
+          <div class="edge e3" style="left:616px;top:478px;width:20px;height:4px"></div>
+          <div class="edge e3" style="left:634px;top:118px;width:4px;height:364px"></div>
+          <div class="edge e4" style="left:810px;top:298px;width:36px;height:4px"></div>
+          <div id="sfoot" class="abs"><span class="chip mono">own pi process each</span><span class="chip mono">keeps the firewall</span><span class="chip mono">one git worktree each</span></div>
+        </div>
+      </section>
+
+      <!-- 6 skills -->
+      <section id="s6" class="clip scene" data-start="25.02" data-duration="5.0" data-track-index="1">
+        <div class="ctag abs mono">04 / 09</div>
+        <div class="ctitle abs">Skills</div>
+        <div class="cclaim abs">35 built-in skills. skill-forge mines your sessions to propose new ones.</div>
+        <div class="ctwist abs"><small>WHY IT'S DIFFERENT</small><span>Skills are synthesised from your real traces.</span></div>
+        <div class="vis abs">
+          <div id="sgrid" class="abs" data-layout-allow-overlap></div>
+          <div id="prop" class="abs" data-layout-allow-overlap><small>.pi/skill-proposals/</small><h3>SKILL.md &middot; candidate</h3><p>mined from .pi/trace.jsonl<br>scored against the eval harness</p><div id="pstamp" class="abs">NEVER AUTO-INSTALLED</div></div>
+        </div>
+      </section>
+
+      <!-- 7 profiles -->
+      <section id="s7" class="clip scene" data-start="30.02" data-duration="6.0" data-track-index="1">
+        <div class="ctag abs mono">05 / 09</div>
+        <div class="ctitle abs">Profiles</div>
+        <div class="cclaim abs">Seven profiles, from small local models to full pentest engagements. Switch live with /profile.</div>
+        <div class="ctwist abs"><small>WHY IT'S DIFFERENT</small><span>Even lite keeps the default-deny firewall.</span></div>
+        <div class="vis abs" id="pvis"></div>
+      </section>
+
+      <!-- 8 autonomy -->
+      <section id="s8" class="clip scene" data-start="36.02" data-duration="6.0" data-track-index="1">
+        <div class="ctag abs mono">06 / 09</div>
+        <div class="ctitle abs">Autonomy</div>
+        <div class="cclaim abs">Unattended runs where the boundary is the container, not the agent's policy.</div>
+        <div class="ctwist abs"><small>WHY IT'S DIFFERENT</small><span>The real API key never enters the container.</span></div>
+        <div class="vis abs">
+          <div id="cbox" class="abs"><div class="lab mono">container<br>read-only rootfs &middot; no capabilities</div></div>
+          <div id="agent" class="abs mono"><b>pi agent</b><span>--mode rpc</span></div>
+          <div id="x1" class="exit ok" style="top:60px"><div class="ln"></div><div class="lb">relay &rarr; one model</div></div>
+          <div id="x2" class="exit ok" style="top:160px"><div class="ln"></div><div class="lb">git &rarr; local bare repo</div></div>
+          <div id="x3" class="exit no" style="top:290px"><div class="ln"></div><div class="lb">the internet</div></div>
+          <div id="x4" class="exit no" style="top:390px"><div class="ln"></div><div class="lb">your LAN</div></div>
+          <div id="x5" class="exit no" style="top:490px"><div class="ln"></div><div class="lb">DNS</div></div>
+          <div id="x6" class="exit no" style="top:590px"><div class="ln"></div><div class="lb">your host</div></div>
+          <div id="probe" class="abs"><span class="chip mono">probe checks the boundary before every start</span></div>
+        </div>
+      </section>
+
+      <!-- 9 costs -->
+      <section id="s9" class="clip scene" data-start="42.02" data-duration="5.0" data-track-index="1">
+        <div class="ctag abs mono">07 / 09</div>
+        <div class="ctitle abs">Costs</div>
+        <div class="cclaim abs">Live tokens, context and estimated spend, right in the status bar.</div>
+        <div class="ctwist abs"><small>WHY IT'S DIFFERENT</small><span>Price it yourself. Local models default to $0.</span></div>
+        <div class="vis abs mono">
+          <div id="work" class="abs">Reading server.ts&hellip; (1m 04s &middot; &uarr;12k &darr;~850)</div>
+          <div id="sbar" class="abs">
+            <div class="l1"><b>acme-api</b> &nbsp;&#9095; main &nbsp;&middot;&nbsp; lmstudio/local-coder-32b</div>
+            <div class="l2"><span>ctx</span><span id="ctxbar"><i id="ctxfill"></i></span><span id="ctxpct">47%</span><span id="ctxtok" class="tot">61.1k/131.1k</span></div>
+            <div class="l2 tot"><span>&uarr; 412k &nbsp;&darr; 38k &nbsp;cache 1.2M</span><span>&nbsp;&approx; <b id="cost">$0.02</b></span></div>
+            <div class="l3">todos 3/5 &nbsp;&middot;&nbsp; trace-ledger: 0 lost</div>
+          </div>
+          <div id="cjson" class="abs"><small>.pi-kit/costs.json</small><span class="k">"inputPerMTok":</span> <span class="v">0.15</span><br><span class="k">"outputPerMTok":</span> <span class="v">0.60</span><br><span class="k">"cacheReadPerMTok":</span> <span class="v">0.02</span></div>
+          <div id="cnote" class="abs">Context turns <span>amber</span> past 70%, red past 90%.</div>
+        </div>
+      </section>
+
+      <!-- 10 web console -->
+      <section id="s10" class="clip scene" data-start="47.02" data-duration="5.0" data-track-index="1">
+        <div class="ctag abs mono">08 / 09</div>
+        <div class="ctitle abs">Web console</div>
+        <div class="cclaim abs">Self-hosted, zero dependencies, live-synced with your terminal sessions.</div>
+        <div class="ctwist abs"><small>WHY IT'S DIFFERENT</small><span>It never writes your session files.</span></div>
+        <div class="vis abs">
+          <div id="wframe" class="abs"><img id="wimg" src="assets/img/console.jpg" alt="pi-console" /></div>
+          <div id="wc1" class="abs"><span class="chip mono">the firewall block, in the transcript</span></div>
+          <div id="wc2" class="abs"><span class="chip mono">tokens &middot; cost &middot; context window</span></div>
+        </div>
+      </section>
+
+      <!-- 11 modular -->
+      <section id="s11" class="clip scene" data-start="52.02" data-duration="5.0" data-track-index="1">
+        <div class="ctag abs mono">09 / 09</div>
+        <div class="ctitle abs">Modular</div>
+        <div class="cclaim abs">Extensions can't import each other. Pull one out with a single command.</div>
+        <div class="ctwist abs"><small>WHY IT'S DIFFERENT</small><span>verify.mjs fails the build if they do.</span></div>
+        <div class="vis abs mono">
+          <div id="l1" class="lane"><b style="font-family:'Space Grotesk'">in-repo</b><div class="p">packages/extensions/src/&lt;name&gt;/</div><div class="n">edit, /reload, done</div></div>
+          <div id="l2" class="lane" style="top:158px"><b style="font-family:'Space Grotesk'">vendored</b><div class="p">packages/extensions/third_party/&lt;name&gt;/</div><div class="n">SOURCE.md records upstream + your changes</div></div>
+          <div id="l3" class="lane" style="top:316px"><b style="font-family:'Space Grotesk'">external</b><div class="p">packages/core/sources.json</div><div class="n">git@tag, updates independently</div></div>
+          <div id="rule" class="abs"><span class="chip">imports: node:* + typebox only</span><span class="chip x">no sibling imports</span></div>
+          <div id="mterm" class="abs"><span class="prompt">$</span><span id="mtyped">npm run extract -- secret-guard</span><span id="mcur"></span></div>
+          <div id="mnote" class="abs">a five-minute job</div>
+        </div>
+      </section>
+
+      <!-- 12 outro -->
+      <section id="s12" class="clip scene" data-start="57.02" data-duration="6.48" data-track-index="1">
+        <div id="o1" class="abs">Set it. Walk away.</div>
+        <div id="o2" class="abs">Review the diff.</div>
+        <div id="install" class="abs mono"><span class="prompt">$</span><span id="typed2">node packages/core/install.mjs --profile balanced</span><span id="cursor2"></span></div>
+        <div id="endrow" class="abs">
+          <div id="minipi">
+            <div class="mblk" style="left:0;top:0"></div><div class="mblk" style="left:30px;top:0"></div><div class="mblk" style="left:60px;top:0"></div>
+            <div class="mblk" style="left:0;top:30px"></div><div class="mblk" style="left:60px;top:30px"></div>
+            <div class="mblk" style="left:0;top:60px"></div><div class="mblk" style="left:30px;top:60px"></div><div class="mblk" style="left:90px;top:60px"></div>
+            <div class="mblk" style="left:0;top:90px"></div><div class="mblk" style="left:90px;top:90px"></div>
+          </div>
+          <div class="pkg">@satunix/pi-system</div>
+          <div class="lic mono">MIT</div>
+        </div>
+        <div id="here" class="abs mono">SATUNIX WAS HERE</div>
+        <div id="robot" class="abs"><img src="assets/img/robot.png" alt="pi-system robot" /></div>
+      </section>
+
+      <!-- audio -->
+      <audio id="music" data-start="0" data-duration="63.5" data-track-index="10" data-volume="0.34" data-fade-in="0.8" data-fade-out="2.0" src="assets/music/happy-beats-business-moves-vol-1-by-ende-dot-app.mp3"></audio>
+      <audio id="fx0" data-start="0.32" data-duration="0.14" data-track-index="20" data-volume="0.50" src="assets/sfx/impact/impactSoft_medium_000.ogg"></audio>
+      <audio id="fx1" data-start="1.17" data-duration="0.20" data-track-index="21" data-volume="0.60" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+      <audio id="fx2" data-start="2.99" data-duration="0.16" data-track-index="22" data-volume="0.70" src="assets/sfx/impact/impactSoft_medium_002.ogg"></audio>
+      <audio id="fx3" data-start="3.49" data-duration="0.13" data-track-index="23" data-volume="0.40" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx4" data-start="5.02" data-duration="0.13" data-track-index="24" data-volume="0.26" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx5" data-start="5.22" data-duration="0.21" data-track-index="25" data-volume="0.26" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx6" data-start="5.42" data-duration="0.13" data-track-index="26" data-volume="0.26" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx7" data-start="5.62" data-duration="0.21" data-track-index="27" data-volume="0.26" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx8" data-start="6.99" data-duration="0.16" data-track-index="28" data-volume="0.55" src="assets/sfx/impact/impactSoft_medium_003.ogg"></audio>
+      <audio id="fx9" data-start="7.99" data-duration="0.62" data-track-index="29" data-volume="0.35" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="fx10" data-start="8.99" data-duration="0.62" data-track-index="30" data-volume="0.35" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="fx11" data-start="9.52" data-duration="0.21" data-track-index="31" data-volume="0.25" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx12" data-start="9.99" data-duration="0.62" data-track-index="32" data-volume="0.35" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="fx13" data-start="10.99" data-duration="0.60" data-track-index="33" data-volume="0.35" src="assets/sfx/casino/card-slide-2.ogg"></audio>
+      <audio id="fx14" data-start="11.02" data-duration="0.14" data-track-index="34" data-volume="0.50" src="assets/sfx/interface/bong_001.ogg"></audio>
+      <audio id="fx15" data-start="11.52" data-duration="0.13" data-track-index="35" data-volume="0.30" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx16" data-start="12.99" data-duration="0.17" data-track-index="36" data-volume="0.55" src="assets/sfx/impact/impactSoft_medium_004.ogg"></audio>
+      <audio id="fx17" data-start="13.49" data-duration="0.60" data-track-index="37" data-volume="0.35" src="assets/sfx/casino/card-slide-2.ogg"></audio>
+      <audio id="fx18" data-start="13.99" data-duration="0.13" data-track-index="38" data-volume="0.26" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx19" data-start="14.49" data-duration="0.21" data-track-index="39" data-volume="0.26" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx20" data-start="14.99" data-duration="0.13" data-track-index="40" data-volume="0.26" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx21" data-start="15.49" data-duration="0.21" data-track-index="41" data-volume="0.26" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx22" data-start="15.52" data-duration="0.13" data-track-index="42" data-volume="0.25" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx23" data-start="15.99" data-duration="0.13" data-track-index="43" data-volume="0.26" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx24" data-start="16.49" data-duration="0.16" data-track-index="44" data-volume="0.50" src="assets/sfx/impact/impactSoft_medium_003.ogg"></audio>
+      <audio id="fx25" data-start="16.52" data-duration="0.14" data-track-index="45" data-volume="0.50" src="assets/sfx/interface/bong_001.ogg"></audio>
+      <audio id="fx26" data-start="18.99" data-duration="0.14" data-track-index="46" data-volume="0.55" src="assets/sfx/impact/impactSoft_medium_000.ogg"></audio>
+      <audio id="fx27" data-start="19.49" data-duration="0.13" data-track-index="47" data-volume="0.30" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx28" data-start="19.99" data-duration="0.21" data-track-index="48" data-volume="0.30" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx29" data-start="20.49" data-duration="0.71" data-track-index="49" data-volume="0.35" src="assets/sfx/casino/card-place-1.ogg"></audio>
+      <audio id="fx30" data-start="21.49" data-duration="0.13" data-track-index="50" data-volume="0.30" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx31" data-start="21.99" data-duration="1.50" data-track-index="51" data-volume="0.40" src="assets/sfx/impact/impactBell_heavy_000.ogg"></audio>
+      <audio id="fx32" data-start="22.02" data-duration="0.21" data-track-index="52" data-volume="0.22" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx33" data-start="22.49" data-duration="0.13" data-track-index="53" data-volume="0.25" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx34" data-start="22.99" data-duration="0.21" data-track-index="54" data-volume="0.25" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx35" data-start="23.49" data-duration="0.13" data-track-index="55" data-volume="0.25" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx36" data-start="24.99" data-duration="0.20" data-track-index="56" data-volume="0.55" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+      <audio id="fx37" data-start="25.49" data-duration="0.13" data-track-index="57" data-volume="0.22" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx38" data-start="25.99" data-duration="0.21" data-track-index="58" data-volume="0.22" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx39" data-start="26.49" data-duration="0.13" data-track-index="59" data-volume="0.22" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx40" data-start="27.49" data-duration="0.62" data-track-index="60" data-volume="0.40" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="fx41" data-start="28.02" data-duration="0.13" data-track-index="61" data-volume="0.22" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx42" data-start="28.49" data-duration="0.03" data-track-index="62" data-volume="0.40" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="fx43" data-start="29.99" data-duration="0.16" data-track-index="63" data-volume="0.55" src="assets/sfx/impact/impactSoft_medium_002.ogg"></audio>
+      <audio id="fx44" data-start="30.49" data-duration="0.13" data-track-index="64" data-volume="0.27" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx45" data-start="30.99" data-duration="0.21" data-track-index="65" data-volume="0.27" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx46" data-start="31.49" data-duration="0.13" data-track-index="66" data-volume="0.27" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx47" data-start="31.99" data-duration="0.21" data-track-index="67" data-volume="0.27" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx48" data-start="32.49" data-duration="0.13" data-track-index="68" data-volume="0.27" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx49" data-start="32.99" data-duration="0.21" data-track-index="69" data-volume="0.27" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx50" data-start="33.49" data-duration="0.13" data-track-index="70" data-volume="0.27" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx51" data-start="33.52" data-duration="0.21" data-track-index="71" data-volume="0.22" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx52" data-start="35.99" data-duration="0.16" data-track-index="72" data-volume="0.55" src="assets/sfx/impact/impactSoft_medium_003.ogg"></audio>
+      <audio id="fx53" data-start="36.49" data-duration="0.71" data-track-index="73" data-volume="0.35" src="assets/sfx/casino/card-place-1.ogg"></audio>
+      <audio id="fx54" data-start="36.99" data-duration="0.13" data-track-index="74" data-volume="0.28" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx55" data-start="37.49" data-duration="0.21" data-track-index="75" data-volume="0.30" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx56" data-start="37.99" data-duration="0.13" data-track-index="76" data-volume="0.30" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx57" data-start="38.49" data-duration="0.03" data-track-index="77" data-volume="0.40" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="fx58" data-start="38.99" data-duration="0.03" data-track-index="78" data-volume="0.40" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="fx59" data-start="39.02" data-duration="0.13" data-track-index="79" data-volume="0.20" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx60" data-start="39.49" data-duration="0.21" data-track-index="80" data-volume="0.28" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx61" data-start="41.99" data-duration="0.17" data-track-index="81" data-volume="0.55" src="assets/sfx/impact/impactSoft_medium_004.ogg"></audio>
+      <audio id="fx62" data-start="42.49" data-duration="0.62" data-track-index="82" data-volume="0.35" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="fx63" data-start="43.49" data-duration="0.60" data-track-index="83" data-volume="0.35" src="assets/sfx/casino/card-slide-2.ogg"></audio>
+      <audio id="fx64" data-start="45.02" data-duration="0.13" data-track-index="84" data-volume="0.22" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx65" data-start="45.07" data-duration="0.03" data-track-index="85" data-volume="0.40" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="fx66" data-start="45.97" data-duration="0.03" data-track-index="86" data-volume="0.40" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="fx67" data-start="46.99" data-duration="0.14" data-track-index="87" data-volume="0.55" src="assets/sfx/impact/impactSoft_medium_000.ogg"></audio>
+      <audio id="fx68" data-start="47.29" data-duration="0.60" data-track-index="88" data-volume="0.40" src="assets/sfx/casino/card-slide-2.ogg"></audio>
+      <audio id="fx69" data-start="48.99" data-duration="0.13" data-track-index="89" data-volume="0.30" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx70" data-start="49.52" data-duration="0.21" data-track-index="90" data-volume="0.22" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx71" data-start="50.49" data-duration="0.21" data-track-index="91" data-volume="0.30" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx72" data-start="51.99" data-duration="0.20" data-track-index="92" data-volume="0.55" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+      <audio id="fx73" data-start="52.49" data-duration="0.62" data-track-index="93" data-volume="0.35" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="fx74" data-start="53.49" data-duration="0.60" data-track-index="94" data-volume="0.35" src="assets/sfx/casino/card-slide-2.ogg"></audio>
+      <audio id="fx75" data-start="54.02" data-duration="0.21" data-track-index="95" data-volume="0.22" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="fx76" data-start="54.49" data-duration="0.62" data-track-index="96" data-volume="0.35" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="fx77" data-start="54.99" data-duration="0.13" data-track-index="97" data-volume="0.30" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="fx78" data-start="55.57" data-duration="0.27" data-track-index="98" data-volume="0.30" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+      <audio id="fx79" data-start="55.72" data-duration="0.27" data-track-index="99" data-volume="0.30" src="assets/sfx/keyboard/keypress-003.wav"></audio>
+      <audio id="fx80" data-start="55.87" data-duration="0.27" data-track-index="100" data-volume="0.30" src="assets/sfx/keyboard/keypress-005.wav"></audio>
+      <audio id="fx81" data-start="56.02" data-duration="0.27" data-track-index="101" data-volume="0.30" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+      <audio id="fx82" data-start="56.17" data-duration="0.27" data-track-index="102" data-volume="0.30" src="assets/sfx/keyboard/keypress-003.wav"></audio>
+      <audio id="fx83" data-start="56.32" data-duration="0.27" data-track-index="103" data-volume="0.30" src="assets/sfx/keyboard/keypress-005.wav"></audio>
+      <audio id="fx84" data-start="56.99" data-duration="0.16" data-track-index="104" data-volume="0.65" src="assets/sfx/impact/impactSoft_medium_002.ogg"></audio>
+      <audio id="fx85" data-start="57.99" data-duration="0.17" data-track-index="105" data-volume="0.60" src="assets/sfx/impact/impactSoft_medium_004.ogg"></audio>
+      <audio id="fx86" data-start="59.49" data-duration="0.62" data-track-index="106" data-volume="0.35" src="assets/sfx/casino/card-slide-1.ogg"></audio>
+      <audio id="fx87" data-start="59.72" data-duration="0.27" data-track-index="107" data-volume="0.30" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+      <audio id="fx88" data-start="59.92" data-duration="0.27" data-track-index="108" data-volume="0.30" src="assets/sfx/keyboard/keypress-006.wav"></audio>
+      <audio id="fx89" data-start="60.12" data-duration="0.27" data-track-index="109" data-volume="0.30" src="assets/sfx/keyboard/keypress-005.wav"></audio>
+      <audio id="fx90" data-start="60.32" data-duration="0.27" data-track-index="110" data-volume="0.30" src="assets/sfx/keyboard/keypress-004.wav"></audio>
+      <audio id="fx91" data-start="60.52" data-duration="0.27" data-track-index="111" data-volume="0.30" src="assets/sfx/keyboard/keypress-003.wav"></audio>
+      <audio id="fx92" data-start="60.72" data-duration="0.27" data-track-index="112" data-volume="0.30" src="assets/sfx/keyboard/keypress-002.wav"></audio>
+      <audio id="fx93" data-start="60.97" data-duration="0.03" data-track-index="113" data-volume="0.34" src="assets/sfx/interface/click_003.ogg"></audio>
+      <audio id="fx94" data-start="60.99" data-duration="0.67" data-track-index="114" data-volume="0.62" src="assets/sfx/impact/impactBell_heavy_003.ogg"></audio>
+      <audio id="fx95" data-start="61.52" data-duration="0.21" data-track-index="115" data-volume="0.38" src="assets/sfx/interface/drop_002.ogg"></audio>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const E = "power3.out";
+      const S = { reveal: 3.02, fw: 7.02, judge: 13.02, sub: 19.02, skills: 25.02, prof: 30.02, auto: 36.02, cost: 42.02, web: 47.02, mod: 52.02, outro: 57.02 };
+      const $ = (s) => document.querySelector(s);
+
+      /* audio-reactive glow: precomputed music RMS, a pure function of time */
+      const gl = $("#glow");
+      const drive = { t: 0, gain: 0.35 };
+      tl.to(drive, { t: 63.5, duration: 63.5, ease: "none", onUpdate() {
+        const i = Math.max(0, Math.min(window.MUSIC_RMS.length - 1, Math.round(drive.t * 30)));
+        const r = window.MUSIC_RMS[i];
+        gl.style.opacity = (0.26 + r * 0.5) * drive.gain;
+        gl.style.transform = "scale(" + (1 + r * 0.05) + ")";
+      } }, 0);
+      tl.to(drive, { gain: 1, duration: 0.6, ease: "none" }, 2.6);
+
+      /* ---- 1 hook (no beat yet; the first beat lands at 3.02s) ---- */
+      tl.to("#audit", { y: -520, duration: 3.0, ease: "none" }, 0);
+      tl.fromTo("#h1", { opacity: 0, y: 50, scale: 1.05 }, { opacity: 1, y: 0, scale: 1, duration: 0.35, ease: "power4.out" }, 0.35);
+      tl.fromTo("#h2", { opacity: 0, y: 50, scale: 1.05 }, { opacity: 1, y: 0, scale: 1, duration: 0.35, ease: "power4.out" }, 1.2);
+      tl.to("#s1", { opacity: 0, duration: 0.2, ease: "none" }, 2.82);
+
+      /* ---- 2 reveal on the first downbeat ---- */
+      // beat-locked: 3.02s (first block on the downbeat)
+      document.querySelectorAll("#pi .blk").forEach((b, i) => tl.fromTo(b, { opacity: 0, scale: 0.2 }, { opacity: 1, scale: 1, duration: 0.22, ease: "back.out(2.2)" }, S.reveal + i * 0.045));
+      tl.to("#wordmark", { clipPath: "inset(0 0% 0 0)", duration: 0.5, ease: "power2.out" }, S.reveal + 0.5);
+      tl.fromTo("#tag", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.45, ease: E }, S.reveal + 1.0);
+      document.querySelectorAll(".stat").forEach((s, i) => tl.fromTo(s, { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.3, ease: E }, S.reveal + 2.0 + i * 0.2));
+      tl.to("#s2", { opacity: 0, x: -60, duration: 0.25, ease: "power2.in" }, S.reveal + 3.75);
+
+      /* ---- chapter grammar: tag, title (beat-locked to the bar line), claim, twist, exit, progress ---- */
+      function chapter(n, T, dur, twistAt) {
+        const s = "#s" + (n + 2);
+        tl.fromTo(s + " .ctag", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.3, ease: E }, T);
+        tl.fromTo(s + " .ctitle", { opacity: 0, y: 30, scale: 1.05 }, { opacity: 1, y: 0, scale: 1, duration: 0.35, ease: "power4.out" }, T);
+        tl.fromTo(s + " .cclaim", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, T + 0.5);
+        tl.fromTo(s + " .ctwist", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, T + twistAt);
+        tl.to(s, { opacity: 0, x: -50, duration: 0.25, ease: "power2.in" }, T + dur - 0.25);
+        for (let k = 1; k <= 9; k++) {
+          tl.set("#p" + k, { backgroundColor: k < n ? "#8b949e" : k === n ? "#c2fe0b" : "#30363d" }, T);
+        }
+      }
+      tl.to("#prog", { opacity: 1, duration: 0.3 }, S.fw);
+      tl.to("#prog", { opacity: 0, duration: 0.3 }, S.outro - 0.3);
+      // beat-locked: 13.02s (judge title on the bar line); every chapter title sits on a bar line
+      chapter(1, S.fw, 6.0, 2.5); chapter(2, S.judge, 6.0, 2.5); chapter(3, S.sub, 6.0, 3.0); chapter(4, S.skills, 5.0, 3.0);
+      chapter(5, S.prof, 6.0, 3.5); chapter(6, S.auto, 6.0, 3.5); chapter(7, S.cost, 5.0, 3.0); chapter(8, S.web, 5.0, 3.0); chapter(9, S.mod, 5.0, 2.5);
+
+      /* ---- 3 firewall: rows on alternate beats (text stays readable) ---- */
+      // beat-grid: rows at +1.0 +2.0 +3.0 +4.0
+      [["#fr1", 1.0], ["#fr2", 2.0], ["#fr3", 3.0], ["#fr4", 4.0]].forEach(([id, dt]) => {
+        tl.fromTo(id, { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.3, ease: E }, S.fw + dt);
+        tl.fromTo(id + " .tier", { scale: 1.5 }, { scale: 1, duration: 0.2, ease: "power4.out" }, S.fw + dt + 0.1);
+      });
+      tl.fromTo("#fr4", { borderColor: "#5a2426" }, { borderColor: "#f85149", duration: 0.2, ease: "none" }, S.fw + 4.2);
+      document.querySelectorAll("#ffoot .chip").forEach((c, i) => tl.fromTo(c, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.3, ease: E }, S.fw + 4.5 + i * 0.25));
+
+      /* ---- 4 judge ---- */
+      tl.fromTo("#jact", { opacity: 0, y: -30 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, S.judge + 0.5);
+      tl.fromTo("#jcard", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, S.judge + 0.75);
+      // beat-grid: five context chips
+      document.querySelectorAll("#jchips .chip").forEach((c, i) => tl.fromTo(c, { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.25, ease: E }, S.judge + 1.0 + i * 0.5));
+      tl.fromTo("#jverd", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.25, ease: "power4.out" }, S.judge + 3.5);
+      tl.fromTo("#jnote", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, S.judge + 4.0);
+
+      /* ---- 5 subagents ---- */
+      const nodeIn = (sel, t, d) => tl.fromTo(sel, { opacity: 0, y: 30, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.3, ease: E }, t);
+      nodeIn("#nscout", S.sub + 0.5); nodeIn("#nplan", S.sub + 1.0);
+      tl.to(".e1", { opacity: 1, duration: 0.2 }, S.sub + 0.9);
+      tl.to(".e2", { opacity: 1, duration: 0.2 }, S.sub + 1.4);
+      ["#ni1", "#ni2", "#ni3"].forEach((s, i) => nodeIn(s, S.sub + 1.5 + i * 0.12));
+      nodeIn("#nrev", S.sub + 2.5); tl.to(".e3", { opacity: 1, duration: 0.2 }, S.sub + 2.4);
+      tl.to(".e4", { opacity: 1, duration: 0.2 }, S.sub + 2.9); nodeIn("#nok", S.sub + 3.0);
+      document.querySelectorAll("#sfoot .chip").forEach((c, i) => tl.fromTo(c, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.3, ease: E }, S.sub + 3.5 + i * 0.5));
+
+      /* ---- 6 skills ---- */
+      const skills = ["verification-loop", "task-decomposition", "code-security-review", "recovery-debugging", "patch-hygiene", "codebase-navigation", "small-model-execution", "context-management", "supply-chain-review", "api-testing", "methodology-mapper", "self-reflection"];
+      const grid = $("#sgrid");
+      skills.forEach((n, i) => {
+        const d = document.createElement("div");
+        d.className = "sk"; d.id = "sk" + i; d.textContent = n;
+        d.style.left = (i % 2) * 488 + "px"; d.style.top = Math.floor(i / 2) * 92 + "px";
+        grid.appendChild(d);
+        tl.fromTo(d, { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.25, ease: E }, S.skills + 0.5 + i * 0.1);
+      });
+      tl.to("#sgrid", { opacity: 0.08, duration: 0.3, ease: "none" }, S.skills + 2.5);
+      tl.fromTo("#prop", { opacity: 0, y: 50, scale: 0.96 }, { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: "power3.out" }, S.skills + 2.5);
+      tl.fromTo("#pstamp", { opacity: 0, scale: 1.6 }, { opacity: 1, scale: 1, duration: 0.2, ease: "power4.out" }, S.skills + 3.5);
+
+      /* ---- 7 profiles: one row per beat ---- */
+      const profs = [["quick", "T0–T1", 25, "guardrails + memory"], ["balanced", "T0–T2", 50, "+ verification"], ["long-horizon", "T0–T3", 75, "+ orchestration"], ["autonomous", "T0–T3", 75, "+ walk-away loop"], ["self-improving", "T0–T4", 100, "+ dual review, forge"], ["pentest", "T0–T3+", 82, "strict policy, ROE"], ["lite", "T0–T3", 75, "small local models"]];
+      const pv = $("#pvis");
+      profs.forEach(([n, r, w, a], i) => {
+        const d = document.createElement("div");
+        d.className = "prow"; d.id = "pr" + i; d.style.top = i * 102 + "px";
+        d.innerHTML = '<div class="pn mono">' + n + '</div><div class="pbar"><i></i></div><div class="pr mono">' + r + '</div><div class="pa mono">' + a + '</div>';
+        pv.appendChild(d);
+        // beat-grid: one profile per beat
+        tl.fromTo(d, { opacity: 0, x: 50 }, { opacity: 1, x: 0, duration: 0.3, ease: E }, S.prof + 0.5 + i * 0.5);
+        tl.to("#pr" + i + " .pbar i", { width: w + "%", duration: 0.45, ease: "power2.out" }, S.prof + 0.6 + i * 0.5);
+      });
+
+      /* ---- 8 autonomy ---- */
+      tl.fromTo("#cbox", { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.4, ease: E }, S.auto + 0.5);
+      tl.fromTo("#agent", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.3, ease: E }, S.auto + 1.0);
+      const exitIn = (id, t) => tl.fromTo(id, { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.3, ease: E }, t);
+      exitIn("#x1", S.auto + 1.5); exitIn("#x2", S.auto + 2.0);
+      exitIn("#x3", S.auto + 2.5); exitIn("#x4", S.auto + 2.62);
+      exitIn("#x5", S.auto + 3.0); exitIn("#x6", S.auto + 3.12);
+      tl.fromTo("#probe", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, S.auto + 3.5);
+
+      /* ---- 9 costs ---- */
+      tl.fromTo("#sbar", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, S.cost + 0.5);
+      tl.fromTo("#work", { opacity: 0 }, { opacity: 1, duration: 0.3 }, S.cost + 0.5);
+      tl.fromTo("#cjson", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, S.cost + 1.5);
+      tl.fromTo("#cnote", { opacity: 0, x: 20 }, { opacity: 1, x: 0, duration: 0.4, ease: E }, S.cost + 2.0);
+      const ctx = { p: 47, cost: 0.02 };
+      const fill = $("#ctxfill"), pct = $("#ctxpct"), tok = $("#ctxtok"), costEl = $("#cost");
+      tl.to(ctx, { p: 91, cost: 0.11, duration: 2.0, ease: "none", onUpdate() {
+        const p = ctx.p;
+        fill.style.width = p + "%";
+        fill.style.backgroundColor = p > 90 ? "#f85149" : p > 70 ? "#d29922" : "#3fb950";
+        pct.textContent = Math.round(p) + "%";
+        tok.textContent = (131.1 * p / 100).toFixed(1) + "k/131.1k";
+        costEl.textContent = "$" + ctx.cost.toFixed(2);
+      } }, S.cost + 2.0);
+
+      /* ---- 10 web console: camera moves on the real UI ---- */
+      const FW = 1040, FH = 585;
+      const zoom = (cx, cy, s) => ({ x: FW / 2 - cx * s, y: FH / 2 - cy * s, scale: s });
+      tl.fromTo("#wframe", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.4, ease: E }, S.web + 0.3);
+      tl.to("#wimg", Object.assign({ duration: 0.7, ease: "power2.inOut" }, zoom(515, 345, 2.2)), S.web + 1.3);
+      tl.fromTo("#wc1", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.3, ease: E }, S.web + 2.0);
+      tl.to("#wimg", Object.assign({ duration: 0.7, ease: "power2.inOut" }, zoom(867, 291, 3.0)), S.web + 3.0);
+      tl.to("#wc1", { opacity: 0, duration: 0.2 }, S.web + 3.3);
+      tl.fromTo("#wc2", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.3, ease: E }, S.web + 3.5);
+
+      /* ---- 11 modular ---- */
+      // beat-grid: lanes on alternate beats
+      [["#l1", 0.5], ["#l2", 1.5], ["#l3", 2.5]].forEach(([id, dt]) => tl.fromTo(id, { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.3, ease: E }, S.mod + dt));
+      tl.fromTo("#rule", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.3, ease: E }, S.mod + 3.0);
+      tl.fromTo("#mterm", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.3, ease: E }, S.mod + 3.5);
+      tl.to("#mtyped", { width: "32ch", duration: 0.9, ease: "steps(32)" }, S.mod + 3.55);
+      tl.fromTo("#mnote", { opacity: 0 }, { opacity: 1, duration: 0.3 }, S.mod + 4.5);
+
+      /* ---- 12 outro ---- */
+      // beat-locked: 57.02s (punchline on the bar line)
+      tl.fromTo("#o1", { opacity: 0, scale: 1.12 }, { opacity: 1, scale: 1, duration: 0.3, ease: "power4.out" }, S.outro);
+      tl.fromTo("#o2", { opacity: 0, scale: 1.12 }, { opacity: 1, scale: 1, duration: 0.3, ease: "power4.out" }, S.outro + 1.0);
+      tl.fromTo("#install", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.35, ease: E }, S.outro + 2.5);
+      tl.to("#typed2", { width: "49ch", duration: 1.2, ease: "steps(49)" }, S.outro + 2.7);
+      [[3.95, 0], [4.1, 1]].forEach(([dt, o]) => tl.set("#cursor2", { opacity: o }, S.outro + dt));
+      // beat-locked: 61.02s (end card, strong cue)
+      tl.fromTo("#endrow", { opacity: 0, y: 40, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: "back.out(1.6)" }, S.outro + 4.0);
+      tl.fromTo("#robot", { opacity: 0, y: 120 }, { opacity: 1, y: 0, duration: 0.45, ease: "back.out(1.4)" }, S.outro + 4.5);
+      tl.fromTo("#here", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.3, ease: E }, S.outro + 4.75);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

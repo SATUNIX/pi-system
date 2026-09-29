@@ -1,0 +1,2 @@
+pi-system is a safety-first kit for the pi coding agent: a firewall that parses your shell commands, a judge that can say no, isolated subagents, sandboxed unattended runs, live cost tracking and a web console.
+52 extensions, 35 skills, 7 profiles, MIT.
