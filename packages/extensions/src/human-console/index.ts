@@ -198,7 +198,9 @@ export default function humanConsole(pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => { if (watcher) clearInterval(watcher); watcher = null; });
   pi.registerTool({ name: "ask_human", label: "Ask human", description: "Ask the operator a concise clarifying question.", parameters: Type.Object({ question: Type.String(), options: Type.Optional(Type.Array(Type.String())), context: Type.Optional(Type.String()), timeoutMs: Type.Optional(Type.Number({ minimum: 1 })) }), async execute(_id, params, signal, _onUpdate, ctx: any) {
     let answer: string | null = null;
-    if (ctx.hasUI && ctx.ui) answer = (await answerQuestion(ctx, { kind: "question", ...params }, signal, requestedTimeout(params))).answer;
+    // An interactive question is bounded too: a UI that never answers (a closed terminal, an RPC client that ignores
+    // the request) must not park the agent for ever. Without a timeoutMs of its own it gets the console's timeout.
+    if (ctx.hasUI && ctx.ui) answer = (await answerQuestion(ctx, { kind: "question", ...params }, signal, requestedTimeout(params, Math.max(1, Number(process.env.PI_KIT_HUMAN_CONSOLE_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS)))).answer;
     else {
       const id = crypto.randomUUID(); audit(ctx.cwd, { event: "ask_human_pending", id });
       const outcome = await brokerRequest(ctx.cwd, { id, kind: "question", requester: requester(ctx), ...params }, signal);

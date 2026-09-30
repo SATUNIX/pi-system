@@ -393,6 +393,19 @@ try {
     ok("interactive prompts (card, confirm, note) are bounded by a timeout and the abort signal; a broken UI is UNCERTAIN");
   }
 
+  // 5b. The human console's own interactive question is bounded as well (ask_human on a UI that never answers).
+  {
+    const humanConsole = await loadExtension("extensions/human-console/index.ts");
+    const hpi = fakePi();
+    humanConsole(hpi.api);
+    const never = () => new Promise(() => {});
+    const t0 = Date.now();
+    const answered = await limited(hpi.tools.get("ask_human").execute("q1", { question: "Proceed?", options: ["yes", "no"] }, undefined, undefined, { cwd: ws, hasUI: true, ui: { select: never, input: never } }), 4000, "ask_human");
+    assert.match(answered.content[0].text, /No human answered in time/);
+    assert.ok(Date.now() - t0 >= 100 && Date.now() - t0 < 2500, "bounded by the console timeout (150 ms here)");
+    ok("an interactive ask_human on a UI that never answers gives up at the console timeout");
+  }
+
   // 6. A command the classifier cannot read is UNCERTAIN on the card; a plain ask is not. --------------
   {
     const { pi } = await gate(null);
