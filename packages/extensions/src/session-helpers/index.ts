@@ -321,10 +321,13 @@ export function diffSets(from: string[], to: string[]): { add: string[]; remove:
   return { add: to.filter((n) => !from.includes(n)), remove: from.filter((n) => !to.includes(n)) };
 }
 
-// Which profile the loaded set matches: exact, or the closest by symmetric difference.
-export function matchProfile(kitRoot: string, loaded: string[], profiles: string[]): { exact?: string; closest?: string; distance: number } {
+// Which profile the loaded set matches: exact, or the closest by symmetric difference. Profiles can
+// have identical extension sets (long-horizon and autonomous do): `prefer` (the marker's profile) wins
+// such a tie, otherwise the alphabetically first twin would be reported for both.
+export function matchProfile(kitRoot: string, loaded: string[], profiles: string[], prefer?: string): { exact?: string; closest?: string; distance: number } {
   let best: { name?: string; distance: number } = { distance: Number.POSITIVE_INFINITY };
-  for (const name of profiles) {
+  const ordered = prefer && profiles.includes(prefer) ? [prefer, ...profiles.filter((p) => p !== prefer)] : profiles;
+  for (const name of ordered) {
     const d = diffSets(loaded, profileKitExtensions(kitRoot, name));
     const distance = d.add.length + d.remove.length;
     if (distance === 0) return { exact: name, closest: name, distance: 0 };
@@ -846,7 +849,7 @@ export default function (pi: ExtensionAPI) {
       // "Current" is what is actually configured, not what the marker last recorded: the two
       // drift when settings are edited by hand, and a stale marker made /profile refuse to
       // re-apply a profile ("already on X") that was no longer in effect.
-      const match = loaded ? matchProfile(kitRoot, loaded, profiles.map((p) => p.name)) : { exact: undefined, closest: marker.profile, distance: 0 };
+      const match = loaded ? matchProfile(kitRoot, loaded, profiles.map((p) => p.name), marker.profile) : { exact: undefined, closest: marker.profile, distance: 0 };
       // With no readable kit entry (missing or unfiltered) the marker is the only record.
       const current = match.exact ?? (loaded ? null : marker.profile ?? null);
       const currentLabel = current ?? (loaded ? `custom (closest: ${match.closest ?? "?"}, ${match.distance} difference${match.distance === 1 ? "" : "s"})` : `${marker.profile ?? "unknown"} (unfiltered package)`);

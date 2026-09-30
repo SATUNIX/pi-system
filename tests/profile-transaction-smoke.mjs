@@ -473,6 +473,47 @@ tests["snapshot/restore round-trips bytes, mode and absence"] = () => {
   } finally { rmWorkspace(dir); }
 };
 
+// The real thing: the actual packages/core/install.mjs and the shipped profiles, driven through the real
+// command, must pass the command's own verification for every profile (a verifier that rejects a good
+// switch would roll back every /profile in production).
+tests["the real installer and the shipped profiles pass /profile's verification for all seven profiles"] = async () => {
+  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+  const dir = tmp("pi-kit-txn-real-");
+  const agent = path.join(dir, "agent");
+  const project = path.join(dir, "project");
+  const bin = path.join(dir, "bin");
+  for (const d of [agent, project, bin]) fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(bin, "pi"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  fs.writeFileSync(path.join(agent, "settings.json"), JSON.stringify({ theme: "dark", packages: [repo] }, null, 2));
+  const restores = [
+    setEnv("PI_CODING_AGENT_DIR", agent),
+    setEnv("PI_KIT_ROOT", repo),
+    setEnv("PI_LEAN_CTX_BIN", path.join(dir, "no-lean-ctx")),
+    setEnv("PATH", `${bin}${path.delimiter}${process.env.PATH ?? ""}`),
+  ];
+  try {
+    const { handler } = loadCommand({});
+    for (const profile of ["balanced", "quick", "long-horizon", "autonomous", "self-improving", "pentest", "lite"]) {
+      const ctx = makeCtx({ project, agent });
+      await handler(profile, ctx);
+      assert.equal(ctx.reloads, 1, `${profile}: ${ctx.notes.map((n) => n.message).join("\n")}`);
+      assert.match(ctx.notes[0].message, new RegExp(`switched to "${profile}"\\. Verified`));
+      const marker = JSON.parse(fs.readFileSync(path.join(agent, ".pi-kit.json"), "utf8"));
+      assert.equal(marker.profile, profile);
+      const fw = JSON.parse(fs.readFileSync(path.join(agent, "pi-kit", "firewall.json"), "utf8"));
+      assert.equal(fw.policy, profile === "pentest" ? "pentest" : "coding");
+      const status = makeCtx({ project, agent });
+      await handler("status", status);
+      assert.match(status.notes.at(-1).message, new RegExp(`^Current: ${profile}\\n`), `${profile} is reported as the current profile`);
+    }
+    assert.equal(JSON.parse(fs.readFileSync(path.join(agent, "settings.json"), "utf8")).theme, "dark", "other settings survive every switch");
+    // A no-op switch to the profile already in force never touches anything.
+    const same = makeCtx({ project, agent });
+    await handler("lite", same);
+    assert.match(same.notes[0].message, /already on "lite"/);
+  } finally { for (const r of restores.reverse()) r(); rmWorkspace(dir); }
+};
+
 let failed = 0;
 for (const [name, fn] of Object.entries(tests)) {
   try {
