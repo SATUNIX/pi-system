@@ -1,0 +1,264 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:pi-system:autonomy:run-contract:1",
+  "title": "pi-autonomy run contract, schemaVersion 1",
+  "description": "The declarative description of one autonomous run: what it is for, what it may touch and when it is finished. This schema documents the structure and is checked against the hand-written validator in lib/contract.mjs (which is authoritative: it also applies defaults and the rules JSON Schema cannot express, such as unique ids, that every backlog acceptance id names a declared check, that service images come from the allowlist, and that effort tiers exist in packages/core/policies). Unknown keys under permissions, promotion and authorisation, and unknown top-level keys, are errors; unknown keys elsewhere are warnings, which is why those objects allow additional properties here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "run", "template", "objective"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "run": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,40}$", "description": "The run id. It names the run directory, branches and containers." },
+    "template": { "enum": ["implement", "deploy", "self-improve"] },
+    "objective": {
+      "type": "object",
+      "required": ["title"],
+      "allOf": [{ "not": { "required": ["spec", "specFile"] } }],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "spec": { "type": "string", "maxLength": 200000, "description": "The specification as text. Give this or specFile." },
+        "specFile": { "type": "string", "minLength": 1, "description": "A specification file relative to the contract file. It is read at plan/start and inlined into the run's contract snapshot." },
+        "backlog": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "required": ["id", "title"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,40}$" },
+              "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+              "detail": { "type": "string", "maxLength": 20000 },
+              "acceptance": { "type": "array", "maxItems": 50, "items": { "type": "string" }, "description": "Ids of acceptance checks. The item counts as done only when all of them pass in a trusted evaluation." }
+            }
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": [],
+              "allOf": [{ "oneOf": [{ "required": ["path"] }, { "required": ["url"] }] }],
+              "properties": {
+                "path": { "type": "string", "minLength": 1, "description": "A local git repository, read by the host (never mounted into the worker)." },
+                "url": { "type": "string", "minLength": 1, "description": "An https:// or ssh:// URL (or user@host:path), fetched by the host with the operator's git credentials. No credentials in the URL." },
+                "ref": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,100}$", "default": "HEAD" }
+              }
+            }
+          ],
+          "description": "The repository the work starts from, or null to start from an empty one."
+        },
+        "references": { "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]{0,40}$" }, "additionalProperties": { "type": "string", "minLength": 1 }, "description": "Read-only reference repositories: name to local path. A git archive snapshot is mounted at /reference/<name>." }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,40}$" },
+              "type": { "enum": ["command", "service-health"], "default": "command" },
+              "run": { "oneOf": [{ "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "string", "maxLength": 4000 } }, { "type": "string", "minLength": 1, "maxLength": 4000 }], "description": "An argv array (no shell) or a shell command string. Runs in a clean, network-less gate container from a clone of the accepted head; the definition comes from this contract, never from the worker's repository." },
+              "cwd": { "type": "string", "description": "Relative to the repository root." },
+              "timeoutMinutes": { "type": "integer", "minimum": 1, "maximum": 240, "default": 15 },
+              "required": { "type": "boolean", "default": true },
+              "description": { "type": "string", "maxLength": 500 },
+              "service": { "type": "string", "description": "service-health only: a declared run service." },
+              "path": { "type": "string", "pattern": "^/", "description": "service-health only." },
+              "expectStatus": { "type": "integer", "minimum": 100, "maximum": 599, "description": "service-health only." }
+            }
+          }
+        },
+        "overlay": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "type": "object", "required": ["source", "target"], "properties": { "source": { "type": "string", "minLength": 1 }, "target": { "type": "string", "minLength": 1 } } },
+          "description": "Files copied over the clone before a check runs: held-out acceptance tests the worker never sees or edits. source is relative to the contract file; target is relative to the repository."
+        },
+        "review": { "type": "boolean", "default": true, "description": "Require an independent model review of the result against the original objective after the checks pass." }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "writeAreas": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "default": ["**"], "description": "Globs (inside the workspace) that accepted changes may touch. `**` matches any depth, `*` one path segment." },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "egress": {
+              "type": "array",
+              "maxItems": 50,
+              "default": [],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["host"],
+                "properties": {
+                  "host": { "type": "string", "minLength": 1, "description": "A public fully qualified host name (or a public IP literal). Exact match; no wildcards." },
+                  "ports": { "type": "array", "minItems": 1, "maxItems": 10, "items": { "type": "integer", "minimum": 1, "maximum": 65535 }, "default": [443] },
+                  "plainGet": { "type": "boolean", "default": false, "description": "Also allow plain HTTP GET (no redirects followed) to this host." }
+                }
+              }
+            },
+            "serviceImages": { "type": "array", "maxItems": 20, "items": { "type": "string", "pattern": "^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*(?::\\d{1,5})?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[\\w][\\w.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$" }, "description": "The allowlist of images the supervisor may start as run services, each pinned by tag (not latest) or digest." },
+            "services": {
+              "type": "array",
+              "maxItems": 10,
+              "default": [],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "image", "port", "health"],
+                "properties": {
+                  "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,30}$" },
+                  "image": { "type": "string", "minLength": 1, "maxLength": 300 },
+                  "env": { "type": "object", "additionalProperties": { "type": "string" }, "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" } },
+                  "credentialEnv": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" }, "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$" }, "description": "Environment variable in the service to a credential NAME from permissions.credentials.names. The supervisor reads the value from its own environment; workers never see it." },
+                  "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                  "command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+                  "workspaceMounts": { "type": "array", "maxItems": 5, "items": { "type": "object", "additionalProperties": false, "required": ["source", "target"], "properties": { "source": { "type": "string", "minLength": 1 }, "target": { "type": "string", "pattern": "^/" } } }, "description": "Paths from the worker's workspace, mounted read-only into the service: how a build is deployed in the zone." },
+                  "tmpfs": { "type": "array", "maxItems": 5, "items": { "type": "string", "pattern": "^/" }, "description": "Writable size-limited tmpfs paths inside the service container; its root filesystem stays read-only." },
+                  "user": { "type": "string", "pattern": "^\\d+:\\d+$", "description": "uid:gid the service runs as (never root). Defaults to the run's container user." },
+                  "health": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "allOf": [{ "oneOf": [{ "required": ["path"] }, { "required": ["cmd"] }] }],
+                    "properties": {
+                      "path": { "type": "string", "pattern": "^/" },
+                      "cmd": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+                      "expectStatus": { "type": "integer", "minimum": 100, "maximum": 599 },
+                      "intervalSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+                      "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+                      "retries": { "type": "integer", "minimum": 1, "maximum": 100 }
+                    }
+                  },
+                  "memory": { "type": "string", "pattern": "^\\d+[kmgKMG]?$" },
+                  "cpus": { "type": ["string", "number"] }
+                }
+              }
+            }
+          }
+        },
+        "credentials": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "names": { "type": "array", "maxItems": 30, "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" }, "description": "Names only. Values are read from the operator's environment by the supervisor and go only to the run services that list them; they never appear in a contract, a worker or a check." } }
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "destinations": { "type": "array", "maxItems": 10, "items": { "type": "object", "additionalProperties": false, "required": ["kind", "path"], "properties": { "kind": { "const": "export-dir" }, "path": { "type": "string", "minLength": 1 } } } } }
+        },
+        "unattended": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "authorised": { "type": "boolean", "default": false, "description": "The operator authorises unattended operation inside this zone: workers run with PI_KIT_UNATTENDED=1 and are not asked to approve in-zone actions." },
+            "autoApprove": { "type": "boolean", "default": false, "description": "Answer approval dialogs from the worker automatically (requires authorised). Questions that need a human always block the run instead." }
+          }
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "provider": { "enum": ["openrouter", "openai-compatible"], "default": "openrouter" },
+        "worker": { "type": "string", "pattern": "^[A-Za-z0-9][\\w.:/@+-]{0,120}$" },
+        "manager": { "type": "string", "pattern": "^[A-Za-z0-9][\\w.:/@+-]{0,120}$" },
+        "review": { "type": "string", "pattern": "^[A-Za-z0-9][\\w.:/@+-]{0,120}$" },
+        "extra": { "type": "array", "maxItems": 10, "items": { "type": "string" } }
+      }
+    },
+    "providerSettings": {
+      "type": "object",
+      "properties": {
+        "upstream": { "type": "string", "pattern": "^https://", "description": "The one inference upstream the relay forwards to." },
+        "apiKeyEnv": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Name of the operator's environment variable that holds the key. The value never enters a contract, a worker or a mount." },
+        "authName": { "type": "string" },
+        "headers": { "type": "object", "additionalProperties": { "type": "string", "maxLength": 200 } },
+        "pricing": { "type": "object", "additionalProperties": { "type": "object", "required": ["inputPerMTok", "outputPerMTok"], "properties": { "inputPerMTok": { "type": "number", "minimum": 0 }, "outputPerMTok": { "type": "number", "minimum": 0 } } }, "description": "USD per million tokens by model id; required for providers that do not report cost, so the budget can be enforced." }
+      }
+    },
+    "effort": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "integer", "minimum": 1, "maximum": 5 },
+        { "type": "object", "properties": { "tier": { "type": ["string", "integer"] }, "cap": { "type": ["string", "integer"] } } }
+      ],
+      "description": "An effort tier (E1..E5 or minimal..exhaustive) validated against packages/core/policies. It is snapshotted when the run starts; only `reconfigure` changes it."
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "totalUsd": { "type": "number", "minimum": 0.01, "maximum": 100000 },
+        "perStepUsd": { "type": "number", "minimum": 0.01, "maximum": 100000 },
+        "maxSteps": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "maxMinutes": { "type": "integer", "minimum": 1, "maximum": 43200 }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "properties": {
+        "softNudges": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "hardRestarts": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "maxAttemptsPerStep": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "policy": { "enum": ["none", "local-branch", "push"], "default": "none" },
+        "destinations": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "oneOf": [
+              { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "local-branch" }, "repo": { "type": "string", "minLength": 1 }, "branch": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,80}$" } } },
+              { "type": "object", "additionalProperties": false, "required": ["kind", "url", "branch"], "properties": { "kind": { "const": "git-remote" }, "url": { "type": "string", "minLength": 1 }, "branch": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,80}$" }, "tags": { "type": "boolean", "default": false } } }
+            ]
+          }
+        },
+        "requiresOperatorApproval": { "type": "boolean", "default": true }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "engine": { "enum": ["podman", "docker"] },
+        "image": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "memory": { "type": "string", "pattern": "^\\d+[kmgKMG]?$" },
+        "cpus": { "type": ["string", "number"] },
+        "pids": { "type": "integer", "minimum": 16, "maximum": 100000 },
+        "tmpSize": { "type": "string", "pattern": "^\\d+[kmgKMG]?$" },
+        "user": { "type": "string", "pattern": "^(host|\\d+:\\d+)$" },
+        "mirrorSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "gitIdentity": { "type": "object", "properties": { "name": { "type": "string" }, "email": { "type": "string" } } }
+      }
+    },
+    "templateOptions": { "type": "object", "description": "Options of the chosen template. See docs/autonomy.md for the self-improve options." },
+    "authorisation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boundaryDigest", "by", "at"],
+      "properties": {
+        "boundaryDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "by": { "type": "string", "minLength": 1 },
+        "at": { "type": "string", "minLength": 1 }
+      },
+      "description": "Consent record: the boundary digest an operator authorised (printed by `plan`). `start` runs unattended without prompting only when this equals the digest it computes from the rest of the contract."
+    }
+  }
+}

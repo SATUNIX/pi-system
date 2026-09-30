@@ -1,0 +1,42 @@
+// Template `deploy`: build, test and deploy INSIDE the run's isolated zone. Like `implement`, but
+// the supervisor also starts run-scoped services (permissions.network.services: images pinned by
+// tag or digest from the contract's allowlist, hardened like every other container, on the run's
+// internal network only) and acceptance may include service health checks. Workers reach the
+// services by name. Deploying to anything outside the zone is promotion, which is separate and
+// needs a pre-authorised destination or an operator command; a worker never does it.
+import { FINITE_DEFAULTS } from "./common.mjs";
+import implement from "./implement.mjs";
+
+const describe = () => ({
+  id: "deploy",
+  title: "Build and deploy in the zone",
+  summary: "Like implement, plus run-scoped services (databases, web servers, queues) that the supervisor starts on the run's internal network so the worker can build, deploy and test against them. Nothing leaves the zone.",
+  finite: true,
+  requires: ["objective.title", "objective.spec or objective.specFile", "acceptance.checks", "permissions.network.services (at least one)", "permissions.network.serviceImages (the allowlist those images come from)"],
+  optional: ["service-health acceptance checks", "permissions.network.egress", "promotion (a separate, pre-authorised step; in-zone deployment is not promotion)"],
+});
+
+function validate(contract, api) {
+  implement.validate(contract, api);
+  if (!contract.permissions.network.services.length) api.err("permissions.network.services", "the deploy template needs at least one run service; use the implement template for work without services");
+  const checks = contract.acceptance.checks;
+  if (contract.permissions.network.services.length && !checks.some((k) => k.type === "service-health" && k.required)) {
+    api.warn("acceptance.checks", "no required service-health check: the run can succeed without proving any service is up");
+  }
+}
+
+function stepPrompt(ctx) {
+  const base = implement.stepPrompt(ctx);
+  const services = ctx.contract.permissions.network.services;
+  const extra = ["", "## Services", ...services.map((s) => `- ${s.name}: reachable at http://${s.name}:${s.port} from your container${s.workspaceMounts.length ? `; it serves ${s.workspaceMounts.map((m) => `${m.source} (from your workspace, read-only) at ${m.target}`).join(", ")}` : ""}`), "Deploy by building into the paths above and by talking to the services over the internal network. Restarting or replacing a service, or exposing anything outside the zone, is not available to you."];
+  return `${base}\n${extra.join("\n")}`;
+}
+
+export default {
+  id: "deploy",
+  describe,
+  defaults: FINITE_DEFAULTS,
+  validate,
+  stepPrompt,
+  finite: true,
+};
