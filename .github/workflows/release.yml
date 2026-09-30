@@ -1,60 +1,62 @@
 name: release
 
-# PAUSED. pi-system is currently delivered from the private GitLab (git delivery:
-# packages/core/distribution.json), and releases are created by the `release` job in
-# .gitlab-ci.yml. This workflow runs only by hand, and dry-run by default, until npm delivery is
-# switched on (docs/releasing.md, "Switching to npm delivery"): restore the `push` trigger below
-# and set "delivery": "npm" in packages/core/distribution.json.
+# MANUAL. Nothing here runs on push, on a tag or on a pull request: it only runs when an operator
+# starts it from the Actions tab (workflow_dispatch), and the default is a DRY RUN.
 #
-# Continuous delivery of @satunix/pi-system to npm.
+# The primary public delivery is git: a pushed `vX.Y.Z[-pre.N]` tag IS the release for
+# `pi install git:github.com/SATUNIX/pi-system@vX.Y.Z` and the `latest` channel
+# (packages/core/distribution.json). This workflow adds two optional, explicitly authorised
+# extras on top of a tag:
+#   - a GitHub Release with the CHANGELOG notes, and
+#   - publishing @satunix/pi-system to npm (trusted publishing, OIDC; no npm token is stored).
 #
-#   push to main        -> snapshot X.Y.Z[-pre].next.<utc>.g<sha>  on dist-tag `next`
-#   push of tag vX.Y.Z  -> that exact version                     on dist-tag `latest`
-#                          (`beta` / `release-X.Y` when it must not move latest; see
-#                          packages/core/publish-plan.mjs and docs/releasing.md)
+# Side effects are confined to two jobs, each of which needs `inputs.dry-run == false` (an
+# explicit boolean comparison, so any other event type or an empty input also means "no side
+# effects"):
+#   github-release   creates the GitHub Release           (contents: write)
+#   npm-publish      runs `npm publish`, needs also        (id-token: write, `npm` environment)
+#                    `inputs.publish-npm == true`
+# Every other job has read-only permissions and cannot create a release, publish or push.
+# tests/release-workflow-smoke.mjs checks this structure statically.
 #
-# Authentication is npm trusted publishing (OIDC): no npm token is stored in this repo. npm
-# checks that the run comes from this repository, this workflow file and the `npm`
-# environment. Every publish carries a signed provenance attestation linking the tarball to
-# the exact commit and run. NPM_TOKEN is only a bootstrap fallback for the very first
-# publish (a package must exist before a trusted publisher can be attached); delete the
-# secret once trusted publishing is configured.
-#
-# Nothing publishes unless the full CI gate passes for the same commit.
+# Nothing releases unless the full CI gate passes for the same commit.
 
 on:
-  # push:
-  #   branches: [main]
-  #   tags: ["v*"]
   workflow_dispatch:
     inputs:
       dry-run:
-        description: "Run the whole pipeline but stop before npm publish"
+        description: "Dry run: build and inspect everything, publish and release nothing. Untick to create the GitHub Release for the selected tag."
         type: boolean
         default: true
+      publish-npm:
+        description: "Also publish to npm (only with dry-run unticked, from a tag; needs the npm trusted publisher and the `npm` environment)."
+        type: boolean
+        default: false
 
-permissions:
-  contents: read
+permissions: {}
 
-# Never cancel a publish half way; serialise publishes per ref.
+# Never cancel a release half way; serialise per ref.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   gate:
+    permissions:
+      contents: read
     uses: ./.github/workflows/ci.yml
 
-  publish:
+  # Side-effect free: plans the version, proves the tarball and `npm publish` would work, and
+  # prints what a release would contain. Read-only token, no environment, no secrets.
+  plan:
     needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment:
-      name: npm
-      url: https://www.npmjs.com/package/@satunix/pi-system
     permissions:
-      contents: write # create the GitHub Release for a tag
-      id-token: write # npm trusted publishing + provenance
+      contents: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,18 +66,12 @@ jobs:
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
-          # No dependency cache in the publishing job: a poisoned cache must never reach npm.
+          # No dependency cache: a poisoned cache must never influence a release.
           package-manager-cache: false
-      # Trusted publishing needs npm >= 11.5.1; Node 24's bundled npm has it. Fail loudly
-      # rather than installing npm ad hoc outside the lockfile.
-      - name: npm supports trusted publishing
-        run: |
-          v="$(npm --version)"; echo "npm $v"
-          printf '%s\n' 11.5.1 "$v" | sort -V -C || { echo "npm $v < 11.5.1"; exit 1; }
       - run: npm ci --ignore-scripts --no-audit --no-fund
 
       # A release tag must point at a commit on main, so a tag pushed from an unreviewed
-      # branch can never publish.
+      # branch can never release.
       - name: Tag is on main
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -87,14 +83,104 @@ jobs:
         env:
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
+          # A dry run may be started from a release branch: plan it as the tag it would become.
+          if [[ "$REF" != refs/tags/v* && "$REF" != "refs/heads/main" ]]; then
+            if [ "$DRY_RUN" != "true" ]; then echo "A real release must run from a v* tag, not $REF"; exit 1; fi
+            REF="refs/tags/v$(node -p "require('./package.json').version")"
+            echo "dry run from $GITHUB_REF: planning as $REF"
+          fi
           tags="$(npm view @satunix/pi-system dist-tags --json 2>/dev/null || echo '{}')"
           node packages/core/publish-plan.mjs --ref "$REF" --sha "$SHA" --dist-tags "$tags" --write | tee -a "$GITHUB_OUTPUT"
 
+      - name: Package check
+        run: node packages/core/pack-check.mjs
+
+      - name: Reproducible tarball
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          npm pack --ignore-scripts --json > pack.json
+          {
+            echo "### Release candidate ${VERSION}"
+            echo
+            node -e 'const p=require("./pack.json")[0]; console.log(`- tarball: \`${p.filename}\`, ${p.files.length} files, ${p.size} bytes packed, ${p.unpackedSize} unpacked`); console.log(`- sha512: \`${p.integrity}\``)'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # `--dry-run` uploads nothing. This is the only npm command in this job.
+      - name: npm publish (dry run only)
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: npm publish --dry-run --access public --tag "$TAG" --ignore-scripts
+
+      - name: Release notes preview
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          node packages/core/release-notes.mjs "$VERSION" --out release-notes.md
+          { echo "### Release notes"; echo; cat release-notes.md; } >> "$GITHUB_STEP_SUMMARY"
+
+  github-release:
+    needs: plan
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run == false && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub Release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: node packages/core/release-notes.mjs "$VERSION" --out release-notes.md
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          flags=(--latest)
+          if [ "$TAG" != "latest" ] || [[ "$VERSION" == *-* ]]; then flags=(--prerelease --latest=false); fi
+          gh release create "v${VERSION}" --title "v${VERSION}" --notes-file release-notes.md --verify-tag "${flags[@]}"
+
+  npm-publish:
+    needs: plan
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run == false && inputs.publish-npm == true && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@satunix/pi-system
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      # Trusted publishing needs npm >= 11.5.1; Node 24's bundled npm has it. Fail loudly
+      # rather than installing npm ad hoc outside the lockfile.
+      - name: npm supports trusted publishing
+        run: |
+          v="$(npm --version)"; echo "npm $v"
+          printf '%s\n' 11.5.1 "$v" | sort -V -C || { echo "npm $v < 11.5.1"; exit 1; }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Skip if already published
         id: exists
         env:
-          VERSION: ${{ steps.plan.outputs.version }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           if npm view "@satunix/pi-system@${VERSION}" version >/dev/null 2>&1; then
             echo "@satunix/pi-system@${VERSION} is already on npm; nothing to do."
@@ -102,36 +188,11 @@ jobs:
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Package check
-        run: node packages/core/pack-check.mjs
-
       - name: Publish
-        if: steps.exists.outputs.published == 'false' && !(github.event_name == 'workflow_dispatch' && inputs.dry-run)
+        if: steps.exists.outputs.published == 'false'
         env:
-          TAG: ${{ steps.plan.outputs.tag }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          # Only the very first publish needs a token (a package must exist before a trusted
+          # publisher can be attached); leave the secret unset afterwards and OIDC is used.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public --tag "$TAG" --ignore-scripts
-
-      - name: Dry run
-        if: github.event_name == 'workflow_dispatch' && inputs.dry-run
-        env:
-          TAG: ${{ steps.plan.outputs.tag }}
-        run: npm publish --dry-run --access public --tag "$TAG" --ignore-scripts
-
-      - name: Release notes
-        if: startsWith(github.ref, 'refs/tags/') && steps.exists.outputs.published == 'false'
-        env:
-          VERSION: ${{ steps.plan.outputs.version }}
-        run: node packages/core/release-notes.mjs "$VERSION" --out release-notes.md
-
-      - name: GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') && steps.exists.outputs.published == 'false'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.plan.outputs.version }}
-          TAG: ${{ steps.plan.outputs.tag }}
-        run: |
-          flags=(--latest)
-          if [ "$TAG" != "latest" ] || [[ "$VERSION" == *-* ]]; then flags=(--prerelease --latest=false); fi
-          gh release create "v${VERSION}" --title "v${VERSION}" --notes-file release-notes.md --verify-tag "${flags[@]}"

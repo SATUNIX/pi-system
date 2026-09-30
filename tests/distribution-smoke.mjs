@@ -14,11 +14,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readDistribution, parseGitSource, gitSourceFor, releaseTags, latestRelease, channelOfGitSource, isChannel } from "../packages/core/lib/distribution.mjs";
+import { readDistribution, parseGitSource, gitSourceFor, releaseTags, latestRelease, channelOfGitSource, isChannel, isLegacyGitSource } from "../packages/core/lib/distribution.mjs";
 import { findPackageEntry, removeOtherKitEntries } from "../packages/core/lib/settings.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const GIT = "git:gitlab.home.internal/lab/pi-system";
+const GIT = "git:github.com/SATUNIX/pi-system";
+const LEGACY = "git:gitlab.home.internal/lab/pi-system";
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -45,12 +46,19 @@ function dryRun(installer, args, { agent, env = {} } = {}) {
 }
 
 const tests = {
-  "distribution.json selects git delivery from the private GitLab": () => {
+  "distribution.json selects git delivery from the public GitHub repository": () => {
     const d = readDistribution(undefined, {});
     assert.equal(d.delivery, "git");
     assert.equal(d.git.source, GIT);
     assert.equal(d.git.tagPrefix, "v");
+    assert.deepEqual(d.git.legacySources, ["gitlab.home.internal/lab/pi-system", "gitlab.home.internal/root/pi-system"]);
     assert.equal(readDistribution(undefined, { PI_KIT_DELIVERY: "npm" }).delivery, "npm");
+    // The old SSH instructions told users to export the private source; it must not stick.
+    const stale = readDistribution(undefined, { PI_SYSTEM_GIT_SOURCE: "git:git@gitlab.home.internal:lab/pi-system" });
+    assert.equal(stale.git.source, GIT, "a retired override falls back to the public source");
+    assert.equal(stale.git.ignoredEnvSource, "git:git@gitlab.home.internal:lab/pi-system");
+    assert.ok(isLegacyGitSource("https://gitlab.home.internal/root/pi-system.git", d.git.legacySources));
+    assert.ok(!isLegacyGitSource(GIT, d.git.legacySources));
     assert.equal(readDistribution(undefined, { PI_SYSTEM_GIT_SOURCE: "git:git@h.x:o/pi-system" }).git.source, "git:git@h.x:o/pi-system");
     assert.throws(() => readDistribution(undefined, { PI_KIT_DELIVERY: "ftp" }), /unknown kit delivery/);
   },
@@ -76,9 +84,9 @@ const tests = {
   },
 
   "git sources parse to pi's identity (host/path, ref ignored)": () => {
-    assert.deepEqual(parseGitSource(`${GIT}@v0.2.1-beta.0`), { repo: "https://gitlab.home.internal/lab/pi-system", ref: "v0.2.1-beta.0", key: "gitlab.home.internal/lab/pi-system" });
-    assert.equal(parseGitSource("git:git@gitlab.home.internal:lab/pi-system").key, "gitlab.home.internal/lab/pi-system");
-    assert.equal(parseGitSource("https://gitlab.home.internal/lab/pi-system.git").repo, "https://gitlab.home.internal/lab/pi-system");
+    assert.deepEqual(parseGitSource(`${GIT}@v0.2.1-beta.0`), { repo: "https://github.com/SATUNIX/pi-system", ref: "v0.2.1-beta.0", key: "github.com/satunix/pi-system" });
+    assert.equal(parseGitSource("git:git@github.com:SATUNIX/pi-system").key, "github.com/satunix/pi-system");
+    assert.equal(parseGitSource("https://github.com/SATUNIX/pi-system.git").repo, "https://github.com/SATUNIX/pi-system");
     assert.equal(parseGitSource("npm:@satunix/pi-system"), null);
     assert.equal(parseGitSource("/home/me/pi-system"), null);
     assert.equal(gitSourceFor(`${GIT}@v1.0.0`, "v1.1.0"), `${GIT}@v1.1.0`);
@@ -102,13 +110,13 @@ const tests = {
     const dir = scratch("pi-kit-dist-settings-");
     try {
       const settingsPath = path.join(dir, "settings.json");
-      writeJson(settingsPath, { packages: [`${GIT}@v0.2.1-beta.0`, "git:gitlab.home.internal/root/other-tool", "npm:pi-lens@3.8.63"] });
+      writeJson(settingsPath, { packages: [`${GIT}@v0.2.1-beta.0`, "git:github.com/example/other-tool", "npm:pi-lens@3.8.63"] });
       const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
       assert.equal(findPackageEntry(settings, GIT, settingsPath), 0, "next and a release tag are the same package");
-      assert.equal(findPackageEntry(settings, "git:git@gitlab.home.internal:lab/pi-system@v9.0.0", settingsPath), 0, "ssh and https forms are the same package");
-      writeJson(settingsPath, { packages: [`${GIT}@v0.2.1-beta.0`, "npm:@satunix/pi-system@next", "git:gitlab.home.internal/root/other-tool"] });
+      assert.equal(findPackageEntry(settings, "git:git@github.com:SATUNIX/pi-system@v9.0.0", settingsPath), 0, "ssh and https forms are the same package");
+      writeJson(settingsPath, { packages: [`${GIT}@v0.2.1-beta.0`, "npm:@satunix/pi-system@next", "git:github.com/example/other-tool"] });
       assert.equal(removeOtherKitEntries(settingsPath, `${GIT}@v0.2.1-beta.1`), 1, "the npm copy of the kit is removed");
-      assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")).packages, [`${GIT}@v0.2.1-beta.0`, "git:gitlab.home.internal/root/other-tool"]);
+      assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")).packages, [`${GIT}@v0.2.1-beta.0`, "git:github.com/example/other-tool"]);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -138,9 +146,70 @@ const tests = {
     }
   },
 
+  "installer migrates a retired private registration to the public source and keeps hand edits": () => {
+    const agent = scratch("pi-kit-dist-agent-");
+    const installer = path.join(ROOT, "packages", "core", "install.mjs");
+    try {
+      // A user of the old private delivery: registered from GitLab, following main, with one
+      // extension removed and one added by hand.
+      writeJson(path.join(agent, "settings.json"), { packages: [{ source: LEGACY, extensions: ["packages/extensions/src/secret-guard/index.ts", "packages/extensions/third_party/todo/index.ts", "packages/extensions/src/save/index.ts"] }] });
+      writeJson(path.join(agent, ".pi-kit.json"), { kitSource: LEGACY, channel: "next", profile: "lite", extensions: ["secret-guard", "todo"], scope: "global" });
+      const run = dryRun(installer, ["--profile", "lite", "--yes", "--mode", "git"], { agent, env: { PI_SYSTEM_GIT_SOURCE: "git:git@gitlab.home.internal:lab/pi-system" } });
+      // --channel is not given, so `next` (the recorded channel) is kept: no network is needed.
+      assert.equal(run.status, 0, run.out);
+      assert.match(run.out, /Ignoring PI_SYSTEM_GIT_SOURCE=git:git@gitlab.home.internal:lab\/pi-system/);
+      assert.match(run.out, /Migrating the kit from the retired private source git:gitlab.home.internal\/lab\/pi-system/);
+      assert.equal(run.mode, "git (channel next)", run.out);
+      assert.equal(run.source, GIT, "registers the public source, never the private one");
+      assert.match(run.out, /would write overrides/, "hand edits are captured before the old entry goes");
+      assert.ok(!/pi install "git:gitlab/.test(run.out), "the private source is never installed");
+    } finally {
+      fs.rmSync(agent, { recursive: true, force: true });
+    }
+  },
+
+  "a fork registration that is not the retired source is left alone": () => {
+    const agent = scratch("pi-kit-dist-agent-");
+    const installer = path.join(ROOT, "packages", "core", "install.mjs");
+    try {
+      const fork = "git:github.com/example/pi-system@v0.2.4-beta.0";
+      writeJson(path.join(agent, "settings.json"), { packages: [fork] });
+      writeJson(path.join(agent, ".pi-kit.json"), { kitSource: fork, channel: "latest", profile: "lite" });
+      const run = dryRun(installer, ["--profile", "lite", "--yes", "--mode", "git"], { agent });
+      assert.equal(run.status, 0, run.out);
+      assert.equal(run.source, fork);
+      assert.ok(!/Migrating the kit/.test(run.out));
+    } finally {
+      fs.rmSync(agent, { recursive: true, force: true });
+    }
+  },
+
+  "installing the latest release with no tags yet fails with an actionable message": () => {
+    const agent = scratch("pi-kit-dist-agent-");
+    const installer = path.join(ROOT, "packages", "core", "install.mjs");
+    try {
+      // A local bare repository stands in for the public remote (git rewrites the URL, so no
+      // network is touched): it has a main branch and no release tags.
+      const remote = path.join(agent, "remote.git");
+      execFileSync("git", ["init", "--bare", "--initial-branch=main", remote], { stdio: "ignore" });
+      const rewrite = (to) => ({ GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `url.${to}.insteadOf`, GIT_CONFIG_VALUE_0: "https://git.example.test/o/pi-system" });
+      const source = "git:git.example.test/o/pi-system";
+      const run = dryRun(installer, ["--channel", "latest", "--profile", "lite"], { agent, env: { PI_SYSTEM_GIT_SOURCE: source, ...rewrite(`file://${remote.replace(/\\/g, "/")}`) } });
+      assert.notEqual(run.status, 0);
+      assert.match(run.out, /has no release tags \(vX\.Y\.Z\) yet\. Install --channel next/, run.out);
+      const missing = `file://${path.join(agent, "missing.git").replace(/\\/g, "/")}`;
+      const unreachable = dryRun(installer, ["--channel", "latest", "--profile", "lite"], { agent, env: { PI_SYSTEM_GIT_SOURCE: source, ...rewrite(missing) } });
+      assert.notEqual(unreachable.status, 0);
+      assert.match(unreachable.out, /could not list release tags/);
+      assert.match(unreachable.out, /Check network access to the repository/);
+    } finally {
+      fs.rmSync(agent, { recursive: true, force: true });
+    }
+  },
+
   "installer from pi's git clone keeps the registered git source and channel": () => {
     const agent = scratch("pi-kit-dist-agent-");
-    const clone = path.join(agent, "git", "gitlab.home.internal", "lab", "pi-system");
+    const clone = path.join(agent, "git", "github.com", "SATUNIX", "pi-system");
     try {
       // A copy of the tracked kit where pi clones git packages (a .git dir, like a real clone).
       fs.mkdirSync(clone, { recursive: true });

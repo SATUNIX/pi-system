@@ -9,6 +9,10 @@ Versions before `0.2.1-beta.0` were internal and are archived in
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.4-beta.0]
+
 ### Added
 
 - `packages/autonomy` (private, not published): a supervisor for unattended improvement runs

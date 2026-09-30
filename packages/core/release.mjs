@@ -7,12 +7,18 @@
  * IMPORTANT: this script NEVER pushes. Pushing is a deliberate, separate manual step after
  * the tag is reviewed (`git push origin main --follow-tags`). There is no --push flag. The
  * pushed `v*` tag is the release: installs on the `latest` channel see it through /update, and
- * the GitLab pipeline re-runs the gate and creates the GitLab Release (see docs/releasing.md).
+ * the GitHub Actions release workflow re-runs the gate (see docs/releasing.md).
  *
  * Usage:
  *   node packages/core/release.mjs <version> [--dry-run]
- *   node packages/core/release.mjs 0.2.1-beta.1
- *   node packages/core/release.mjs 0.2.1
+ *   node packages/core/release.mjs 0.2.4-beta.1
+ *   node packages/core/release.mjs 0.2.4
+ *   node packages/core/release.mjs <version> --bump-only   # sync version fields + lockfile only:
+ *                                                          # no gates, no commit, no tag
+ *
+ * --bump-only is for preparing a release branch: it needs the CHANGELOG section but not a clean
+ * tree, and it creates no commit and no tag. The operator later runs the full command, which
+ * (finding every version field already at <version> and no earlier tag) only gates and tags.
  */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -24,6 +30,7 @@ import { setReadmeBadgeVersion } from "./lib/version-badge.mjs";
 const ROOT = WORKSPACE_ROOT;
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
+const bumpOnly = args.includes("--bump-only");
 const version = args.find((a) => SEMVER.test(a));
 
 function fail(msg) {
@@ -78,7 +85,7 @@ if (!new RegExp(`^##\\s*\\[${version.replace(/\./g, "\\.")}\\]`, "m").test(chang
 // were excluded unconditionally, so arbitrary pre-existing dirty content in either would
 // be silently swept into the release commit alongside the version bump this script makes
 // itself). Everything, including package.json, must be clean before we touch anything.
-const status = gitLines("git status --porcelain");
+const status = bumpOnly ? [] : gitLines("git status --porcelain");
 if (status.length > 0) {
   fail(`working tree not clean — commit or stash first:\n${status.join("\n")}`);
 }
@@ -106,7 +113,7 @@ const workspaceManifests = fs
   .readdirSync(PACKAGES_DIR)
   .map((dir) => path.join(PACKAGES_DIR, dir, "package.json"))
   .filter((file) => fs.existsSync(file));
-if (!dryRun && !firstRelease) {
+if (!dryRun && (!firstRelease || bumpOnly)) {
   pkg.version = version;
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   for (const file of workspaceManifests) {
@@ -117,6 +124,10 @@ if (!dryRun && !firstRelease) {
   const readmePath = path.join(ROOT, "README.md");
   fs.writeFileSync(readmePath, setReadmeBadgeVersion(fs.readFileSync(readmePath, "utf8"), version));
   run("npm install --package-lock-only --ignore-scripts");
+}
+if (bumpOnly) {
+  console.log(`\n[release] --bump-only: version fields, README badge and lockfile now say ${version}${dryRun ? " (dry-run: nothing written)" : ""}. No gates were run, nothing was committed or tagged.`);
+  process.exit(0);
 }
 
 // 6. Full gate. `npm ci` first, so a lockfile that can't reproduce a clean install
@@ -156,5 +167,5 @@ run(`git tag -a v${version} -m "Release ${version}"`);
 
 console.log(`\n[release] Done: ${firstRelease ? "" : "committed + "}tagged v${version} (local only).`);
 console.log(`[release] NOT pushed. To publish after review: git push origin main --follow-tags`);
-console.log(`[release] Pushing the v${version} tag releases it: the GitLab pipeline re-runs the gate and creates the GitLab Release.`);
+console.log(`[release] Pushing the v${version} tag makes it the \`latest\` release for git installs; the GitHub release workflow (manual) re-runs the gate before any npm publish.`);
 if (dryRun) console.log("[release] (dry-run: validation gates ran for real; no files changed, no commit/tag created)");

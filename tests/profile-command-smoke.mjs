@@ -124,14 +124,14 @@ const tests = {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-profile-git-"));
     const settings = path.join(dir, "settings.json");
     try {
-      fs.writeFileSync(settings, JSON.stringify({ packages: [{ source: "git:gitlab.home.internal/lab/pi-system@v0.2.1-beta.0", extensions: ["packages/extensions/third_party/todo/index.ts"] }] }));
+      fs.writeFileSync(settings, JSON.stringify({ packages: [{ source: "git:github.com/SATUNIX/pi-system@v0.2.1-beta.0", extensions: ["packages/extensions/third_party/todo/index.ts"] }] }));
       assert.deepEqual(loadedKitExtensions(settings, root), ["todo"]);
       assert.equal(unfilteredKitEntry(settings), false);
-      for (const bare of ["git:gitlab.home.internal/lab/pi-system", "git:git@gitlab.home.internal:lab/pi-system@v0.2.1-beta.0"]) {
+      for (const bare of ["git:github.com/SATUNIX/pi-system", "git:git@github.com:SATUNIX/pi-system@v0.2.1-beta.0"]) {
         fs.writeFileSync(settings, JSON.stringify({ packages: [bare] }));
         assert.equal(unfilteredKitEntry(settings), true, bare);
       }
-      fs.writeFileSync(settings, JSON.stringify({ packages: ["git:gitlab.home.internal/root/other-tool"] }));
+      fs.writeFileSync(settings, JSON.stringify({ packages: ["git:github.com/example/other-tool"] }));
       assert.equal(unfilteredKitEntry(settings), false, "other git packages are not the kit");
     } finally {
       rmWorkspace(root);

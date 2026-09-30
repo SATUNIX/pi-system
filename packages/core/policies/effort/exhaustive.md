@@ -1,0 +1,1 @@
+Tier: E5 Exhaustive. Investigate systematically and execute in phases with independent perspectives. Validate comprehensively, including relevant failure paths, resolve material findings and document the evidence. A trivial edit is still done directly. Up to six children at once, sixteen in total, at most three of them scouts.
