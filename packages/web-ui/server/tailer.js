@@ -243,6 +243,12 @@ export function releaseTailer(sessionFile, unsubscribe) {
 	}
 }
 
+/** Stop every tailer's poll timer (shutdown). Idempotent. */
+export function closeAllTailers() {
+	for (const tailer of tailers.values()) tailer.close();
+	tailers.clear();
+}
+
 export function isFileActive(sessionFile, windowMs = 20000) {
 	try {
 		return Date.now() - fs.statSync(sessionFile).mtimeMs < windowMs;

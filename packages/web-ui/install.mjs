@@ -21,6 +21,7 @@
  *   --dry-run   show what would happen without running the installer
  */
 import { execFileSync, spawn } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -142,26 +143,45 @@ const host = process.env.PI_CONSOLE_HOST || "127.0.0.1";
 const url = `http://${host}:${port}`;
 
 if (start) {
-  fs.mkdirSync(path.join(WEB_UI_DIR, ".runtime"), { recursive: true });
-  const log = fs.openSync(path.join(WEB_UI_DIR, ".runtime", "server.log"), "a");
+  const runtime = path.join(WEB_UI_DIR, ".runtime");
+  fs.mkdirSync(runtime, { recursive: true, mode: 0o700 });
+  const log = fs.openSync(path.join(runtime, "server.log"), "a");
+  // The server requires an access token. Generate one and hand it over as an owner-only file
+  // (not on the command line or in the log), unless the operator supplied their own or turned
+  // authentication off. The login URL is printed to this terminal only.
+  const childEnv = { ...process.env };
+  let token = process.env.PI_CONSOLE_TOKEN || null;
+  const authOff = String(process.env.PI_CONSOLE_AUTH || "").toLowerCase() === "off";
+  if (!authOff && !token && !process.env.PI_CONSOLE_TOKEN_FILE) {
+    token = crypto.randomBytes(32).toString("hex");
+    const tokenFile = path.join(runtime, "console.token");
+    fs.rmSync(tokenFile, { force: true });
+    fs.writeFileSync(tokenFile, `${token}\n`, { mode: 0o600, flag: "wx" });
+    childEnv.PI_CONSOLE_TOKEN_FILE = tokenFile;
+  }
   const child = spawn(process.execPath, [path.join(WEB_UI_DIR, "server", "server.js")], {
     cwd: WEB_UI_DIR,
     detached: true,
     stdio: ["ignore", log, log],
+    env: childEnv,
   });
   child.unref();
   fs.closeSync(log);
   console.log(`\n[web-ui] Started the server (pid ${child.pid}) at ${url}`);
+  if (token) console.log(`[web-ui] Login link (keep it private): ${url}/#token=${token}`);
+  else if (authOff) console.log("[web-ui] WARNING: PI_CONSOLE_AUTH=off - authentication is disabled (loopback development only).");
+  else console.log("[web-ui] The access token comes from PI_CONSOLE_TOKEN_FILE.");
 }
 
 console.log(`
 [web-ui] Done.
 
 Start it:
-  In pi:   /console            (alias: /webui)
-  Shell:   node packages/web-ui/server/server.js
+  In pi:   /console            (alias: /webui) - prints the login link
+  Shell:   node packages/web-ui/server/server.js  (prints the login link on a terminal)
 
-Then open ${url}
+Then open the login link (it looks like ${url}/#token=...).
 
-The server binds ${host} with no authentication. Keep it on loopback.
+The server binds ${host} and requires an access token; a non-loopback bind is refused unless
+PI_CONSOLE_ALLOW_REMOTE=1 is set. Keep it on loopback.
 `);
