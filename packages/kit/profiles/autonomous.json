@@ -17,6 +17,6 @@
     "goal-core", "task-graph", "subagent", "branch-lab",
     "verifier-board", "provider-router",
     "caveman", "pi-lens", "pi-readseek",
-    "orchestrator"
+    "orchestrator", "autonomy-run"
   ]
 }

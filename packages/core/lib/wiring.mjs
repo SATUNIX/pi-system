@@ -101,7 +101,8 @@ export function findWiringProblems({ root, scripts, manual = MANUAL_ONLY } = {})
   }
 
   const unwired = files.filter((f) => !wired.has(f) && !(f in manual));
-  const noAssertions = [...wired].filter((f) => /\.(mjs|cjs|js)$/.test(f) && !ASSERTION_MARKS.test(read(f))).sort();
+  // Only files a script runs directly are judged: a shared helper asserts nothing by design.
+  const noAssertions = [...wired].filter((f) => targets.has(f) && /\.(mjs|cjs|js)$/.test(f) && !ASSERTION_MARKS.test(read(f))).sort();
   const manualUsed = Object.entries(manual)
     .filter(([file]) => files.includes(file))
     .map(([file, reason]) => ({ file, reason }));

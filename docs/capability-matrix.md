@@ -11,7 +11,7 @@
 | `quick` | Quick fix | T0–T1 | 24 |
 | `balanced` | Daily coding | T0–T2 | 33 |
 | `long-horizon` | Multi-hour / multi-day | T0–T3 | 39 |
-| `autonomous` | Set-and-walk-away | T0–T3 | 39 |
+| `autonomous` | Set-and-walk-away | T0–T3 | 40 |
 | `self-improving` | Full / self-improving (experimental) | T0–T4 | 46 |
 | `pentest` | Security engagement (strict) | T0–T3+ | 41 |
 
@@ -56,6 +56,7 @@
 | `session-helpers` | ui | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `web-console` | ui | beta | · | · | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `autonomous-loop` | workflow | beta | · | · | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `autonomy-run` | workflow | beta | · | · | · | · | ✓ | · | · |
 | `caveman` | workflow | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `compress` | workflow | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `custom-compaction` | workflow | stable | · | · | ✓ | · | · | · | · |

@@ -1,311 +1,346 @@
-# Unattended improvement runs
+# Autonomous runs
 
-`packages/autonomy` runs the kit's own agent against this repository without supervision,
-for many cycles. Each cycle is a fresh pi session that reviews, plans, improves and verifies.
-Every cycle that completes, passes the gate and passes a merge review is merged into one
-integration branch, `experimental/main`. The next cycle starts from there, so the run builds
-on its own accepted work instead of starting from the same state each time. A person reviews
-`experimental/main` later, and changes reach `main` only through that person's merge
-request.
+`packages/autonomy` runs a task with the kit's agent **without you at the keyboard**: implement
+something to a specification, build and deploy it against services inside the run, or improve a
+repository in reviewed cycles. Each run happens inside a hardened container boundary that you read
+and authorise first, is bounded by a budget in money, steps and time, judges its own success only
+by checks the supervisor runs, and ends in one of four distinct outcomes.
 
-The agent runs with the `long-horizon` profile at a pinned kit release. It runs **without the
-auto-mode judge, with every approval granted**. The agent is told that an operator gave it
-the task. That's only safe inside a hard boundary, so the boundary is the container rather
-than the agent's policy:
+It is optional and separate from interactive use. It needs a container engine, an image built for
+it and a model provider key. Interactive work never needs any of these.
 
-| Path out of the container | Allowed | How it's enforced |
+> **Status: beta.** The engine, its contract and its boundary are covered by offline suites and by a
+> test on a real container engine, but no full run against a real model provider was made for this
+> release. See [What has been verified](#what-has-been-verified).
+
+## The idea
+
+A run is one **contract** (`run.json`), one **supervisor** on the host that owns it, and a
+**worker**: a `pi` session in a container that can reach only what the contract lists.
+
+```mermaid
+flowchart LR
+    op([You]) -->|plan, authorise, start| sup[Supervisor on the host]
+    sup -->|starts and watches| worker[Worker container: pi session]
+    worker -->|inference only| relay[Relay: holds the key, meters spend]
+    relay --> up[(Model provider)]
+    worker -. only listed hosts .-> proxy[Egress proxy]
+    worker <-->|only listed services| svc[Run services]
+    worker -->|commits| bundle[Git bundle, plain data]
+    bundle --> sup
+    sup -->|clean, network-less containers| checks[Acceptance checks and review]
+    sup -->|only if the contract says| promo[Promotion]
+```
+
+The supervisor never trusts the worker's word. It runs the **acceptance checks** itself, in clean
+containers with no network, from definitions in the run directory that the worker never sees;
+worker-written tests and reports are inputs to review, not proof. Success needs every required
+check to pass in a trusted evaluation **and** the independent review to approve.
+
+## The boundary
+
+Every container the supervisor starts has these properties, and they cannot be configured away.
+The supervisor also re-checks the finished `run` argument list against them before it executes
+(`packages/autonomy/lib/containment.mjs`), so a bug in an argument builder cannot start a
+privileged container or one holding the engine socket:
+
+- non-root, read-only root filesystem, all capabilities dropped, `no-new-privileges`, and pids,
+  memory and CPU limits;
+- on an **internal** network: no route off the host and no DNS beyond container names (only the
+  relay and the egress proxy face outward, and only toward fixed destinations);
+- never privileged, never on the host network, never sharing a host namespace;
+- no container-engine socket, no home directory and no credential store mounted.
+
+What a worker can do beyond that is exactly what the contract lists, and `plan` prints it before
+anything runs:
+
+| Path | Allowed | How it is enforced |
 |---|---|---|
-| Model inference | yes, through the relay | The agent is on an `--internal` Docker network. The relay forwards `POST /v1/chat/completions` and `GET /v1/models` to one fixed upstream, for the run's models only. It holds the real key, which it receives on stdin, and meters spend. |
-| Git | push to a local bare repo | The agent's only remote is `/git/remote.git`. The **host** publishes `experimental/main` and the run's tags to GitLab with your credentials. |
-| Anything else (DNS, the internet, the LAN, GitLab, npm, the host) | no | No route off the internal network, and no DNS beyond container names. The probe (`packages/autonomy/tests/boundary-probe.mjs`) checks this before every start and resume. It also confirms that the real key is in no mounted file, by comparing against the key's SHA-256, the only form of the key the probe is given. |
+| **Model inference** | Only through the relay | The relay forwards to one fixed upstream, for the run's models only, holds the real key (received on stdin, never in a worker mount or environment), and meters spend from the upstream's reported cost. It refuses other paths and models, and refuses requests beyond the budget as a backstop. |
+| **The internet** | Only hosts and ports in `permissions.network.egress` | Through the egress proxy, which resolves DNS itself, validates every address (no loopback, private, link-local, metadata or reserved ranges, in any spelling), connects to the validated address, never inspects TLS, does not follow redirects and audits every decision. With no `egress`, there is none: no package downloads, no LAN. |
+| **Run services** | Only those the contract declares | Databases, web servers or queues from an allowlisted image list, started by the supervisor on the run's own network, with health checks. Deploying "in the zone" means to these. |
+| **Files** | The worker writes to `/work`, its own state and a tmpfs | Changes are accepted only under `permissions.writeAreas`. The contract, checks and held-out tests are supervisor-held. |
+| **Credentials** | Names only, delivered only to the service that declares them | A credential value never appears in a contract (credential-shaped strings are rejected), a worker environment or a check. |
+| **Promotion** | Only what `promotion` says | `none` by default: nothing leaves the run directory. `local-branch` fast-forwards a branch in a local repository. `push` fast-forwards a listed remote and asks you first unless you turn that off. The worker never promotes. |
 
-The containers run as a non-root user with a read-only root filesystem, all capabilities
-dropped, `no-new-privileges`, and pids, memory and CPU limits. None of them gets a container
-engine socket or your home directory. With rootless Podman (the default), the containers run
-as your user rather than root. The helpers (bundling, the gate) run with `--network none`.
+### Unattended operation, and how it stays inside the zone
 
-## How a run works
+With `permissions.unattended.authorised`, the worker runs the kit's tool firewall in
+[unattended mode](autonomy-gate.md#unattended-mode): in-zone actions run without prompts, hard
+denials stay, and anything that would need authority outside the zone fails closed. The supervisor
+gives the worker `PI_KIT_UNATTENDED=1`, `PI_KIT_UNATTENDED_BOUNDARY=container` and a read-only,
+sanitised copy of the contract at `/run/contract.json`; the firewall activates only when all of
+that agrees, and cannot be switched on from inside a session. With `autoApprove`, the worker's
+approval dialogs are answered automatically; a question that needs a person **blocks the run**
+instead.
 
-```
-host: supervisor (node) ── manager model (called on events only, from the host)
-  │  mirror.git (yours) ── fast-forward push ──► GitLab experimental/main + exp/<run>/* tags
-  │        ▲ git fetch from a bundle (plain data)
-  │  bundle helper (--network none, agent repo mounted read-only)
-  └─ internal network ─ agent (pi --mode rpc) ── /git/remote.git, /work, /state
-                     └─ relay ──► https://openrouter.ai/api/v1 (egress network)
-```
+The firewall trusts the supervisor's statement that the boundary is a container. It cannot verify
+it, which is why the boundary probe runs before every start and resume, and why the host-side
+containment check exists.
 
-### One cycle at a glance
+### Authorisation is bound to the boundary
 
-Who does what, and when, in one cycle. The full process map, with timings, merge rules and
-the backlog lifecycle, is [`assets/autonomy-flow.html`](assets/autonomy-flow.html) (open it in
-a browser).
+`start` shows the resolved boundary and a **digest** (a SHA-256 over every security-relevant field:
+what the run may write, reach, spend, run, promote and check). It proceeds only if you confirm at a
+terminal, or the contract carries an `authorisation` block whose digest equals the current one.
+Change anything that widens what a run may touch and the digest changes, so an old authorisation no
+longer applies; changing the title, the specification or the backlog does not, so one authorised
+configuration can be reused. A digest mismatch always refuses. With no terminal, a flag alone is
+not consent: without a matching authorisation, `start --yes` still refuses.
 
-```plantuml
-@startuml
-skinparam shadowing false
-skinparam defaultFontName sans-serif
-|Supervisor (host)|
-start
-:Reset the working branch to experimental/main
-and send the cycle prompt;
-fork
-|Lead agent (pi)|
-:Review: charter, backlog, handoff, last report,
-rejected attempt; scouts check the backlog against the code;
-:Plan: pick items with acceptance checks,
-set /goal and the task graph;
-repeat
-  :Improve one item: an implementer makes the change,
-  a different reviewer checks it; commit and push;
-repeat while (more planned items?) is (yes)
-->no;
-:Verify: full offline gate,
-independent review of the cycle diff;
-:Record: report, BACKLOG and HANDOFF; push;
-fork again
-|Supervisor (host)|
-:Every 30 s: take in pushed commits (fast-forward only),
-track time and spend;
-if (trigger: idle, no push, 3 h, $5, crash, no report?) then (yes)
-  |Manager (model)|
-  :Choose one: continue, nudge, restart session,
-  new cycle, reset to last good, abort run;
-  |Supervisor (host)|
-else (no)
-endif
-end fork
-|Gate and review|
-:Post-cycle gate on a clean offline clone:
-check:all, security tests, mkdocs --strict, gitleaks;
-|GitLab|
-:Tag exp/<run>/cycle-NN;
-|Supervisor (host)|
-if (completed, has commits, gate green?) then (yes)
-  |Gate and review|
-  if (merge review: MERGE?) then (yes)
-    |GitLab|
-    :Fast-forward and push experimental/main;
-  else (REJECT)
-    |GitLab|
-    :Keep the tag; the next cycle gets it
-    as attempts/<run>/cycle-NN;
-  endif
-else (no)
-  |GitLab|
-  :Keep the tag; the next cycle gets it
-  as attempts/<run>/cycle-NN;
-endif
-stop
-@enduml
+The authorisation record is a consent and integrity record, not a signature: whoever can write the
+contract file can write it. The supervisor runs on the host from a checkout outside the worker's
+writable area, so the worker cannot change the contract, the digest, the check definitions or the
+supervisor's own code.
+
+## Quick start
+
+From a shell, or from inside pi with `/autonomy` in the `autonomous` profile (below):
+
+```sh
+node packages/autonomy/cli.mjs templates                       # what kinds of run exist
+node packages/autonomy/cli.mjs init --template implement --out run.json \
+    --spec "A small HTTP API for todos" --check unit="node --test tests/"
+node packages/autonomy/cli.mjs plan --config run.json          # the boundary, its digest, problems
+node packages/autonomy/cli.mjs start --config run.json         # confirm the boundary; then it runs
+node packages/autonomy/cli.mjs status --run <run>              # or `status` for every run
+node packages/autonomy/cli.mjs export --run <run>              # results, evidence, usage, the work
 ```
 
-- **Seeding.** The integration branch (`integration.branch`, default `experimental/main`)
-  is shared by every run. If it doesn't exist on the remote yet, the supervisor creates it from
-  `main` with one commit adding `autonomy/CHARTER.md` (the acceptance criteria),
-  `autonomy/BACKLOG.md` and `autonomy/HANDOFF.md`. If it does exist, the run continues it,
-  with its backlog and handoff. When `main` has moved on (you merged an MR), `main` is merged
-  into it first; if that merge conflicts, the run continues without it and logs that you need
-  to merge by hand. A run id is used once: `start` refuses an id whose `exp/<run>/` tags are
-  already on the remote.
-- **A cycle.** Each cycle starts by moving its working branch, `experimental/<run>`, to the
-  head of `experimental/main`. If you pushed to `experimental/main` in the meantime, the
-  cycle starts from your commit. The supervisor then starts the agent container and sends
-  the cycle prompt (`packages/autonomy/prompts/cycle.md`) over pi's RPC channel. The agent
-  works through review → plan → improve → verify → record, writes
-  `autonomy/cycles/<run>/NN/`, and pushes after every commit. The working branch never leaves
-  the machine, so GitLab has one branch however many cycles and runs there are.
-- **Mirroring.** Every 30 seconds a network-less helper bundles the agent's branch. The host
-  fetches the bundle into its own repository and accepts it only if it fast-forwards. It then
-  pushes `experimental/main` and the run tags to GitLab when they change. The host never runs
-  git inside a repository the agent can write to, so a planted hook or config can't run on
-  the host. Nothing is ever force-pushed.
-- **The end of a cycle.** The cycle ends once `autonomy/cycles/<run>/NN/report.md` is on the
-  branch. If the agent stops without writing it, it gets two reminders, and after that the
-  manager decides. Next, a **post-cycle gate** runs `check:all`, `test:security`,
-  `mkdocs --strict` and `gitleaks` on the accepted head, in a clean clone with no network.
-  The head is tagged `exp/<run>/cycle-NN` whatever happens next.
-- **Merging.** A cycle is merged into `experimental/main` (fast-forward only) when all of
-  these hold:
-  - the cycle completed, rather than being closed as partial, reset or aborted;
-  - it has commits;
-  - the gate is green;
-  - the **merge review** approves it.
+Every command accepts `--json` and then prints exactly one JSON object (`{ ok: true, ... }` or
+`{ ok: false, error, code }`). Exit codes: 0 ok; 1 error; 2 usage or invalid contract; 3 refused
+(authorisation, duplicate run, lock, illegal state). A foreground `start` or `resume` ends 0
+succeeded, 10 failed, 11 cancelled, 12 budget exhausted, 13 parked (blocked, paused or signalled).
+`--detach` starts the supervisor in the background and returns its pid.
 
-  The merge review is a separate model call made from the host (`integration.reviewModel`,
-  by default the manager's model). It sees the charter, the cycle's report and `verify.md`,
-  the commits and the diff, and answers `MERGE` or `REJECT` with a reason. A malformed
-  answer, or no answer after three attempts (5 minutes each, with pauses between), counts as
-  `REJECT`. You can turn the review off with `"integration": {"review": false}`; then a green
-  gate is enough.
+Working examples are in `packages/autonomy/examples/`.
 
-  A cycle that isn't merged is not lost. Its tag keeps it. The next cycle starts from
-  `experimental/main` without it, gets it in its repository as `attempts/<run>/cycle-NN`, and
-  is told why it was rejected and to salvage what is sound before starting new work.
-- **The manager** is a separate model call made from the host, only when a trigger fires. The
-  triggers are:
-  - 20 minutes with no session events;
-  - 90 minutes without a push;
-  - the 3-hour soft limit;
-  - the per-cycle review budget (`budget.perCycleUsd`, default $5);
-  - an agent crash;
-  - two red gates in a row (red cycles are never merged);
-  - repeated progress-guard escalations;
-  - a session that ends without a report.
+### From inside pi
 
-  It gets a bounded summary of the cycle and must answer with exactly one decision:
+The `autonomy-run` extension, in the `autonomous` profile, adds `/autonomy`:
 
-  | Decision | Effect |
-  |---|---|
-  | `CONTINUE` | Extend the cycle's time by 10–120 minutes. |
-  | `NUDGE` | Send the agent one steering message. |
-  | `RESTART_SESSION` | Start a fresh pi session on the same workspace, briefed with the manager's message. |
-  | `NEW_CYCLE` | Close the cycle as partial. Pushed work is kept. |
-  | `RESET_TO_LAST_GOOD` | Tag the head `exp/<run>/abandoned-NN` and move the cycle's working branch back to the head of `experimental/main`, the last merged state. |
-  | `ABORT_RUN` | Stop the run for a person to look at. |
+```
+/autonomy templates | init <template> [flags] | plan <run.json> | start <run.json>
+/autonomy status [run] | pause | cancel | resume | steer | promote | export | reconfigure
+```
 
-  The supervisor validates and carries out the decision, and the manager's call ends there.
-  The hard limits don't consult it: at 5 hours or the hard cycle budget (`budget.perCycleHardUsd`, default $10), the cycle closes as
-  partial, and at most 3 manager calls are made per cycle.
-- **Budget.** The relay meters OpenRouter's reported cost for every response, and the
-  manager's own calls are counted too. The run stops at `budget.totalUsd`, and the relay
-  refuses requests beyond it as a backstop.
+It is a **command, not a tool**: the model cannot start, authorise, steer, promote or reconfigure a
+run. `start` shows the boundary and its digest and asks you to confirm it; confirming records the
+authorisation for exactly that digest and starts the run in the background. Without a screen it
+refuses unless the contract already carries a matching authorisation, made earlier at a terminal
+with `plan --authorise`. `cancel`, `promote`, `reconfigure` and `resume --approve` ask first. See
+`packages/extensions/src/autonomy-run/README.md`.
 
-## What a cycle works on
+## The run contract
 
-The charter (`autonomy/CHARTER.md`) sets the priorities, and the cycle prompt turns them into
-modes that the agent picks during review:
+One JSON document, `schemaVersion: 1` (`packages/autonomy/schema/run-contract.schema.json`). It is
+validated by dependency-free code so the supervisor runs on plain Node, and the suite checks the
+two agree. The rules are **fail closed**: unknown top-level keys, and unknown or malformed keys
+under `permissions`, `promotion` and `authorisation`, are errors; anything absent defaults to the
+closed choice (no egress, no services, no unattended approval, no promotion), never a wider one.
 
-| Mode | When | Work |
+| Field | What it says |
+|---|---|
+| `run`, `template` | The run id (`a-z0-9-`, 3 to 41 characters) and its template. |
+| `objective` | `title`, and `spec` or `specFile`; an optional `backlog` of items with their own acceptance. |
+| `inputs` | `repository` (a local path or URL and a ref, or none for an empty start) and read-only `references`. |
+| `acceptance` | `checks` (each `id`, `run`, `timeoutMinutes`, `required`), `overlay` (held-out files the supervisor copies over the clone before checking), `review` (independent approval required). |
+| `permissions` | `writeAreas`, `network.egress`, `network.services` and `serviceImages`, `credentials.names`, `outputs`, `unattended`. |
+| `model`, `providerSettings` | Provider, worker, manager and review models, upstream and key name. The key value is never in the contract. |
+| `effort` | An [effort](effort.md) tier and cap for the run (default E3). It is fixed at start. |
+| `budget` | `totalUsd`, `perStepUsd`, `maxSteps`, `maxMinutes` (active time). Every run is bounded by money, steps and time; none may be omitted. |
+| `recovery` | `softNudges` (default 2), `hardRestarts` (default 1), `maxAttemptsPerStep` (default 8). |
+| `promotion` | `policy` (`none`, `local-branch`, `push`), `destinations`, `requiresOperatorApproval` (default true). |
+| `runtime` | Engine (`podman` or `docker`), image, memory, CPUs, pids and the git identity for commits. |
+| `authorisation` | Written by `plan --authorise` or an interactive `start`: the boundary digest, who and when. |
+
+## Templates
+
+| Template | Kind | What it does |
 |---|---|---|
-| **Fix** | Whenever there is something to fix (the default) | A red gate, carried-over work, bugs, security gaps, untested behaviour, docs that don't match the code, and cleanup of code shown to be dead, duplicated or needlessly complex. |
-| **Improve** | Only when review finds nothing worth fixing | Make an existing system more capable, faster, more reliable or easier to use. The need must be evidenced (a measured baseline, a documented limitation, a gap you can demonstrate), with tests and docs, and no new dependencies. |
-| **Consolidate** | The cycle after a merged improve cycle | A fix-and-cleanup pass over what the improvement changed, before anything else. |
+| `implement` | finite | Build or change something to a specification until the acceptance checks pass and the independent review approves. |
+| `deploy` | finite | Like `implement`, plus run-scoped services the supervisor starts on the run's internal network, so the worker can build, deploy and test against them. Nothing leaves the zone. |
+| `self-improve` | cycling | Repeated review, plan, improve and verify cycles on a repository, each merged into one integration branch only when it completes, passes the checks and passes a merge review (see below). Optional: one template among several. |
 
-So the work goes round: fix → improve → consolidate → fix. New code is where the next bugs
-are, and each improvement is followed by a pass that finds them.
+A template supplies prompts and defaults; everything that must not vary (lifecycle, lock,
+boundary, budgets, acceptance, recovery, promotion, evidence) belongs to the engine.
 
-Each report starts with `Outcome: successful | partial | failed | nothing found` and
-`Mode: fix | improve`. The supervisor reads these. After a merged improve cycle it tells the
-next cycle to consolidate first. A cycle whose honest review finds nothing to do reports
-`nothing found` instead of inventing work. After `limits.nothingFoundToStop` of those in a
-row (default 3), the run stops as `backlog_exhausted`, so the rest of the budget isn't spent
-on churn. `status` shows each cycle's mode, or `nothing` for those cycles.
+## The lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> setup
+    setup --> ready
+    ready --> running
+    running --> recovering: stalled
+    recovering --> running: verified progress
+    running --> blocked: needs a person
+    blocked --> running: you answer
+    running --> paused: pause
+    paused --> running: resume
+    running --> succeeded
+    running --> failed
+    running --> cancelled: cancel
+    running --> budget_exhausted
+    budget_exhausted --> paused: reconfigure raises limits
+    succeeded --> [*]
+    failed --> [*]
+    cancelled --> [*]
+```
+
+The outcomes are never conflated: **succeeded** (every required check passed in a trusted
+evaluation and the required review approved), **failed** (with a reason such as
+`boundary_violation`, `recovery_exhausted`, `step_attempts_exhausted`, `review_rejected`,
+`final_gate_red`), **cancelled** (an operator ended it) and **budget_exhausted** (money, steps or
+active minutes ran out). **blocked** is not terminal: a genuinely external blocker or an approval
+needs a person, and `resume --answer` (or `--approve`, `--deny`) continues it.
+
+Exactly one supervisor owns a run at a time. A lock file holds its pid, process start time, host and
+a heartbeat; a duplicate `start` refuses, and after a crash the next supervisor takes the stale lock
+over, removes the orphaned containers and continues. A silent but live owner is never taken over
+automatically, because two supervisors on one run would repeat side effects.
+
+## Recovery and budgets
+
+**Recovery is bounded.** When a run stops making verified progress (no check newly passing and the
+accepted head not moving inside the write areas), it climbs a ladder: soft nudges (a steering message
+in the same session), then hard restarts (a fresh session on the same workspace, briefed from verified
+state), then the run **fails** as `recovery_exhausted`. Counters persist across a supervisor crash and
+reset only on verified progress; `maxAttemptsPerStep` bounds the turns spent on one target for the
+life of the run. Recovery never resets spending, extends a budget or widens scope, and the hard
+limits are not decided by it.
+
+**Budgets are hard.** The relay meters the provider's reported cost for every response, the
+manager's and reviewer's calls included; the run stops as `budget_exhausted` at the money, step or
+active-minute limit. `reconfigure` is the **only** way effort or limits change for an existing run:
+it cannot touch permissions, network, credentials, promotion, the image or the acceptance definitions
+(those are the authorised boundary; changing them means a new run), it asks for confirmation, and it
+is logged in the run's state.
+
+**Effort inside a run.** The worker's effort tier is pinned from the contract and capped, so an
+in-session `/effort` cannot exceed the cap and its children never exceed their parent; see
+[Effort](effort.md).
+
+## Promotion and results
+
+Nothing leaves the run directory unless the contract's promotion policy says so, and `export` is
+always available:
+
+- `none`: use `export` to take out the results, evidence, usage, decisions and the work.
+- `local-branch`: fast-forward a branch in a local repository. No remote is contacted.
+- `push`: fast-forward push to a listed remote branch, after your approval (`promote`) unless
+  `requiresOperatorApproval` is false.
+
+Every promotion step is idempotent and recorded as started before and done after; a run resumed after
+a crash checks the destination's real ref before repeating anything, so a resume never publishes twice.
+Public deployment, production changes and anything outside the zone are never done by a worker.
+
+## The `self-improve` template
+
+The original behaviour of this package, now one template: repeated cycles on a repository, each a
+fresh pi session that reviews, plans, improves and verifies, and every cycle that completes, passes
+the acceptance checks and passes a merge review is fast-forwarded into one integration branch
+(`pi-autonomy/integration` by default, never `main`), from which the next cycle starts. Nothing is
+force-pushed, and by default nothing leaves the machine: promotion is `local-branch` unless you choose
+`push`.
+
+- **A cycle ends** once its report is on the branch. If the worker stops without writing it, it gets
+  two reminders, and then the manager decides. The **acceptance checks** run on the accepted head, in
+  a clean clone with no network, and the head is tagged whatever happens next.
+- **The merge review** is a separate model call from the host that answers `MERGE` or `REJECT` from the
+  charter, the report, the commits and the diff. A malformed answer, or none after three attempts,
+  counts as `REJECT`. A cycle that is not merged is kept by its tag and shown to the next cycle so it
+  can salvage what is sound.
+- **The manager** is a separate model call, made only when a trigger fires (20 minutes without
+  events, 90 minutes without a push, the 3-hour soft limit, the per-cycle budget, a crash, two red
+  gates in a row, repeated stall escalations, or a session that ended without a report). It answers
+  with exactly one of `CONTINUE`, `NUDGE`, `RESTART_SESSION`, `NEW_CYCLE`, `RESET_TO_LAST_GOOD` or
+  `ABORT_RUN`, which the supervisor validates and carries out; at most 3 calls per cycle, and the hard
+  limits (a 5-hour cycle ceiling, and the run's budget) never consult it. These limits are the
+  template's defaults and can be changed in `templateOptions.limits`.
+- **Modes.** Cycles work in *fix* mode while there is something to fix, in *improve* mode only when a
+  review finds nothing (and the need must be evidenced), and in *consolidate* mode for the cycle after
+  a merged improvement. A run whose reviews find nothing three times in a row (`nothingFoundToStop`)
+  stops rather than inventing work: the acceptance checks run once more on the integration branch,
+  and if they pass the run **succeeds** with the reason `backlog_exhausted`; if they are red it fails
+  as `final_gate_red`. The same final check ends a run that reaches its cycle limit.
+
+The charter, backlog and handoff a repository is seeded with are in `packages/autonomy/seed/`.
 
 ## Setting up
 
-You need:
+1. **A container engine.** The default is `podman` (rootless: no daemon, no `docker` group, and an
+   escape gets your user's rights rather than root's). Docker works with `"runtime": {"engine":
+   "docker"}`, but membership of the `docker` group is root-equivalent; do not run the supervisor with
+   `sudo`.
+2. **A provider key.** For the default `openrouter` provider, `OPENROUTER_API_KEY` in the supervisor's
+   environment. The supervisor hands it to the relay on stdin; it never enters a worker container or a
+   log. `openai-compatible` takes `providerSettings.upstream` and `apiKeyEnv`.
+3. **The image**, built from local git objects with no credentials in it:
 
-1. **A container engine.** The default is **rootless Podman** (`"engine": "podman"`;
-   on Arch, `sudo pacman -S podman`). It needs no daemon, no `docker` group and no sudo at
-   run time, and its containers run as your user, so an escape would only get your user's
-   rights, not root. `--userns=keep-id` keeps the run files yours. Rootless Podman on
-   cgroup v2 enforces the memory, CPU and pids limits.
-   Docker works too (`"engine": "docker"`), but membership of the `docker` group is
-   root-equivalent. Don't use `sudo docker` for a run: the supervisor calls the engine every
-   30 seconds for days.
-2. **An OpenRouter key.** Either `openrouter` in `~/.pi/agent/auth.json` (from `/login` in
-   pi) or `OPENROUTER_API_KEY`. The supervisor reads it and hands it to the relay on stdin. It
-   never enters the agent container or a log.
-3. **Git access to the remote**, with your normal credentials (the supervisor pushes as you).
-4. **The image**, built from local git objects:
-
-   ```bash
+   ```sh
    git fetch --tags origin
-   packages/autonomy/build-image.sh --kit-ref v0.2.1-beta.0 --base-ref origin/main   # --engine docker to use Docker
+   packages/autonomy/build-image.sh --kit-ref v0.2.4-beta.0 --base-ref origin/main
    ```
 
-   The image also carries the linters and language servers that pi-lens would otherwise
-   try to install from npm at run time (typescript, markdownlint-cli2, biome, and others),
-   plus shellcheck. In the agent container npm runs in offline mode, so an install that isn't
-   covered fails at once instead of stalling a tool call.
-
-## Running
-
-```bash
-cp packages/autonomy/run.example.json ~/pi-run.json      # edit run id, caps, references
-node packages/autonomy/supervisor.mjs boundary --config ~/pi-run.json   # probe only
-node packages/autonomy/supervisor.mjs start --config ~/pi-run.json
-node packages/autonomy/supervisor.mjs status --run <run>
-node packages/autonomy/supervisor.mjs stop --run <run>    # closes the cycle, gates, tags, exits
-node packages/autonomy/supervisor.mjs resume --run <run>
-```
-
-Run it from a checkout of `main`, not of the experimental branch, so the agent's changes
-can't alter the supervisor that manages it. For a run lasting days, use a user service:
-
-```ini
-# ~/.config/systemd/user/pi-autonomy.service
-[Service]
-WorkingDirectory=%h/Development/pi/pi-system
-ExecStart=/usr/bin/node packages/autonomy/supervisor.mjs resume --run perpetual-20260925
-Restart=on-failure
-```
-
-A run interrupted by a signal (for example `systemctl --user stop`, or a reboot) is marked
-`interrupted`, including one that stops between two cycles.
-`resume` continues the same cycle in a fresh session on the same workspace.
-
-Start the run once with `start`. After that the service's `resume` continues it, and on a
-restart it picks the interrupted cycle up where it stopped.
-
-**A dry run first.** Use `"cycles": 1`, `"budget": {"perCycleUsd": 0.5, "perCycleHardUsd": 1, "totalUsd": 1}` and
-`"limits": {"softMinutes": 30, "hardMinutes": 45}`, then check the following:
-- the `exp/<run>/cycle-01` tag reached GitLab, and so did `experimental/main` if the cycle
-  was merged;
-- `cycles/01/gate.json` and, for a completed cycle with a green gate, `cycles/01/review.json`
-  exist in the run directory;
-- `status` shows the decisions.
+   `--kit-ref` is the kit release the worker runs (before the release tag exists, pass a branch such as
+   `origin/main`). `--base-ref` optionally prebakes that repository's dependencies for offline
+   installs. Add toolchains your tasks need in a derived image and name it in `runtime.image`.
+4. Run the supervisor from a checkout of `main`, not from the branch a worker is changing.
 
 ## The run directory
 
-Everything lives in `~/.local/state/pi-autonomy/<run>/` (or `$PI_AUTONOMY_HOME/<run>`):
+Everything is under `$PI_AUTONOMY_HOME/<run>` (default `~/.local/state/pi-autonomy/<run>`); nothing
+is written to `~/.pi`.
 
 | Path | Contents |
 |---|---|
-| `state.json`, `config.json` | Progress (per-cycle outcome, gate, merge, cost, decisions) and the effective config. |
-| `supervisor.log` | One line per event. |
-| `boundary.json` | The last boundary probe. |
-| `cycles/NN/` | `events-*.jsonl` (RPC events without streaming deltas), `agent-*.log`, `decisions.jsonl`, `gate.json`, `gate.log`, `review.json` (the merge review), `summary.json`. |
-| `meter/` | `usage.jsonl` (the relay) and `manager.jsonl`. |
-| `mirror.git` | Your repository: `experimental/main`, the cycle's working branch (never published) and the run tags. |
-| `remote.git`, `work/`, `agent-state/` | The agent's side, written by the container. |
-| `references/<name>` | Read-only `git archive` snapshots of the configured reference repos. |
+| `contract.json`, `state.json` | The authorised contract, and the one authoritative record of the run (status, usage, tasks, acceptance evidence, recovery counters, history). |
+| `supervisor.log`, `supervisor.lock`, `control/` | The event log, the single-owner lock, and queued control commands. |
+| `checks.json`, `overlay/` | The check definitions and the held-out files: supervisor-held, never mounted for the worker. |
+| `public/` | The sanitised contract, mounted read-only at `/run`. |
+| `mirror.git`, `steps/`, `results/` | The host's copy of the work, each step's evidence, and exports. |
+| `egress/`, `meter/`, `boundary.json` | Proxy audit, spend records, the last boundary probe. |
+| `remote.git`, `work/`, `agent-state/` | The worker's side, written by the container. |
 
-## Reviewing the results
+## What has been verified
 
-`experimental/main` and the tags are ordinary git:
+- **Offline suites** (`npm run check:all`): the contract validator and schema, the lifecycle and its
+  legal transitions, the boundary renderer and digest, the containment validator, the egress proxy's
+  address and hostname handling, the run engine end to end against a fake runtime (acceptance,
+  recovery, budgets, promotion, crash and resume), the `self-improve` template, the CLI, and the
+  `/autonomy` command.
+- **A real container engine** (`npm run smoke:autonomy-container`, run against Docker 29 in the
+  release environment): the run network is internal (no DNS, no route out, none to the host); workers
+  run non-root, read-only, with no capabilities and no engine socket; `inspect` agrees (mounts only
+  under the run directory, no host namespaces, no published ports, the key in no environment or
+  argument list); the relay injects the key the worker never had and refuses other paths and models;
+  the egress proxy tunnels a listed host and refuses unlisted hosts, wrong ports and private,
+  loopback and odd-spelled addresses; git plumbing works with no network; acceptance checks run in
+  clean network-less containers with the held-out overlay applied; a run service serves a staged,
+  read-only copy; cleanup removes everything it made. Without an engine, the test prints a `SKIPPED`
+  line and exits 0, so it adds evidence where an engine exists; `check:all` still runs its offline
+  counterpart.
 
-```bash
-git fetch origin experimental/main 'refs/tags/exp/<run>/*:refs/tags/exp/<run>/*'
-git log --oneline main..origin/experimental/main
-git diff exp/<run>/cycle-03 exp/<run>/cycle-04 --stat
-cat autonomy/cycles/<run>/04/report.md    # on experimental/main
-node packages/autonomy/supervisor.mjs status --run <run>   # which cycles merged, and why not
-```
+**Not verified:** a full run against a real model provider (the relay talks to a local fake upstream
+in the tests); rootless Podman (the container test used Docker); long runs (hours to days); macOS
+and Windows; and the effect of the boundary on an adversarial worker beyond what the probe and the
+container checks assert. Run `pi-autonomy boundary --config run.json --probe` on your own engine, and
+start with a small budget, before trusting a long run.
 
-Each cycle's `report.md` states its outcome and items, and `verify.md` gives the evidence. A
-cycle that wasn't merged is still at its `exp/<run>/cycle-NN` tag. The simplest way to take
-the work to `main` is to open a merge request from `experimental/main`. You can also
-cherry-pick single commits. After you merge, the next run merges `main` back into
-`experimental/main` by itself.
+## Limits
 
-## Limits and known gaps
-
-- **Semgrep** isn't part of the offline gate, because its rules come from the network. CI
-  runs it on your merge request.
-- **The gate is a quality signal, not a security boundary.** It runs the branch's own tests,
-  and the container's exit status is what counts.
-- **Inference is an information channel.** Anything the agent can read (the repository and
-  the reference snapshots) can go to the model provider. Don't add references that hold
-  secrets.
-- **Model specs.** pi's built-in catalogue may not know a new model id. The supervisor fetches
-  the context window, output limit and prices from OpenRouter at start and writes them into
-  the agent's `models.json`, so compaction and cost shown in pi match the model.
-- **One run at a time per integration branch.** Two runs merging into the same
-  `experimental/main` at once would diverge. If the remote and local branches do diverge
-  (for example after a force-push), the run stops as `integration_diverged` at the start of
-  the next cycle.
-- **Dependencies are prebaked** from the base ref's lockfile. A branch that changes
-  dependencies fails its offline install. The charter tells the agent to propose dependency
-  changes instead.
+- **The boundary is the container.** The firewall's unattended mode is a second layer that trusts it.
+  Anything the worker can read (the repository, references) can go to the model provider: do not add
+  references that hold secrets.
+- **Acceptance checks are quality evidence, not a security boundary.** They run the worker's own code
+  in a clean container; the container's limits are what contain them.
+- **One run per integration branch at a time.** Two runs merging into the same branch would diverge;
+  a diverged branch stops the run as `integration_diverged`.
+- **Dependencies are prebaked** from the base ref's lockfile. A change to dependencies fails the
+  offline install; propose dependency changes rather than making them in a run.
+- **Model specifications.** pi's catalogue may not know a new model id; the supervisor fetches limits
+  and prices from the provider at start so compaction and cost match the model.
+- **The v0 configuration format** (`supervisor.mjs`, no `schemaVersion`) is mapped onto the
+  `self-improve` template with a deprecation warning, and now needs an explicit remote and promotion
+  policy. Its old defaults, which pushed to a fixed private host, are gone.

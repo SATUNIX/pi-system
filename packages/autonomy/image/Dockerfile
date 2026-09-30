@@ -17,7 +17,7 @@ ARG GITLEAKS_IMAGE=ghcr.io/gitleaks/gitleaks:v8.30.1
 FROM ${GITLEAKS_IMAGE} AS gitleaks
 
 FROM ${NODE_IMAGE}
-ARG PI_VERSION=0.85.1
+ARG PI_VERSION=0.87.1
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends bash ca-certificates curl fd-find git jq procps python3 python3-venv ripgrep shellcheck tini \

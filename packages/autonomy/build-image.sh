@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Build the autonomy image from local git objects (no clone, no credentials in the image):
-#   packages/autonomy/build-image.sh [--kit-ref v0.2.1-beta.0] [--base-ref origin/main] [--tag pi-autonomy:local] [--engine podman|docker]
+#   packages/autonomy/build-image.sh [--kit-ref v0.2.4-beta.0] [--base-ref origin/main] [--tag pi-autonomy:local] [--engine podman|docker]
 # The kit ref is the harness the worker runs. The base ref is OPTIONAL: when given, its lockfile's
 # dependencies (and docs requirements) are prebaked for offline installs; without it the image
 # carries no repository-specific dependencies. Fetch the refs first (git fetch --tags origin).
 set -euo pipefail
-kit_ref=v0.2.1-beta.0; base_ref=""; tag=pi-autonomy:local; engine=podman
+kit_ref=v0.2.4-beta.0; base_ref=""; tag=pi-autonomy:local; engine=podman
 while [ $# -gt 0 ]; do
   case "$1" in
     --kit-ref) kit_ref="$2"; shift 2 ;;

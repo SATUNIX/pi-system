@@ -1,4 +1,4 @@
-// What the host may publish from the run's bare repository to GitLab. The container can push
+// What the host may publish from the run's bare repository to a promotion destination. The container can push
 // anything to its bare repo (it has no other remote); only the integration branch
 // (experimental/main) and the run's exp/<run>/ tags leave the machine, fast-forward only, with
 // the operator's own git credentials on the host. Nothing is ever force-pushed: the cycle's
