@@ -22,5 +22,6 @@
   "env": ["PI_KIT_FIREWALL_POLICY", "PI_KIT_FIREWALL_AUDIT_LOG", "PI_KIT_FIREWALL_APPROVALS", "PI_KIT_UNATTENDED_CONTRACT"],
   "provenance": { "origin": "custom" },
   "homeRepo": null,
-  "status": "experimental"
+  "status": "experimental",
+  "childGovernance": true
 }
