@@ -124,8 +124,9 @@ The `autonomy-run` extension, in the `autonomous` profile, adds `/autonomy`:
 /autonomy status [run] | pause | cancel | resume | steer | promote | export | reconfigure
 ```
 
-It is a **command, not a tool**: the model cannot start, authorise, steer, promote or reconfigure a
-run. `start` shows the boundary and its digest and asks you to confirm it; confirming records the
+It is a **command, not a tool**: the model has no tool that starts, authorises, steers, promotes or
+reconfigures a run. (A model with a shell tool can run the CLI itself; see "Limits" below for what
+the firewall does about that.) `start` shows the boundary and its digest and asks you to confirm it; confirming records the
 authorisation for exactly that digest and starts the run in the background. Without a screen it
 refuses unless the contract already carries a matching authorisation, made earlier at a terminal
 with `plan --authorise`. `cancel`, `promote`, `reconfigure` and `resume --approve` ask first. See
@@ -275,7 +276,11 @@ The charter, backlog and handoff a repository is seeded with are in `packages/au
    `sudo`.
 2. **A provider key.** For the default `openrouter` provider, `OPENROUTER_API_KEY` in the supervisor's
    environment. The supervisor hands it to the relay on stdin; it never enters a worker container or a
-   log. `openai-compatible` takes `providerSettings.upstream` and `apiKeyEnv`.
+   log. `openai-compatible` takes `providerSettings.upstream` and `apiKeyEnv`. The relay sends that key
+   to that host, so `plan` says in words which variable (or `pi` login) goes to which host, the
+   variable, login and extra headers are part of the boundary digest, a `pi` login is used only for its
+   own provider's upstream, and a variable that names another service's credential (for example
+   `GITHUB_TOKEN` or `AWS_*`) is refused.
 3. **The image**, built from local git objects with no credentials in it:
 
    ```sh
@@ -330,6 +335,17 @@ start with a small budget, before trusting a long run.
 
 ## Limits
 
+- **Consent is by whoever holds the terminal, and a shell is a terminal.** `plan --authorise --yes`,
+  `start`, `promote` and `reconfigure` accept `--yes` without a screen, and the authorisation record
+  is a consent and integrity record, not a signature. A model with a shell tool could therefore run
+  them. The tool firewall classifies those commands as high and never learns an approval for them,
+  so each one asks you, and an unattended worker is refused (`tests/firewall-unattended-smoke.mjs`);
+  this is a guard rail, not proof. `/autonomy start` binds its authorisation to the digest you were
+  shown (`--digest`), and refuses if the file changed while you read it. A run id is a name
+  (3–41 lowercase characters), never a path.
+- **`runtime.user: "0:0"`** (root inside the container) is accepted only when the engine reports
+  itself rootless, where that root is your own user; on a rootful engine it would be host uid 0, so
+  the run refuses to start. `plan` prints the user the containers run as.
 - **The boundary is the container.** The firewall's unattended mode is a second layer that trusts it.
   Anything the worker can read (the repository, references) can go to the model provider: do not add
   references that hold secrets.

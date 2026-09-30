@@ -146,6 +146,19 @@ await expect("the run contract is read-only, sanitised, and matches the unattend
   try { fs.writeFileSync(file, "x"); throw new Error("wrote the contract"); } catch (e) { if (e.message === "wrote the contract") throw e; }
   try { fs.writeFileSync("/run/probe", "x"); throw new Error("wrote /run"); } catch (e) { if (e.message === "wrote /run") throw e; }
   if (process.env.PI_KIT_UNATTENDED === "1") {
+    // The worker's firewall enters unattended mode only when the contract's provenance is one an agent cannot fake:
+    // a read-only mount in the kernel's own table (tool-firewall unattended.ts, contractProvenance). Check the same fact.
+    const real = fs.realpathSync(file);
+    let held = null;
+    for (const line of fs.readFileSync("/proc/self/mountinfo", "utf8").split("\n")) {
+      const parts = line.split(" ");
+      const dash = parts.indexOf("-");
+      if (dash < 6) continue;
+      const point = parts[4].replace(/\\([0-7]{3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)));
+      if (real !== point && !real.startsWith(point.endsWith("/") ? point : `${point}/`)) continue;
+      if (!held || point.length >= held.point.length) held = { point, ro: parts[5].split(",").includes("ro") || (parts[dash + 3] ?? "").split(",").includes("ro") };
+    }
+    if (!held?.ro) throw new Error(`${real} is not on a read-only mount (mount ${held?.point ?? "unknown"}), so the worker's firewall would refuse the contract`);
     if (!c.permissions?.unattended?.authorised) throw new Error("PI_KIT_UNATTENDED=1 but the contract does not authorise unattended operation");
     if (process.env.PI_KIT_UNATTENDED_BOUNDARY !== "container") throw new Error("PI_KIT_UNATTENDED_BOUNDARY is not container");
   } else if (c.permissions?.unattended?.authorised) throw new Error("the contract authorises unattended operation but PI_KIT_UNATTENDED is not set");

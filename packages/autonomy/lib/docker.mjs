@@ -28,6 +28,17 @@ export function names(cfg) {
   };
 }
 
+/**
+ * Whether a container engine runs rootless, from its own `info` output (Podman: host.security.rootless; Docker:
+ * SecurityOptions lists "name=rootless"). `runtime.user: "0:0"` (root inside the container) is safe only where
+ * that root is mapped to the operator's own user, so it is refused unless the engine says it is rootless.
+ */
+export function engineIsRootless(info) {
+  if (!info || typeof info !== "object") return false;
+  if (info.host?.security?.rootless === true) return true;
+  return Array.isArray(info.SecurityOptions) && info.SecurityOptions.some((s) => /(?:^|,)name=rootless(?:,|$)/.test(String(s)));
+}
+
 export function userSpec(cfg, uid = process.getuid?.() ?? 1000, gid = process.getgid?.() ?? 1000) {
   const u = cfg.container.user;
   return !u || u === "host" ? `${uid}:${gid}` : String(u);

@@ -35,9 +35,9 @@ export function createRun({ contract, authorisation, home, effort, now = () => n
   const resolved = { ...contract, acceptance: { ...contract.acceptance, overlay: contract.acceptance.overlay.map((o, i) => ({ ...o, sha256: overlay[i].sha256 })) } };
   writeJsonAtomic(p.contract, resolved, { mode: 0o444 });
   writeJsonAtomic(p.checks, { schemaVersion: 1, run: contract.run, checks: contract.acceptance.checks }, { mode: 0o444 });
-  writeJsonAtomic(path.join(p.public, "contract.json"), workerContract(contract), { mode: 0o444 });
-  fs.writeFileSync(path.join(p.public, "spec.md"), `# ${contract.objective.title}\n\n${contract.objective.spec}\n${contract.objective.backlog.length ? `\n## Backlog\n\n${backlogLines(contract, []).join("\n")}\n` : ""}`, { mode: 0o444 });
   const b = renderBoundary(resolved, { effort: boundaryEffort });
+  writeJsonAtomic(path.join(p.public, "contract.json"), workerContract(contract, { boundaryDigest: b.digest }), { mode: 0o444 });
+  fs.writeFileSync(path.join(p.public, "spec.md"), `# ${contract.objective.title}\n\n${contract.objective.spec}\n${contract.objective.backlog.length ? `\n## Backlog\n\n${backlogLines(contract, []).join("\n")}\n` : ""}`, { mode: 0o444 });
   const state = newState({ contract: resolved, contractDigest: contractDigest(resolved), boundaryDigest: b.digest, authorisation, effort: effort ?? contract.effort, now: now().toISOString() });
   store.writeState(state);
   store.log(`run ${contract.run} created (template ${contract.template}); boundary ${b.digest.slice(0, 12)} authorised ${authorisation.via}${authorisation.by ? ` by ${authorisation.by}` : ""}`);

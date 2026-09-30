@@ -84,8 +84,11 @@ function loadConfig(file, deps, { checkFs = true } = {}) {
 
 const effortFor = (deps) => effortApi(deps.effort);
 
+const RUN_ID = /^[a-z0-9][a-z0-9-]{2,40}$/; // the contract's own rule (lib/contract.mjs): a run id names branches, containers and a directory
+
 function openStore(run, deps) {
   if (!run) throw new CliError("usage", "--run <id> is required (list runs with `pi-autonomy status`)");
+  if (!RUN_ID.test(String(run))) throw new CliError("usage", `--run ${JSON.stringify(String(run).slice(0, 60))} is not a run id (3-41 characters: lowercase letters, digits and -); \`pi-autonomy status\` lists them`);
   const store = new RunStore(run, { home: deps.home, now: deps.now });
   if (!store.exists()) throw new CliError("refused", `no run ${run} under ${deps.home}`);
   if (store.readStateRaw()?.schemaVersion === undefined) throw new CliError("refused", `run ${run} was written by the previous supervisor (the v0 format) and cannot be driven by this one. Its work is intact in ${store.p.root} (remote.git and mirror.git hold the branches and tags). Start a new run with \`pi-autonomy init --template self-improve\`, or export what you need with git.`);
@@ -230,11 +233,13 @@ const commands = {
   },
 
   async plan(argv, deps) {
-    const { opts } = parseArgs(argv, { values: ["config", "by"], flags: ["json", "authorise", "authorize", "yes"] });
+    const { opts } = parseArgs(argv, { values: ["config", "by", "digest"], flags: ["json", "authorise", "authorize", "yes"] });
     const cfg = loadConfig(opts.config, deps);
     const authorise = opts.authorise || opts.authorize;
     if (!cfg.contract) throw new CliError("invalid", formatProblems(cfg.problems), { problems: cfg.problems });
     const b = renderBoundary(cfg.contract, { effort: effortFor(deps) });
+    // --digest <hex>: authorise only the boundary the caller was shown. Without it, whatever the file holds at this moment is authorised.
+    if (opts.digest !== undefined && authorise && opts.digest !== b.digest) throw new CliError("refused", `the boundary changed since it was shown to you (shown ${String(opts.digest).slice(0, 12)}, now ${b.digest.slice(0, 12)}): nothing was authorised. Run \`plan\` again and read it.`, { shown: opts.digest, digest: b.digest });
     const auth = authorisationStatus(cfg.contract, b.digest);
     const data = { ok: cfg.ok, run: cfg.contract.run, template: cfg.contract.template, legacy: cfg.legacy, problems: cfg.problems, digest: b.digest, boundary: b.json.boundary, invariants: b.json.invariants, authorisation: auth, effort: cfg.contract.effort };
     if (authorise) {

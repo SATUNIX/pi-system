@@ -100,7 +100,13 @@ export class DockerRuntime {
     this.cli(["version"]);
     this.cli(["image", "inspect", this.cfg.image, "--format", "{{.Id}}"]);
     const user = dk.userSpec(this.cfg);
-    if (user.split(":")[0] === "0" && this.contract.runtime.user !== "0:0") throw new Error('the supervisor runs as root, so runtime.user "host" would run containers as root, which is never allowed. Run it as your own user, or set runtime.user to a non-root "uid:gid" (rootless Docker: "0:0", explicitly).');
+    if (user.split(":")[0] === "0" && this.contract.runtime.user !== "0:0") throw new Error('the supervisor runs as root, so runtime.user "host" would run containers as root, which is never allowed. Run it as your own user, or set runtime.user to a non-root "uid:gid" (rootless Docker or Podman: "0:0", explicitly).');
+    if (this.contract.runtime.user.split(":")[0] === "0") {
+      // Root inside the container is the operator's own user only under a rootless engine; on a rootful one it is host uid 0.
+      let info = null;
+      try { info = JSON.parse(this.cli(["info", "--format", this.cfg.engine === "podman" ? "json" : "{{json .}}"], { timeoutMs: 30_000 })); } catch { /* unreadable: refuse below */ }
+      if (!dk.engineIsRootless(info)) throw new Error(`runtime.user "${this.contract.runtime.user}" (root inside the container) is accepted only when the engine is rootless, and ${this.cfg.engine} does not report that it is: on a rootful engine that root is host uid 0. Use rootless Podman or Docker, or set runtime.user to "host" or a non-zero "uid:gid".`);
+    }
     this.apiKey = providerKey(this.contract, this.env);
   }
 

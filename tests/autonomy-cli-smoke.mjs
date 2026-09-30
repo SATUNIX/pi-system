@@ -130,6 +130,15 @@ await check("plan: the resolved boundary and its digest; `plan --authorise` reco
   assert.match(text.stdout, /authorisation: missing/);
   // Without a terminal, --authorise needs --yes (a person confirmed elsewhere); the file gains the consent record.
   assert.equal((await w.run("plan", "--config", file, "--authorise", "--json")).code, 3);
+  // --digest: only the boundary the caller was shown is authorised. A different digest refuses and writes nothing.
+  const before = fs.readFileSync(file, "utf8");
+  const stale = await w.run("plan", "--config", file, "--authorise", "--yes", "--by", "alice", "--digest", "0".repeat(64), "--json");
+  assert.equal(stale.code, 3);
+  assert.match(stale.json().error, /boundary changed since it was shown to you/);
+  assert.equal(fs.readFileSync(file, "utf8"), before, "a refused authorisation leaves the contract untouched");
+  const bound = await w.run("plan", "--config", file, "--authorise", "--yes", "--by", "alice", "--digest", j.digest, "--json");
+  assert.equal(bound.code, 0, bound.stdout + bound.stderr);
+  fs.writeFileSync(file, before); // back to unauthorised for the unbound path below
   const a = await authorised(w, file);
   assert.equal(a.authorisation.status, "authorised");
   const written = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -266,6 +275,12 @@ await check("pause, steer, cancel, status: to a live supervisor they are command
   assert.equal(st.tasks[0].id, "T1");
   assert.ok(st.usage && st.limits.budget && st.effort.tier === "standard" && st.recovery && st.history.length > 0);
   assert.match((await w.run("status", "--run", "todo-api-1")).stdout, /supervisor: stale/);
+  // A run id is a name, never a path: `--run ../x` is refused before anything is resolved on disk.
+  for (const bad of ["../todo-api-1", "todo-api-1/../..", "/etc", "TODO", "a", "x".repeat(60)]) {
+    const r = await w.run("status", "--run", bad, "--json");
+    assert.equal(r.code, 2, `--run ${bad}: usage error`);
+    assert.match(r.json().error, /is not a run id/);
+  }
   assert.match((await w.run("status")).stdout, /todo-api-1\s+implement\s+running/);
   // A LIVE supervisor: hold the lock with a pid that is alive.
   const live = createRunLock({ file: store.p.lock, pid: 31000, host: "test-host", now: () => w.clock.now, isAlive: () => true, startTimeOf: () => "start-31000" });

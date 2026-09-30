@@ -8,11 +8,13 @@
  * resource limits, internal network only, no privileged mode, no host namespaces, no engine
  * socket, no home or credential store, no credentials in argv or environment. No Docker needed.
  */
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert, implementRaw, makeChecker, testEffort } from "./autonomy-helpers.mjs";
-import { resolveContract } from "../packages/autonomy/lib/contract.mjs";
+import { loadModule } from "../packages/core/eval/harness.mjs";
+import { resolveContract, workerContract } from "../packages/autonomy/lib/contract.mjs";
 import { authorisationStatus, boundaryDigest, boundaryFields, decideStart, renderBoundary } from "../packages/autonomy/lib/boundary.mjs";
 import { WORKER_CONTRACT_PATH, workerEnv } from "../packages/autonomy/lib/worker-env.mjs";
 import { runtimeConfig } from "../packages/autonomy/lib/runcfg.mjs";
@@ -54,6 +56,9 @@ await check("digest: covers the security-relevant fields only, is stable, and ch
     (c) => { c.model.worker = "other/model"; },
     (c) => { c.model.provider = "openai-compatible"; },
     (c) => { c.providerSettings.upstream = "https://llm.example.org/v1"; },
+    (c) => { c.providerSettings.apiKeyEnv = "OTHER_API_KEY"; },
+    (c) => { c.providerSettings.authName = "another-login"; }, // which pi login the relay may send, and
+    (c) => { c.providerSettings.headers = { "X-Team": "a" }; }, // which extra headers it adds, are part of where a credential goes
     (c) => { c.effort = { tier: "thorough", cap: "thorough" }; },
     (c) => { c.effort.cap = "exhaustive"; },
     (c) => { c.budget.totalUsd += 1; },
@@ -93,6 +98,25 @@ await check("render: the effective boundary as readable text and JSON, with the 
   assert.match(dep, /run services, started by the supervisor: web \(nginxinc\/nginx-unprivileged:1\.27-alpine, port 8080/);
   assert.match(dep, /WEB_SECRET.*given only to web/);
   assert.doesNotMatch(dep, /hunter2|sk-or/);
+  // Which secret goes where, in words: the variable (or pi login) and the host the relay sends it to.
+  assert.match(r.text, /inference key: the value of OPENROUTER_API_KEY in your environment, else your pi login "openrouter" is sent to openrouter\.ai by the relay/);
+  const custom = renderBoundary(resolve(implementRaw({ model: { provider: "openai-compatible", worker: "org/model-a" }, providerSettings: { upstream: "https://llm.example.org/v1", apiKeyEnv: "LLM_EXAMPLE_KEY", headers: { "X-Team": "a" }, pricing: { "org/model-a": { inputPerMTok: 1, outputPerMTok: 2 } } } })), { effort: testEffort }).text;
+  assert.match(custom, /inference key: the value of LLM_EXAMPLE_KEY in your environment is sent to llm\.example\.org by the relay/);
+  assert.match(custom, /extra request headers to the provider: X-Team/);
+  assert.doesNotMatch(custom, /pi login/, "a custom upstream never carries a pi login");
+  // The user the containers run as is stated, and root is explained.
+  assert.match(r.text, /user: 10001:10001/);
+  assert.match(renderBoundary(resolve(implementRaw({ runtime: { user: "0:0", engine: "podman" } })), { effort: testEffort }).text, /user: 0:0, root INSIDE a rootless engine's user namespace only/);
+  assert.match(renderBoundary(resolve(implementRaw({ runtime: { user: "host" } })), { effort: testEffort }).text, /user: your own uid:gid/);
+});
+
+await check("root inside a container is accepted only under an engine that reports itself rootless", async () => {
+  const { engineIsRootless } = await import("../packages/autonomy/lib/docker.mjs");
+  assert.equal(engineIsRootless({ host: { security: { rootless: true } } }), true, "podman info");
+  assert.equal(engineIsRootless({ host: { security: { rootless: false } } }), false);
+  assert.equal(engineIsRootless({ SecurityOptions: ["name=seccomp,profile=builtin", "name=rootless", "name=cgroupns"] }), true, "docker info");
+  assert.equal(engineIsRootless({ SecurityOptions: ["name=seccomp,profile=builtin", "name=cgroupns"] }), false, "a rootful docker");
+  for (const nothing of [null, undefined, "rootless", 7, {}, { SecurityOptions: "name=rootless" }, { host: {} }, { SecurityOptions: ["name=rootlesskit-not"] }]) assert.equal(engineIsRootless(nothing), false, `${JSON.stringify(nothing)} proves nothing`);
 });
 
 await check("start authorisation: an authorised contract starts unprompted; a mismatch is refused; without consent a flag alone is not enough", () => {
@@ -148,6 +172,44 @@ await check("worker environment: ONE function, exact names, unattended only when
   assert.equal(workerEnv({ ...base, runtime: { ...base.runtime, user: "0:0" } }, { branch: "b" }).AUTONOMY_ROOTLESS, "1");
   const all = JSON.stringify(workerEnv(deployContract, { branch: "b" }));
   assert.doesNotMatch(all, /(_KEY|TOKEN|SECRET|PASSW|sk-or|glpat)/i);
+});
+
+// The supervisor writes the worker's contract and environment; the worker's tool firewall reads them to enter
+// unattended mode. Each side has its own suite, so this one feeds the REAL output of the one to the REAL reader of
+// the other: a run whose contract the firewall rejects would silently run with the normal (prompting) rules.
+await check("the worker's contract and environment, as the supervisor writes them, put the real firewall into unattended mode", async () => {
+  const { evaluateUnattended } = await loadModule("extensions/tool-firewall/unattended.ts");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "autonomy-worker-contract-"));
+  const digest = boundaryDigest(deployContract);
+  try {
+    const file = path.join(dir, "contract.json");
+    fs.writeFileSync(file, `${JSON.stringify(workerContract(deployContract, { boundaryDigest: digest }))}\n`, { mode: 0o444 });
+    // The supervisor mounts /run read-only: present the file that way (the OS's mount table is the reader's real input).
+    const io = { mountinfo: () => `1 0 0:1 / ${fs.realpathSync(dir)} ro,relatime - tmpfs tmpfs ro` };
+    const env = { ...workerEnv(deployContract, { branch: "pi/x" }), PI_KIT_UNATTENDED_CONTRACT: file };
+    const evaluate = (over = {}) => evaluateUnattended({ env: { ...env, ...over }, workspace: "/work", cwd: "/work", agentDir: "/state/agent", policy: "coding", io });
+    const st = evaluate();
+    assert.equal(st.active, true, `the firewall accepts the supervisor's contract: ${st.warnings.join("; ")}`);
+    assert.equal(st.autoApprove, true, "autoApprove follows permissions.unattended");
+    assert.equal(st.boundary, "container");
+    assert.equal(st.boundaryDigest, digest, "the authorised boundary digest reaches the worker");
+    assert.deepEqual(st.egress, ["registry.npmjs.org", "web"], "the allowed egress hosts and the run's services by name");
+    assert.deepEqual(st.remotes, ["origin"], "the worker pushes to its own bare repository only");
+    assert.deepEqual(st.warnings, [], "nothing was ignored");
+    // Without the supervisor's authorisation the environment is absent and so is the mode.
+    const unauthorised = resolve(implementRaw({ permissions: { network: NET, unattended: { authorised: false, autoApprove: false } }, runtime: RUNTIME }));
+    assert.equal("PI_KIT_UNATTENDED" in workerEnv(unauthorised, { branch: "b" }), false);
+    const off = path.join(dir, "off.json");
+    fs.writeFileSync(off, JSON.stringify(workerContract(unauthorised, { boundaryDigest: digest })), { mode: 0o444 });
+    assert.equal(evaluate({ PI_KIT_UNATTENDED_CONTRACT: off }).active, false, "a contract that does not authorise it never enters the mode");
+    assert.match(evaluate({ PI_KIT_UNATTENDED_CONTRACT: off }).warnings[0], /does not authorise unattended operation/);
+    // A worker contract written without the digest (an old supervisor) is refused, not half-accepted.
+    const nodigest = path.join(dir, "nodigest.json");
+    fs.writeFileSync(nodigest, JSON.stringify(workerContract(deployContract)), { mode: 0o444 });
+    assert.match(evaluate({ PI_KIT_UNATTENDED_CONTRACT: nodigest }).warnings[0], /no boundaryDigest/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // --- container arguments ------------------------------------------------------------------------

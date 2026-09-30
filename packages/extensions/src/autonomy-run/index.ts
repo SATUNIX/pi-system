@@ -10,11 +10,17 @@ import { fileURLToPath } from "node:url";
 // speaks its `--json` protocol, exactly as an operator at a shell would.
 //
 // /autonomy is the operator's way to start and manage autonomous runs from inside pi. It is a
-// COMMAND, not a tool: the model cannot start, steer, authorise or promote a run, because an
-// autonomous run spends money and acts without prompts inside its boundary, and only a person
-// may decide that. Every decision that matters is confirmed on screen with the boundary in front
-// of the person, and without a screen the CLI's own rule applies: a run starts only from a contract
-// that already carries an authorisation for exactly this boundary.
+// COMMAND, not a tool: the model has no tool that starts, steers, authorises or promotes a run,
+// because an autonomous run spends money and acts without prompts inside its boundary, and only a
+// person may decide that. Every decision that matters is confirmed on screen with the boundary in
+// front of the person, and without a screen the CLI's own rule applies: a run starts only from a
+// contract that already carries an authorisation for exactly this boundary.
+//
+// What this does not prevent: a model with a shell tool can run the same CLI itself, and the CLI's
+// `--yes` is consent by whoever holds the terminal. The tool firewall therefore classifies the CLI's
+// control commands (start, plan --authorise, promote, resume, reconfigure, ...) as high and never
+// learned (each one asks the operator, and an unattended worker is refused). That is a guard rail:
+// the authorisation record is a consent and integrity record, not a signature (docs/autonomy.md).
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -142,6 +148,8 @@ export default function autonomyRun(pi: ExtensionAPI) {
     const text = await runCli(["plan", "--config", config], { json: false, cwd: ctx.cwd });
     const boundary = (text.stdout || "").trim();
     const digest = String(plan.digest ?? "");
+    // The text on screen and the digest that will be authorised come from two reads of the file: they must agree.
+    if (!/^[a-f0-9]{64}$/.test(digest) || new RegExp(`^digest ${digest}$`, "m").exec(boundary) === null) return say(ctx, `not started: ${file} changed while its boundary was being read. Run /autonomy plan ${file} and try again.`, "error");
     const detach = !foreground;
 
     if (ctx.hasUI) {
@@ -152,7 +160,8 @@ export default function autonomyRun(pi: ExtensionAPI) {
       );
       if (!ok) return say(ctx, "Not authorised. Nothing was started.", "info");
       if (plan.authorisation?.status !== "authorised") {
-        const auth = await runCli(["plan", "--config", config, "--authorise", "--yes", "--by", who], { cwd: ctx.cwd });
+        // --digest: authorise exactly the boundary that was on screen, even if the file changed since.
+        const auth = await runCli(["plan", "--config", config, "--authorise", "--yes", "--by", who, "--digest", digest], { cwd: ctx.cwd });
         if (!auth.json || auth.json.ok !== true) return say(ctx, `could not record the authorisation: ${errorText(auth)}`, "error");
       }
     } else if (plan.authorisation?.status !== "authorised") {

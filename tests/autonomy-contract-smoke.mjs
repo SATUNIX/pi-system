@@ -67,6 +67,10 @@ await check("required fields, ids and bounds are enforced", () => {
   assert.ok(errorPaths(resolve(implementRaw({ acceptance: { checks: [{ id: "a", run: ["x"], timeoutMinutes: 9999 }] } }))).includes("acceptance.checks[0].timeoutMinutes"));
   assert.ok(errorPaths(resolve(implementRaw({ acceptance: { checks: [{ id: "a", run: ["x"] }], overlay: [{ source: "a", target: "../b" }] } }))).includes("acceptance.overlay[0].target"));
   assert.ok(errorPaths(resolve(implementRaw({ acceptance: { checks: [{ id: "a", run: ["x"] }], overlay: [{ source: "a", target: ".git/hooks/pre-commit" }] } }))).includes("acceptance.overlay[0].target"));
+  // A held-out file is copied in and mounted into containers that run the worker's code: never a credential store or a system path.
+  for (const source of ["/home/u/.ssh/id_ed25519", "/home/u/.aws/credentials", "/home/u/.config/gh/hosts.yml", "/home/u/.pi/agent/auth.json", "/etc/shadow", "/home/u/.npmrc", "/var/run/docker.sock"]) {
+    assert.ok(errorPaths(resolve(implementRaw({ acceptance: { checks: [{ id: "a", run: ["x"] }], overlay: [{ source, target: "held/out.txt" }] } }))).includes("acceptance.overlay[0].source"), `${source} is refused as an overlay source`);
+  }
   assert.ok(errorPaths(resolve(implementRaw({ recovery: { softNudges: -1 } }))).includes("recovery.softNudges"));
   assert.ok(errorPaths(resolve(implementRaw({ runtime: { engine: "lxc" } }))).includes("runtime.engine"));
   assert.ok(errorPaths(resolve(implementRaw({ runtime: { image: "Not An Image!" } }))).includes("runtime.image"));
@@ -136,6 +140,19 @@ await check("model and provider: OpenRouter is a preset, not a requirement; a pr
   const noUpstream = clone(compat); delete noUpstream.providerSettings.upstream;
   assert.ok(errorPaths(resolve(implementRaw(noUpstream))).includes("providerSettings.upstream"));
   assert.ok(errorPaths(resolve(implementRaw({ providerSettings: { upstream: "http://plain.example.org/v1" } }))).includes("providerSettings.upstream"), "https only");
+  // Where a credential may go. The relay sends the key it finds to `upstream`, so a contract someone else wrote must not be able
+  // to point the operator's other credentials, or a pi login, at a host of its choosing.
+  for (const name of ["GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "NPM_TOKEN", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "DOCKER_PASSWORD", "SSH_AUTH_SOCK", "KUBECONFIG"]) {
+    assert.ok(errorPaths(resolve(implementRaw({ ...compat, providerSettings: { ...compat.providerSettings, apiKeyEnv: name } }))).includes("providerSettings.apiKeyEnv"), `${name} is not an inference key`);
+  }
+  assert.equal(resolve(implementRaw(compat)).ok, true, "a provider's own key variable is fine");
+  assert.ok(errorPaths(resolve(implementRaw({ providerSettings: { upstream: "https://llm.example.org/v1", authName: "openrouter" } }))).includes("providerSettings.authName"), "a pi login is never sent to a custom upstream");
+  assert.ok(errorPaths(resolve(implementRaw({ providerSettings: { authName: "anthropic" } }))).includes("providerSettings.authName"), "nor is a different provider's login used");
+  assert.ok(errorPaths(resolve(implementRaw({ ...compat, providerSettings: { ...compat.providerSettings, authName: "openrouter" } }))).includes("providerSettings.authName"), "openai-compatible has no login to use");
+  const custom = resolve(implementRaw({ providerSettings: { upstream: "https://llm.example.org/v1" } }));
+  assert.equal(custom.ok, true, JSON.stringify(custom.problems));
+  assert.equal(custom.contract.providerSettings.authName ?? null, null, "the preset's login default is dropped when the upstream is custom");
+  assert.equal(resolve(implementRaw({})).contract.providerSettings.authName, "openrouter", "and kept for the provider's own upstream");
   assert.ok(errorPaths(resolve(implementRaw({ model: { provider: "mystery" } }))).includes("model.provider"));
   assert.ok(errorPaths(resolve(implementRaw({ model: { worker: "a/b:online" } }))).includes("model.worker"), "no web-search model variants");
 });

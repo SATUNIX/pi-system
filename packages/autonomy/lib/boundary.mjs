@@ -41,7 +41,9 @@ export function boundaryFields(contract) {
     outputs: p.outputs,
     promotion: contract.promotion,
     unattended: p.unattended,
-    model: { provider: contract.model.provider, worker: contract.model.worker, manager: contract.model.manager, review: contract.model.review, extra: contract.model.extra, upstream: contract.providerSettings.upstream, apiKeyEnv: contract.providerSettings.apiKeyEnv, pricing: contract.providerSettings.pricing },
+    // Everything that decides WHICH credential the relay sends WHERE is part of the boundary: the variable, the pi login and the
+    // extra headers as well as the destination, so none can be swapped after the operator authorised the digest.
+    model: { provider: contract.model.provider, worker: contract.model.worker, manager: contract.model.manager, review: contract.model.review, extra: contract.model.extra, upstream: contract.providerSettings.upstream, apiKeyEnv: contract.providerSettings.apiKeyEnv, authName: contract.providerSettings.authName, headers: contract.providerSettings.headers, pricing: contract.providerSettings.pricing },
     effort: contract.effort,
     budget: contract.budget,
     recovery: contract.recovery,
@@ -59,6 +61,9 @@ export function boundaryDigest(contract) {
 }
 
 const list = (items, none = "none") => (items.length ? items.join(", ") : none);
+const upstreamHost = (url) => { try { return new URL(url).host; } catch { return String(url); } };
+/** Which secret the relay uses, in words: the value of a variable in the supervisor's environment, and/or a pi login. */
+const inferenceKeyText = (s) => [s.apiKeyEnv ? `the value of ${s.apiKeyEnv} in your environment` : null, s.authName ? `${s.apiKeyEnv ? "else " : ""}your pi login "${s.authName}"` : null].filter(Boolean).join(", ") || "your provider login";
 const usd = (n) => `$${Number(n).toFixed(2).replace(/\.00$/, "")}`;
 
 /**
@@ -93,10 +98,12 @@ export function renderBoundary(contract, { effort } = {}) {
   ]);
   section("Credentials", [
     p.credentials.names.length ? `names: ${p.credentials.names.join(", ")} (values are read from your environment by the supervisor; ${fields.credentials.delivery.length ? `given only to ${list([...new Set(fields.credentials.delivery.map((d) => d.service))])}` : "given to nothing"}; never to the worker or a check)` : "none",
-    `inference key: ${contract.providerSettings.apiKeyEnv ?? contract.providerSettings.authName ?? "operator's provider login"}; held by the relay only (received on stdin), never in a worker mount or environment`,
+    `inference key: ${inferenceKeyText(contract.providerSettings)} is sent to ${upstreamHost(contract.providerSettings.upstream)} by the relay, held by the relay only (received on stdin), never in a worker mount or environment`,
+    ...(Object.keys(contract.providerSettings.headers ?? {}).length ? [`extra request headers to the provider: ${Object.keys(contract.providerSettings.headers).join(", ")}`] : []),
   ]);
   section("Processes and resources", [
     `${contract.runtime.engine} image ${contract.runtime.image}; memory ${contract.runtime.memory}, cpus ${contract.runtime.cpus}, pids ${contract.runtime.pids}`,
+    `user: ${contract.runtime.user === "host" ? "your own uid:gid" : contract.runtime.user.startsWith("0:") ? `${contract.runtime.user}, root INSIDE a rootless engine's user namespace only (mapped to your own user; the run refuses to start on a rootful engine)` : contract.runtime.user}`,
     ...INVARIANTS.map((s) => `each container ${s}`),
   ]);
   section("Unattended operation", [
@@ -122,6 +129,8 @@ export function renderBoundary(contract, { effort } = {}) {
   ]);
   section("Completion", [
     `template ${contract.template}: ${contract.acceptance.checks.length} check(s) [${contract.acceptance.checks.map((c) => `${c.id}${c.required ? "*" : ""}`).join(", ")}] (* required)${contract.acceptance.overlay.length ? `, ${contract.acceptance.overlay.length} held-out file(s) copied over the clone` : ""}; review ${contract.acceptance.review ? "required" : "not required"}`,
+    // The files are copied from the host into the run directory and mounted into the (worker-code-running) check containers.
+    ...contract.acceptance.overlay.map((o) => `held-out file: ${o.target} <- ${o.source} (copied at start; the check containers read it)`),
   ]);
   const text = [`Boundary for run ${contract.run} (template ${contract.template})`, `digest ${digest}`, "", ...lines].join("\n");
   return { digest, fields, text, json: { run: contract.run, template: contract.template, digest, invariants: INVARIANTS, boundary: fields } };

@@ -20,7 +20,8 @@ const FLAGS = new Map(Object.entries({
 }));
 
 const FORBIDDEN_TARGETS = [/^\/$/, /^\/proc(\/|$)/, /^\/sys(\/|$)/, /^\/dev(\/|$)/, /^\/var\/run(\/|$)/, /^\/run\/(docker|podman)/, /^\/etc(\/|$)/, /^\/root(\/|$)/, /^\/boot(\/|$)/, /docker\.sock/, /podman\.sock/];
-const FORBIDDEN_SOURCES = [/docker\.sock/, /podman\.sock/, /^\/$/, /^\/(proc|sys|dev|boot|etc|root|var\/run|var\/lib\/docker|var\/lib\/containers)(\/|$)/, /\/\.ssh(\/|$)/, /\/\.aws(\/|$)/, /\/\.gnupg(\/|$)/, /\/\.docker(\/|$)/, /\/\.kube(\/|$)/, /\/\.config\/(gcloud|gh|git)(\/|$)/, /\/\.(netrc|npmrc|pypirc|git-credentials)$/, /\/\.pi(\/|$)/];
+/** Host paths that may never be mounted into a container (and that a contract may not copy in): credential stores, the engine socket, system directories. */
+export const FORBIDDEN_SOURCES = [/docker\.sock/, /podman\.sock/, /^\/$/, /^\/(proc|sys|dev|boot|etc|root|var\/run|var\/lib\/docker|var\/lib\/containers)(\/|$)/, /\/\.ssh(\/|$)/, /\/\.aws(\/|$)/, /\/\.gnupg(\/|$)/, /\/\.docker(\/|$)/, /\/\.kube(\/|$)/, /\/\.config\/(gcloud|gh|git)(\/|$)/, /\/\.(netrc|npmrc|pypirc|git-credentials)$/, /\/\.pi(\/|$)/];
 const CRED_NAME = /(KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH)/i;
 const CRED_VALUE = /(sk-[A-Za-z0-9_-]{16,}|glpat-|ghp_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|Bearer\s+[A-Za-z0-9._~+/-]{16,})/;
 

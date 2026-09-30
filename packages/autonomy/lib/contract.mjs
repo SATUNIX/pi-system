@@ -20,6 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { canonicalJson, clone, deepMerge, isPlainObject, sha256 } from "./fsutil.mjs";
 import { globProblem } from "./glob.mjs";
+import { FORBIDDEN_SOURCES } from "./containment.mjs";
 import { EFFORT_UNAVAILABLE, effortApi } from "./effort.mjs";
 import { TEMPLATES, templateIds } from "./templates/index.mjs";
 import { isPublicIpLiteral, isIpLiteral, canonicalIp, classifyAddress, normaliseHost } from "./netaddr.mjs";
@@ -35,6 +36,8 @@ const SERVICE_NAME = /^[a-z][a-z0-9-]{1,30}$/;
 const RESERVED_HOSTNAMES = new Set(["inference", "egress-proxy", "relay", "localhost", "worker", "agent", "supervisor", "gate"]);
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const CRED_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+// Well-known credentials of services that are not inference providers (see providerSettings.apiKeyEnv).
+const NON_INFERENCE_KEY = /^(?:GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITLAB_TOKEN|GL_TOKEN|CI_JOB_TOKEN|NPM_TOKEN|NODE_AUTH_TOKEN|PYPI_TOKEN|TWINE_PASSWORD|AWS_[A-Z0-9_]+|AZURE_[A-Z0-9_]+|GOOGLE_APPLICATION_CREDENTIALS|DOCKER_[A-Z0-9_]*(?:PASSWORD|TOKEN)|KUBECONFIG|SSH_[A-Z0-9_]+|GPG_[A-Z0-9_]+|SLACK_[A-Z0-9_]+|STRIPE_[A-Z0-9_]+)$/;
 const MODEL_ID = /^[A-Za-z0-9][\w.:/@+-]{0,120}$/;
 const REF_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,100}$/;
 const BRANCH_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,80}$/;
@@ -301,7 +304,10 @@ function readAcceptance(raw, c, opts, template) {
     if (sp) c.err(`${where}.source`, sp);
     if (tp) c.err(`${where}.target`, tp);
     else if (String(ov.target).split("/")[0] === ".git") c.err(`${where}.target`, "must not target .git");
-    if (!sp && !tp) out.overlay.push({ source: opts.baseDir && !path.isAbsolute(ov.source) ? path.resolve(opts.baseDir, ov.source) : ov.source, target: ov.target.replace(/^\.\//, "") });
+    // The file is copied into the run directory and mounted into check containers that run the worker's code: never a credential store or system path.
+    const resolvedSource = !sp ? (opts.baseDir && !path.isAbsolute(ov.source) ? path.resolve(opts.baseDir, ov.source) : ov.source) : null;
+    if (resolvedSource && FORBIDDEN_SOURCES.some((re) => re.test(resolvedSource))) c.err(`${where}.source`, `${resolvedSource} is a credential store or system path: held-out files come from the task's own files, never from there`);
+    else if (!sp && !tp) out.overlay.push({ source: resolvedSource, target: ov.target.replace(/^\.\//, "") });
   }
   void template;
   return out;
@@ -476,7 +482,20 @@ function readModel(rawModel, rawProvider, c) {
     const problem = urlProblem(settings.upstream, { allowed: ["https"] });
     if (problem) c.err("providerSettings.upstream", problem);
   }
+  // A pi login (auth.json entry) is the operator's credential for that provider's own service. The relay sends the key
+  // it finds to `upstream`, so a login may never be pointed at another destination: not a different login, and not the
+  // provider's own login sent to a different host.
+  if (settings.authName) {
+    if (settings.authName !== preset.authName) c.err("providerSettings.authName", `${preset.authName ? `must be ${JSON.stringify(preset.authName)}` : "is not available"} for provider "${provider}": a pi login is only ever used for its own provider`);
+    else if (settings.upstream !== preset.upstream) {
+      if (p.authName !== undefined && p.authName !== null) c.err("providerSettings.authName", `cannot be combined with a custom upstream (${settings.upstream}): the login would be sent there. Use apiKeyEnv with a variable that holds a key for that service`);
+      else settings.authName = undefined;
+    }
+  }
   if (provider === "openai-compatible" && !settings.apiKeyEnv) c.err("providerSettings.apiKeyEnv", 'is required for provider "openai-compatible"');
+  // The relay sends the value of this variable to `upstream`: it is an inference provider's API key, never the operator's
+  // credential for source hosting, registries or clouds (a contract someone else wrote must not be able to point one at a host).
+  if (settings.apiKeyEnv && NON_INFERENCE_KEY.test(settings.apiKeyEnv)) c.err("providerSettings.apiKeyEnv", `${settings.apiKeyEnv} is a credential for another service; providerSettings.apiKeyEnv names an inference provider's API key`);
   for (const [k, v] of Object.entries(asObject(p.headers, "providerSettings.headers", c))) {
     if (!/^[A-Za-z0-9-]{1,60}$/.test(k) || typeof v !== "string" || v.length > 200) c.err(`providerSettings.headers.${k}`, "must be a short header name with a short string value");
     else if (/^(authorization|proxy-authorization|cookie|x-api-key)$/i.test(k)) c.err(`providerSettings.headers.${k}`, "credential headers are set by the relay from the operator's key, never by the contract");
@@ -739,8 +758,21 @@ export function formatProblems(problems) {
   return [...problems].sort((a, b) => order[a.level] - order[b.level]).map((p) => `${p.level === "error" ? "error" : "warning"}: ${p.path || "(contract)"}: ${p.message}`).join("\n");
 }
 
-/** The copy the worker may read (mounted read-only at /run/contract.json): no credentials, no remotes, no supervisor-only settings. */
-export function workerContract(contract) {
+/**
+ * The copy the worker may read (mounted read-only at /run/contract.json): no credentials, no promotion
+ * remotes, no supervisor-only settings.
+ *
+ * The worker's tool firewall reads this file to enter unattended mode (packages/extensions/src/tool-firewall/
+ * unattended.ts), and reads exactly these fields: a top-level `unattended` and `boundaryDigest`, and
+ * `permissions.egress` (host names) and `permissions.remotes` (git remotes it may push to). The worker's only
+ * remote is `origin`, the run's own bare repository; promotion happens on the host. tests/autonomy-boundary-smoke.mjs
+ * feeds this output to the real reader, so the two cannot drift apart unnoticed.
+ *
+ * @param {object} contract the resolved contract
+ * @param {{ boundaryDigest?: string }} [o] the digest of the boundary the operator authorised
+ */
+export function workerContract(contract, { boundaryDigest } = {}) {
+  const services = contract.permissions.network.services;
   return {
     schemaVersion: contract.schemaVersion,
     sanitised: true,
@@ -748,9 +780,14 @@ export function workerContract(contract) {
     template: contract.template,
     objective: contract.objective,
     acceptance: { review: contract.acceptance.review, checks: contract.acceptance.checks.map(({ id, type, required, description, timeoutMinutes, run, cwd }) => ({ id, type, required, description, timeoutMinutes, ...(type === "command" ? { run, cwd } : {}) })) },
+    unattended: contract.permissions.unattended,
+    ...(boundaryDigest ? { boundaryDigest } : {}),
     permissions: {
       writeAreas: contract.permissions.writeAreas,
-      network: { egress: contract.permissions.network.egress.map(({ host, ports }) => ({ host, ports })), services: contract.permissions.network.services.map(({ name, port, health }) => ({ name, port, healthPath: health.path ?? null })) },
+      network: { egress: contract.permissions.network.egress.map(({ host, ports }) => ({ host, ports })), services: services.map(({ name, port, health }) => ({ name, port, healthPath: health.path ?? null })) },
+      // The hosts a worker's own commands may reach: the allowed egress hosts, and its run-scoped services by name.
+      egress: [...contract.permissions.network.egress.map(({ host }) => host), ...services.map(({ name }) => name)],
+      remotes: ["origin"],
       unattended: contract.permissions.unattended,
     },
     model: { worker: contract.model.worker },

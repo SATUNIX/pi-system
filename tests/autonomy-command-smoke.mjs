@@ -39,10 +39,16 @@ const out =(o, code = 0) => { console.log(JSON.stringify(o)); process.exit(code)
 const text = (t, code = 0) => { console.log(t); process.exit(code); };
 const authorised = () => fs.existsSync(process.env.FAKE_AUTH);
 if (cmd === "plan") {
-  if (args.includes("--authorise")) { fs.writeFileSync(process.env.FAKE_AUTH, args.join(" ")); return out({ ok: true, command: "plan", authorisation: { status: "authorised" } }); }
-  const data = { ok: true, command: "plan", run: "demo-run-1", digest: "d1g3st".repeat(10) + "abcd", authorisation: { status: authorised() ? "authorised" : "missing" }, problems: [] };
+  const DIGEST = "d1".repeat(32);
+  if (args.includes("--authorise")) {
+    const shown = args[args.indexOf("--digest") + 1];
+    if (args.includes("--digest") && shown !== (process.env.FAKE_NOW_DIGEST || DIGEST)) return out({ ok: false, command: "plan", error: "the boundary changed since it was shown to you", code: "refused" }, 3);
+    fs.writeFileSync(process.env.FAKE_AUTH, args.join(" "));
+    return out({ ok: true, command: "plan", authorisation: { status: "authorised" } });
+  }
+  const data = { ok: true, command: "plan", run: "demo-run-1", digest: DIGEST, authorisation: { status: authorised() ? "authorised" : "missing" }, problems: [] };
   if (json) return out(data);
-  text("Boundary for run demo-run-1 (template implement)\\ndigest " + data.digest + "\\nFilesystem\\n  worker writes: /work");
+  text("Boundary for run demo-run-1 (template implement)\\ndigest " + (process.env.FAKE_TEXT_DIGEST || data.digest) + "\\nFilesystem\\n  worker writes: /work");
 }
 if (cmd === "start") {
   if (!authorised()) return out({ ok: false, command: "start", error: "not authorised", code: "refused" }, 3);
@@ -101,7 +107,7 @@ try {
     await s.run("start run.json");
     assert.equal(s.asked.length, 1);
     assert.match(s.asked[0].body, /Boundary for run demo-run-1/);
-    assert.match(s.asked[0].body, /digest d1g3st/, "the digest is on the screen the person confirms");
+    assert.match(s.asked[0].body, /digest d1d1d1/, "the digest is on the screen the person confirms");
     assert.equal(calls().some((c) => c[0] === "start"), false, "declining starts nothing");
     assert.equal(fs.existsSync(AUTH), false, "declining records no authorisation");
     assert.match(s.notes.at(-1).message, /Not authorised\. Nothing was started/);
@@ -120,8 +126,37 @@ try {
     assert.ok(path.isAbsolute(start[start.indexOf("--config") + 1]), "the contract path is resolved against the working directory");
     const authorise = calls().find((c) => c.includes("--authorise"));
     assert.ok(authorise.includes("--by") && authorise[authorise.indexOf("--by") + 1] === os.userInfo().username);
+    assert.equal(authorise[authorise.indexOf("--digest") + 1], "d1".repeat(32), "the authorisation is bound to the digest that was on screen");
     assert.match(s.notes.at(-1).message, /Run demo-run-1 started \(supervisor pid 4242\)/);
-    ok("accepting authorises the shown boundary as the person, then starts the run in the background");
+    ok("accepting authorises the shown boundary (by its digest) as the person, then starts the run in the background");
+  }
+
+  // 3b. The file changes between the person reading the boundary and the authorisation: nothing is authorised.
+  {
+    reset();
+    const restoreNow = setEnv("FAKE_NOW_DIGEST", "e2".repeat(32));
+    try {
+      const s = session({ answers: [true] });
+      await s.run("start run.json");
+      assert.equal(calls().some((c) => c[0] === "start"), false, "no start after a boundary that changed under the person");
+      assert.equal(fs.existsSync(AUTH), false, "the changed boundary was not authorised");
+      assert.match(s.notes.at(-1).message, /could not record the authorisation: .*changed since it was shown/);
+    } finally {
+      restoreNow();
+    }
+    // Two reads of the file that disagree (the text on screen is not the digest that would be authorised): refused before asking.
+    reset();
+    const restoreText = setEnv("FAKE_TEXT_DIGEST", "e2".repeat(32));
+    try {
+      const s = session({ answers: [true] });
+      await s.run("start run.json");
+      assert.equal(s.asked.length, 0, "the person is not asked to confirm a boundary that is not the one that would be authorised");
+      assert.equal(calls().some((c) => c[0] === "start" || c.includes("--authorise")), false);
+      assert.match(s.notes.at(-1).message, /changed while its boundary was being read/);
+    } finally {
+      restoreText();
+    }
+    ok("a boundary that changes between reading and authorising is refused: the authorisation carries the shown digest, and the text and digest must agree");
   }
 
   // 4. A contract already authorised for this exact boundary is still confirmed on screen; no second authorisation.

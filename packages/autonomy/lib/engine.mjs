@@ -172,7 +172,7 @@ export class Engine {
   /** The worker's read-only copy of the contract carries the run's CURRENT effort and budgets (state), so a reconfigure and the boundary probe agree. */
   publishWorkerContract() {
     const effective = { ...this.contract, effort: this.state.effort, budget: this.state.limits.budget };
-    writeJsonAtomic(path.join(this.store.p.public, "contract.json"), workerContract(effective), { mode: 0o444 });
+    writeJsonAtomic(path.join(this.store.p.public, "contract.json"), workerContract(effective, { boundaryDigest: this.state.boundaryDigest }), { mode: 0o444 });
   }
 
   async bringUp() {
