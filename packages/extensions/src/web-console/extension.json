@@ -12,14 +12,23 @@
   "enabledByDefault": true,
   "platforms": ["windows", "linux", "darwin"],
   "runtime": {
-    "nodeBuiltins": ["node:child_process", "node:fs", "node:http", "node:os", "node:path", "node:url"],
+    "nodeBuiltins": ["node:child_process", "node:crypto", "node:fs", "node:http", "node:os", "node:path", "node:url"],
     "npm": [],
     "piPeers": [],
     "services": [],
     "models": []
   },
   "pulls": [],
-  "env": ["PI_KIT_WEBUI_ROOT", "PI_CONSOLE_HOST", "PI_CONSOLE_PORT"],
+  "env": [
+    "PI_KIT_WEBUI_ROOT",
+    "PI_CONSOLE_HOST",
+    "PI_CONSOLE_PORT",
+    "PI_CONSOLE_TOKEN",
+    "PI_CONSOLE_TOKEN_FILE",
+    "PI_CONSOLE_AUTH",
+    "PI_CONSOLE_ALLOW_REMOTE",
+    "PI_CONSOLE_ALLOWED_HOSTS"
+  ],
   "provenance": { "origin": "custom" },
   "homeRepo": null,
   "status": "beta"
