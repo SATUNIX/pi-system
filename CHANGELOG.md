@@ -93,7 +93,9 @@ is and is not covered, and `docs/migration.md` if you installed from the earlier
   (they target a private platform); `pi-impact-analyzer` and the unused `pi-subagents` reference;
   the historical design, review and campaign documents. Git history keeps them; see
   `docs/private-system-lessons.md`.
-- Machine paths, private host names and account names from tracked files.
+- Machine paths, private host names and account names from tracked files. The retired private
+  source URLs remain only in `git.legacySources` and the migration tests and page, because
+  migration has to recognise them.
 
 ### Fixed
 
