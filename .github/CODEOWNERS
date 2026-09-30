@@ -1,8 +1,19 @@
-# Changes to CI/CD, release tooling and the security layer need owner review.
-/.github/                                   @SATUNIX
-/packages/core/release.mjs                  @SATUNIX
-/packages/core/publish-plan.mjs             @SATUNIX
-/packages/core/lockfile-check.mjs           @SATUNIX
-/packages/extensions/src/tool-firewall/     @SATUNIX
-/packages/extensions/src/secret-guard/      @SATUNIX
-/packages/extensions/src/kit-update/        @SATUNIX
+# Changes to CI/CD, release tooling, delivery and the security layer need owner review.
+/.github/                                        @SATUNIX
+/package.json                                    @SATUNIX
+/package-lock.json                               @SATUNIX
+/packages/core/distribution.json                 @SATUNIX
+/packages/core/sources.json                      @SATUNIX
+/packages/core/release.mjs                       @SATUNIX
+/packages/core/publish-plan.mjs                  @SATUNIX
+/packages/core/lockfile-check.mjs                @SATUNIX
+/packages/core/install.mjs                       @SATUNIX
+/packages/extensions/src/tool-firewall/          @SATUNIX
+/packages/extensions/src/secret-guard/           @SATUNIX
+/packages/extensions/src/delegation-guard/       @SATUNIX
+/packages/extensions/src/effort/                 @SATUNIX
+/packages/extensions/src/kit-update/             @SATUNIX
+/packages/extensions/third_party/protected-paths/ @SATUNIX
+/packages/web-ui/server/                         @SATUNIX
+/packages/autonomy/                              @SATUNIX
+/packages/container/                             @SATUNIX

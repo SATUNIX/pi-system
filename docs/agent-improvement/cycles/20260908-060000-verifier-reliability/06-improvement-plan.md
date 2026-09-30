@@ -1,8 +1,0 @@
-# Authorized improvement plan
-
-I1 addresses F1/F2: reuse the verifier/orchestrator lifecycle portion of existing committed candidate 7966671, excluding its unrelated secret-guard metadata grammar change. Scope automatic checks to successful write/edit activity in opted-in npm verification projects; wait for the final tool sequence and await bounded checks; send at most one labeled correction before agent_end and reset on real user input. Keep explicit implementation workflows gated and missing/malformed verification failing closed. The reused orchestrator also avoids requesting unavailable delegation and rejects nonboolean/array verdicts; validate those retained invariants with its existing tests.
-
-Expected result: zero false boards/pending corrections on greetings; no stale-context crash after valid coding; intentional failures stay FAIL and finish without a loop. Changes: orchestrator and verify-gate sources/manifests, lifecycle and fail-closed tests, shared offline fake API/fixtures, CI wiring and affected documentation. No core fork, install/deployment or secret-guard change. Do not conflate historical fixes with newly authored source.
-
-Validation: paired original cases, repeated greeting, expected-failure holdout and lite-surface holdout; npm run verify, test:security, eval, smoke:verification-lifecycle, smoke:verify-failclosed, smoke:orchestrate-commands and smoke:model-routing. Review actual diff independently. Risks: load-order dependency (verify-gate before orchestrator), shell-only edits and non-npm verification remain outside automatic dirty tracking. Roll back coherent implementation commit through human-reviewed PR if regressions appear. Report any failed acceptance case; do not weaken checks to pass.
-

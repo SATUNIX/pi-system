@@ -1,6 +1,0 @@
-  OK: task_next claims a task atomically, does not hand it out twice
-  OK: task_complete rejects completion with unfinished dependencies
-  OK: task_update rejects an invalid status value
-  OK: task_create rejects missing/self-referential dependencies
-
-[task-graph-invariants-smoke] all 4 checks passed
