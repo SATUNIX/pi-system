@@ -1,0 +1,7 @@
+# Read by the `zizmor` job in .github/workflows/security.yml (docs/ci-security.md).
+rules:
+  self-repository:
+    ignore:
+      # The release workflow runs the CI workflow of the same commit as its gate. The './' form is the one GitHub documents for a
+      # reusable workflow in the same repository.
+      - release.yml:47

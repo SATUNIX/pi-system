@@ -107,6 +107,35 @@ events the extension registers with `pi.on(...)`. The table below mirrors that e
 | `model_select` | Model | When the active model changes |
 | `thinking_level_select` | Model | When the thinking level changes (notification only) |
 
+## Writing skills
+
+A skill is a runbook the model loads on demand, not a slogan. Keep the `description` (the only part
+that costs tokens until the skill loads) tight and put depth in the body and `references/`.
+
+```
+packages/kit/skills/<name>/
+├── SKILL.md          # frontmatter + when-to-use + procedure + heuristics + anti-patterns
+├── references/       # deep material loaded on demand (checklists, tables, examples)
+└── scripts/          # optional helper scripts the model can invoke
+```
+
+`SKILL.md` sections (aim for 40 to 90 lines):
+
+- **Frontmatter**: `name`, `category`, and a sharp `description` of the form "what + when". The
+  description must contain a `Use ...` trigger clause; `npm run verify` fails a skill without one,
+  because a bare purpose statement gives the model nothing to match against.
+- **When to use / when not to use**: an explicit trigger and anti-trigger.
+- **Procedure**: numbered steps, each with an action and a stop condition.
+- **Decision heuristics**: the judgement calls (for example, read a range, not the whole file,
+  when the symbol is known).
+- **Anti-patterns**: the failure modes the skill exists to prevent (loops, over-reading).
+- **Done / verification**: what "finished" looks like.
+- **References**: links to `references/*.md` for depth.
+
+A skill that names a domain-only tool (for example pentest governance calls) must say it applies
+only when that domain extension is loaded. After adding or recategorising a skill, run
+`npm run catalog` to regenerate `docs/skills-catalogue.md`.
+
 ## Vendored extensions
 
 If you need to adapt an upstream extension (e.g. Windows compatibility fixes), put it in `packages/extensions/third_party/<name>/` and add a `SOURCE.md`:

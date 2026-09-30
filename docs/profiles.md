@@ -36,7 +36,7 @@ From a shell:
 
 ```sh
 # A release install: run the installer of pi's own copy of the kit
-node ~/.pi/agent/git/gitlab.home.internal/lab/pi-system/packages/core/install.mjs --profile lite --yes --settings-only
+node ~/.pi/agent/git/github.com/SATUNIX/pi-system/packages/core/install.mjs --profile lite --yes --settings-only
 # A checkout registered in place
 node packages/core/install.mjs --profile lite --yes
 ```
@@ -61,11 +61,12 @@ and the four `code-*` prompt templates. These allowlists are the profile's `skil
 
 ## Companion packages
 
-Some profiles use npm packages that are not part of the kit (`pi-lens`, `pi-readseek`,
-`pi-impact-analyzer`, `pi-lean-ctx`). The installer registers them as their own pi packages, at
-the exact version the kit has reviewed (`packages/core/sources.json`). `/update` moves them when
-a kit release changes a pin. `pi-lean-ctx` is registered only when its `lean-ctx` binary is on
-`PATH`.
+Some profiles use npm packages that are not part of the kit (`pi-lens`, `pi-readseek`). The
+installer registers them as their own pi packages, at the exact version the kit has reviewed
+(`packages/core/sources.json`). `/update` moves them when a kit release changes a pin.
+`pi-lean-ctx` is in no profile: it is opt-in, registered by `install.mjs --all` only when its
+`lean-ctx` binary is on `PATH`, and its extra shell and edit tools sit outside the firewall's shell
+and secret classification (see [Supply chain](supply-chain.md)).
 
 ## Profile file format
 

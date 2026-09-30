@@ -10,3 +10,5 @@ docs/registry.json
 .review-npm-cache/*
 __pycache__/
 *.pyc
+# Written by the opt-in handoff extension into whichever directory it runs in.
+HANDOFF.md

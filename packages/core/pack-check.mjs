@@ -47,8 +47,16 @@ if (pkg.publishConfig?.access !== "public") fail("publishConfig.access must be p
 // npm provenance only verifies against a public GitHub (or GitLab.com) repository, so the npm
 // delivery needs repository.url to point there; git delivery only needs it set.
 const delivery = readDistribution().delivery;
+// The host of repository.url (`git+https://github.com/owner/repo.git`, `https://...`), compared as a host, not as a substring.
+function repositoryHost(url) {
+  try {
+    return new URL(String(url).replace(/^git\+/, "")).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
 if (!pkg.repository?.url) fail("repository.url is not set");
-else if (delivery === "npm" && !pkg.repository.url.includes("github.com/")) fail("npm delivery: repository.url must point at the public GitHub repo (npm provenance checks it)");
+else if (delivery === "npm" && !["github.com", "www.github.com"].includes(repositoryHost(pkg.repository.url))) fail("npm delivery: repository.url must point at the public GitHub repo (npm provenance checks it)");
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "pi-system-pack-"));
 try {

@@ -330,20 +330,28 @@ export function loadIndex(root: string): Map<string, IndexEntry> {
   let changed = false;
   for (const abs of memoryFiles(root)) {
     const rel = path.relative(root, abs);
+    // One open file: the mtime that keys the cache and the text that is indexed describe the same file.
     let mtimeMs: number;
+    let text: string | null = null;
+    const prior = cached[rel];
     try {
-      mtimeMs = fs.statSync(abs).mtimeMs;
+      const fd = fs.openSync(abs, "r");
+      try {
+        mtimeMs = fs.fstatSync(fd).mtimeMs;
+        if (!(isIndexEntry(prior) && prior.mtimeMs === mtimeMs)) text = fs.readFileSync(fd, "utf8");
+      } finally {
+        fs.closeSync(fd);
+      }
     } catch {
       continue;
     }
-    const prior = cached[rel];
-    if (isIndexEntry(prior) && prior.mtimeMs === mtimeMs) {
-      current.set(rel, prior);
+    if (text === null) {
+      current.set(rel, prior as IndexEntry);
       continue;
     }
     changed = true;
     try {
-      const note = parseNote(fs.readFileSync(abs, "utf8"), abs);
+      const note = parseNote(text, abs);
       if (!note) continue;
       const tokens = docTokens(note.meta, note.body);
       current.set(rel, { mtimeMs, meta: note.meta, tf: termFrequencies(tokens), len: tokens.length, tokens: [...new Set(tokens)], titleTokens: [...new Set(tokenize(note.meta.title))] });
@@ -531,11 +539,16 @@ export function appendRecap(root: string, project: string, recap: Recap, now = n
   if (recap.decisions?.length) lines.push("**Decisions:**", ...recap.decisions.slice(0, 6).map((d) => `- ${redact(d).trim()}`));
   const section = `${lines.join("\n")}\n`;
   return withLock(root, () => {
-    if (!fs.existsSync(file)) {
-      const header = serializeFrontmatter({ type: "recap-log", project, date, tags: ["recap"] });
-      writeAtomic(file, `${header}\n# ${project} — ${date}\n\nPart of [[Projects/${project}/${project}|${project}]].${session ? ` Session \`${session}\`.` : ""}\n\n${section}`);
+    // The vault lock is held, so nothing else in this process family creates the file between these two steps; "ax" (append,
+    // fail if it exists) makes the create atomic even against a writer that is not.
+    const header = serializeFrontmatter({ type: "recap-log", project, date, tags: ["recap"] });
+    const firstEntry = `${header}\n# ${project} — ${date}\n\nPart of [[Projects/${project}/${project}|${project}]].${session ? ` Session \`${session}\`.` : ""}\n\n${section}`;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, firstEntry, { flag: "wx", mode: 0o600 });
       writeIndexPages(root, project);
-    } else {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
       fs.appendFileSync(file, `\n${section}`);
     }
     return file;

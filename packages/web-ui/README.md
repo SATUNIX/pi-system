@@ -57,7 +57,7 @@ The three triangles in the top bar toggle the sessions panel, the inspector and 
 
 ## Requirements
 
-- Node.js ≥ 20
+- Node.js ≥ 22.19 (pi's own minimum)
 - The `pi` CLI on `PATH`
 - A configured provider/model in `<pi home>/models.json`
   (defaults to `~/.pi/agent`, overridable with `PI_CODING_AGENT_DIR`)
@@ -69,18 +69,22 @@ cd pi-console
 npm start
 ```
 
-Then open `localhost:8123` in a browser.
+The server generates an access token for this run and prints a login link on the terminal:
+`http://127.0.0.1:8123/#token=...`. Open that link (the page keeps the token for the tab and
+removes it from the address bar). Started without a terminal (a service, `nohup`), the token is
+written to `.runtime/console.token` (mode 0600) instead of the log; or set `PI_CONSOLE_TOKEN`.
 
 ### From pi (recommended)
 
 The `web-console` extension registers the `/console` slash command (alias `/webui`). It launches
-this server as a detached process and reports the URL:
+this server as a detached process and prints the login link:
 
 ```
-/console          # start (default) and print the URL
-/console open     # start and open in a browser
-/console status   # running? pid, root
-/console stop     # stop the server /console started
+/console                      # start (default) and print the login link
+/console open                 # start and open the login link in a browser
+/console status               # running? pid, root (the token is hidden)
+/console status --show-token  # ...and print the login link
+/console stop                 # stop the server /console started
 ```
 
 Standalone setup, from the repo root:
@@ -93,8 +97,15 @@ Environment overrides:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PI_CONSOLE_HOST` | `127.0.0.1` | bind address (keep it on loopback) |
+| `PI_CONSOLE_HOST` | `127.0.0.1` | bind address; anything non-loopback is refused unless `PI_CONSOLE_ALLOW_REMOTE=1` |
 | `PI_CONSOLE_PORT` | `8123` | listen port |
+| `PI_CONSOLE_TOKEN` | generated per start | access token you choose: 32-256 characters of `A-Za-z0-9._~-` (`openssl rand -hex 32`) |
+| `PI_CONSOLE_TOKEN_FILE` | unset | file holding the token (used when `PI_CONSOLE_TOKEN` is unset); keep it mode 0600 |
+| `PI_CONSOLE_AUTH` | `token` | `off` disables authentication: loopback only, incompatible with remote mode, prints a loud warning. Never the default |
+| `PI_CONSOLE_ALLOW_REMOTE` | unset | `1` allows a non-loopback bind; token authentication stays mandatory |
+| `PI_CONSOLE_ALLOWED_HOSTS` | unset | comma-separated host names the server answers to (`Host` header allowlist); required for a wildcard bind or when a TLS proxy fronts it |
+| `PI_CONSOLE_ACCESS_LOG` | unset | `1` logs every request line (path only, never the query, headers or token); denied requests are always logged |
+| `PI_CONSOLE_RUNTIME_DIR` | `.runtime/` | scratch directory (temp agent prompts, a generated token file); mainly for tests |
 | `PI_BIN` | `pi` | path to the pi executable |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi config dir (sessions, models, settings) |
 
@@ -136,6 +147,8 @@ Browser (public/)  ──HTTP──▶  server/server.js  ──JSONL stdin/stdo
 | File | Responsibility |
 | --- | --- |
 | `server/config.js` | paths, ports, runtime dir |
+| `server/security.js` | bind/token policy, Host / Origin / token / content-type gate, security headers |
+| `server/validate.js` | validation of session ids, spawn config and RPC arguments |
 | `server/agents.js` | discover + parse agent `.md` files (frontmatter + body) |
 | `server/agentstore.js` | create/update/delete agent files (path-safe, the only writer) |
 | `server/models.js` | providers/models from `models.json` + default from `settings.json` |
@@ -153,9 +166,14 @@ The disk readers tolerate malformed persisted entries: non-object JSONL lines in
 
 ### API
 
+Every route below requires `Authorization: Bearer <token>` except `/api/health`, and every
+`POST`/`PUT`/`DELETE` must send `Content-Type: application/json` (an empty `{}` body is fine).
+Cross-origin requests and requests with a foreign `Host` are refused.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/health` | liveness + uptime |
+| GET | `/api/health` | liveness + uptime + `auth` mode (open; reveals nothing else) |
+| GET | `/api/auth` | 200 when the presented token is valid (used by the login prompt) |
 | GET | `/api/config` | installation configuration (paths, settings, models, lens) |
 | GET | `/api/prompts` | prompt templates shipped with the kit |
 | GET | `/api/skills` | skills shipped with the kit |
@@ -205,12 +223,56 @@ offline UI wiring check. It must not touch your real sessions or agents.
 
 ## Security
 
-- Binds to **loopback only** by default.
-- **No authentication.** Do not expose it to a network or the public internet as-is; put it
-  behind an authenticating proxy if you need remote access.
-- Static file serving rejects path traversal outside `public/`.
-- The UI renders all session/tool data via `textContent` (no HTML injection).
-- The console never writes Pi session files — Pi alone owns their lifecycle.
+The console can start `pi` agents that have shell access, so anyone who can drive its HTTP API can
+run commands as you. It is therefore locked down as a credential-bearing service.
+
+- **Access token, always on.** Each start generates 256 random bits (`crypto.randomBytes`) unless
+  you supply `PI_CONSOLE_TOKEN`. Every API and event-stream route requires it as an
+  `Authorization: Bearer` header, compared in constant time (SHA-256 digests +
+  `crypto.timingSafeEqual`). Only `/api/health` and the static page shell are open. The token is
+  never accepted in a query string, never set as a cookie, never logged, and stripped from the
+  environment of the `pi` children.
+- **How the page gets the token.** You open `http://host:port/#token=...`. A URL fragment is not sent
+  to the server or in a `Referer`; the page moves it into `sessionStorage` (this tab only) and removes
+  it from the address bar. A tab without it shows a prompt to paste the token. There is no cookie:
+  cookies are not port-isolated, so one would also be sent to other services on `127.0.0.1`.
+  Event streams use `fetch()` rather than `EventSource` so they can carry the header.
+- **Other sites and rebinding.** The `Host` header must name this server (defeats DNS rebinding);
+  a cross-origin `Origin` or `Sec-Fetch-Site: cross-site` / `same-site` (which includes another
+  localhost port) is refused on every API route, event streams included; every state-changing request
+  must be `application/json`, which a foreign page cannot send without a CORS preflight, and no CORS
+  headers are ever sent, so preflights fail.
+- **Loopback by default.** A non-loopback `PI_CONSOLE_HOST` is refused unless
+  `PI_CONSOLE_ALLOW_REMOTE=1`, and then only with token authentication (`PI_CONSOLE_AUTH=off` is refused
+  for any non-loopback bind). The bound address is re-checked after `listen()`. Off loopback the server
+  still speaks **plain HTTP**, so the token crosses the network in clear text unless TLS is terminated
+  in front of it (an SSH tunnel, or a TLS proxy that preserves the `Host` header and is named in
+  `PI_CONSOLE_ALLOWED_HOSTS`). A reverse proxy, a VPN or a CORS setting is not authentication.
+- **What reaches `pi`.** Only eight RPC command types are ever sent to a child (`prompt`, `abort`,
+  `set_model`, `set_thinking_level`, `fork`, `new_session`, `get_state`, `get_session_stats`), each with a
+  fixed shape; pi's `bash`, `switch_session` and `export_html` commands cannot be reached. Spawn
+  configuration, model ids, entry ids, `streamingBehavior` and session ids are validated before any child
+  starts or any file is touched. Request bodies are capped at 1 MB.
+- **Headers.** `Content-Security-Policy` (`default-src 'none'`, `script-src 'self'`, `style-src 'self'`,
+  `frame-ancestors 'none'`; the page has no inline script or style and the UI sets styles through the
+  CSSOM), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`,
+  `Cross-Origin-Opener-Policy` / `Cross-Origin-Resource-Policy: same-origin`, and `Cache-Control: no-store`
+  on the API.
+- The UI builds all session/tool/markdown content with DOM text nodes (no `innerHTML`); links are
+  scheme-checked and open with `rel="noopener noreferrer"`.
+- Static file serving rejects path traversal outside `public/` and dotfiles.
+- The console never writes Pi session files — Pi alone owns their lifecycle. Its only writes are agent
+  definitions (path-checked), a temp `--append-system-prompt` file and the token file, all under
+  `.runtime/` or the agent directories.
+- Shutdown (SIGINT/SIGTERM) closes event streams, stops the tailers and stops every `pi` child,
+  escalating to SIGKILL for one that ignores SIGTERM.
+
+Known limits: the token file (mode 0600) and the login link are as safe as the account that owns
+them, and an agent's shell runs as that account. `/console open` passes the login link to the browser
+launcher as an argument, which other local users of a shared host may glimpse in a process list.
+The Windows file-mode bit is not enforced. The shipped tests (`tests/web-ui-*-smoke.mjs`) exercise the
+real server over loopback; there is no browser in CI, so the CSP has not been exercised in a real
+browser.
 
 ## Status
 

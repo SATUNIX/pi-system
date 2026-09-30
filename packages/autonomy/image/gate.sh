@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Post-cycle gate (docs/autonomy.md): a clean clone of the accepted head, the repository's
-# offline checks, no network. Exit 0 only when every step passed. Output: /gate/gate.log and
-# /gate/result.json. Semgrep is not run (its rules come from the network); CI runs it on the MR.
+# The reference acceptance check for improving THIS kit's own repository (pi-system): its offline
+# checks, run as one contract check (`run: ["/opt/autonomy/gate.sh"]`). It is an example of a
+# check definition, not a built-in: any contract can name other commands. It runs inside
+# lib/check-runner.mjs, so the working directory is already a clean clone of the accepted head
+# with the held-out overlay applied, and there is no network. Exit 0 only when every step passed.
+# Output: /gate/gate.log and /gate/result.json (per-step detail, evidence for the supervisor).
+# Semgrep is not run (its rules come from the network); CI runs it on the merge request.
 set -uo pipefail
-branch="$1"; sha="$2"
 export HOME=/gate/home npm_config_cache=/gate/npm-cache
 mkdir -p "$HOME"
 exec >/gate/gate.log 2>&1
 git config --global safe.directory '*'
 git config --global core.hooksPath /dev/null
-
-git clone --quiet --no-checkout --branch "$branch" /in/branch.bundle /gate/src || exit 3
-cd /gate/src && git checkout --quiet --detach "$sha" || exit 3
-cp -a /opt/npm-cache /gate/npm-cache
+[ -d /opt/npm-cache ] && cp -a /opt/npm-cache /gate/npm-cache
 
 steps=(); failed=0
 step() {

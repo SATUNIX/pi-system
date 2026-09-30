@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // The narrow bundle is the structural independence boundary: finder reasoning never enters it.
 export interface ValidatorBundleInput { evidence: string; requirement: string; }
@@ -91,7 +92,7 @@ export function parseValidatorOutput(output: unknown): Pick<ValidatorVerdictInpu
 function finalAssistantOutput(messages: Array<{ role?: unknown; content?: unknown }>): string { for (let i = messages.length - 1; i >= 0; i--) { const msg = messages[i] as { role?: string; content?: Array<{ type?: string; text?: string }> }; const text = msg.role === "assistant" ? msg.content?.find((part) => part.type === "text" && typeof part.text === "string")?.text : undefined; if (text) return text; } return ""; }
 function writePromptTempFile(prompt: string): { dir: string; file: string } { const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-conductor-validator-")); const file = path.join(dir, "validator-system-prompt.md"); fs.writeFileSync(file, prompt, { encoding: "utf8", mode: 0o600 }); return { dir, file }; }
 
-// Pi 0.76.0 exposes no first-class registered-tool invocation from ExtensionAPI or ctx.
+// pi (checked through 0.87) exposes no first-class registered-tool invocation from ExtensionAPI or ctx.
 export const runValidatorProcess: ValidatorRunner = async (cwd, task, signal, onUpdate) => {
   const roleFile = path.join(cwd, ".pi", "agents", "validator.md"); let role: string;
   try { role = fs.readFileSync(roleFile, "utf8"); } catch { return { ok: false, reason: "validator role is not materialized in .pi/agents" }; }
@@ -100,7 +101,19 @@ export const runValidatorProcess: ValidatorRunner = async (cwd, task, signal, on
     temp = writePromptTempFile(role.replace(/^---\n[\s\S]*?\n---\s*/, ""));
     const args = ["--mode", "json", "-p", "--no-session", "--tools", "read,grep,find,ls", "--append-system-prompt", temp.file, `Task: ${task}`];
     const result = await new Promise<{ code: number; stderr: string; messages: Array<{ role?: unknown; content?: unknown }> }>((resolve) => {
-      const proc = spawn("pi", args, { cwd, shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"] }); let buffer = ""; let stderr = ""; const messages: Array<{ role?: unknown; content?: unknown }> = [];
+      // Launch through the running pi's own entry point with no shell (a task string containing shell
+      // metacharacters must never reach a command interpreter), and through delegation-guard: the
+      // validator is required verification, so it uses the "mandatory" kind, gets the ledger and the
+      // required-protection list, and its own guard fails closed if a protection is missing.
+      const guard = (globalThis as Record<symbol, unknown>)[Symbol.for("pi-kit.delegation")] as { prepareChild(request: Record<string, unknown>): { ok: true; env: Record<string, string | undefined>; slot: { attach(pid: number | undefined): void; settle(outcome: string): void } } | { ok: false; reason: string } } | undefined;
+      if (!guard) { resolve({ code: 1, stderr: "validator not started: the delegation-guard extension is not loaded, so the validator cannot be given the mandatory protections", messages: [] }); return; }
+      const prepared = guard.prepareChild({ cwd, kind: "mandatory", role: "validator", readOnly: true, isolation: "ambient", baseEnv: { ...process.env } });
+      if (!prepared.ok) { resolve({ code: 1, stderr: `validator not started: ${prepared.reason}`, messages: [] }); return; }
+      const cli = fileURLToPath(new URL("./cli.js", import.meta.resolve("@earendil-works/pi-coding-agent")));
+      const runtime = process.execPath.replace(/\\/g, "/").split("/").pop()?.toLowerCase().replace(/\.(?:exe|cmd|bat)$/, "") ?? "";
+      const argv = ["node", "nodejs", "bun", "deno"].includes(runtime) ? [cli, ...args] : [...args];
+      const proc = spawn(process.execPath, argv, { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...prepared.env, PI_KIT_INTERNAL_CHILD: "1" } }); let buffer = ""; let stderr = "";
+      prepared.slot.attach(proc.pid); proc.once("close", () => prepared.slot.settle("closed")); proc.once("error", () => prepared.slot.settle("error")); const messages: Array<{ role?: unknown; content?: unknown }> = [];
       let exited = false;
       let escalation: ReturnType<typeof setTimeout> | undefined;
       let idleTimer: ReturnType<typeof setTimeout> | undefined;

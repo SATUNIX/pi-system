@@ -666,21 +666,40 @@ export const runReviewerProcess: ReviewRunner = async (
 			DEFAULT_REVIEW_TIMEOUT_MS,
 		);
 
+		// The reviewer reads the repository, so it must run under the same boundary as its parent:
+		// delegation-guard supplies the mandatory protections and refuses the launch when it cannot.
+		// The review is required verification (it runs at every effort tier), so it uses the
+		// "mandatory" launch kind, which never draws on the discretionary delegation budget.
+		const guard = (globalThis as Record<symbol, unknown>)[Symbol.for("pi-kit.delegation")] as
+			| { prepareChild(request: Record<string, unknown>): { ok: true; args: string[]; env: Record<string, string | undefined>; slot: { attach(pid: number | undefined): void; settle(outcome: string): void } } | { ok: false; reason: string } }
+			| undefined;
+		if (!guard)
+			return {
+				ok: false,
+				reason:
+					"reviewer not started: the delegation-guard extension is not loaded, so the reviewer cannot be given the mandatory protections",
+			};
+		const prepared = guard.prepareChild({ cwd, kind: "mandatory", role: "reviewer", readOnly: true, baseEnv: { ...process.env } });
+		if (!prepared.ok) return { ok: false, reason: `reviewer not started: ${prepared.reason}` };
+
 		return await new Promise<ReviewRunResult>((resolve) => {
-			const proc = spawn(process.execPath, piChildArgv(cli, ["--no-extensions", ...args]), {
+			const proc = spawn(process.execPath, piChildArgv(cli, [...prepared.args, ...args]), {
 				cwd,
 				shell: false,
 				windowsHide: true,
 				stdio: ["ignore", "pipe", "pipe"],
 				// The child must not steer itself or start another review.
 				env: {
-					...process.env,
+					...prepared.env,
 					[CHILD_ENV_FLAG]: "1",
 					PI_KIT_INTERNAL_CHILD: "1",
 					PI_KIT_ORCH_DISABLE: "1",
 					PI_KIT_VERIFY_ON_TURN: "0",
 				},
 			});
+			prepared.slot.attach(proc.pid);
+			proc.once("close", () => prepared.slot.settle("closed"));
+			proc.once("error", () => prepared.slot.settle("error"));
 			let buffer = "";
 			let stderr = "";
 			let bytes = 0;

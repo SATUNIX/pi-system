@@ -16,6 +16,11 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { ROOT, loadModule, fakePi, tmpWorkspace, rmWorkspace, setEnv, isolateKitEnv } from "../packages/core/eval/harness.mjs";
+import { installDelegation } from "../packages/core/eval/delegation.mjs";
+
+// Launches go through delegation-guard (mandatory protections + effort budget); fake children still need it in place.
+const __delegation = await installDelegation();
+process.on("exit", () => __delegation.cleanup());
 
 const ws = tmpWorkspace("pi-kit-workflow-");
 const restores = [isolateKitEnv(), setEnv("PI_CODING_AGENT_DIR", path.join(ws, "agent")), setEnv("PI_KIT_SUBAGENT_STATE_DIR", path.join(ws, "subagent-state"))];

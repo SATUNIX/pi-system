@@ -13,7 +13,7 @@
     "only": ["code-orient", "code-plan", "code-verify", "code-compact"]
   },
   "include": [
-    "protected-paths", "tool-firewall", "git-checkpoint", "custom-footer", "session-helpers", "kit-update",
+    "protected-paths", "tool-firewall", "git-checkpoint", "custom-footer", "session-helpers", "kit-update", "effort", "delegation-guard",
     "compress", "save", "trace-ledger", "progress-guard", "todo", "verify-gate", "verifier-board",
     "context-sieve", "caveman", "pi-readseek",
     "subagent", "orchestrator", "goal-core"

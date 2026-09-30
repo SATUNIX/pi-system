@@ -398,6 +398,9 @@ export function streamSpecialistChild(
   });
 }
 
+type GuardRegistry = { prepareChild(request: Record<string, unknown>): { ok: true; env: Record<string, string | undefined>; slot: { attach(pid: number | undefined): void; settle(outcome: string): void } } | { ok: false; reason: string } };
+function guardRegistry(): GuardRegistry | undefined { return (globalThis as Record<symbol, unknown>)[Symbol.for("pi-kit.delegation")] as GuardRegistry | undefined; }
+
 export const runSpecialistProcess: SpecialistRunner = async (cwd, agent, task, childDepth, signal, onUpdate) => {
   if (signal?.aborted) return { ok: false, reason: "specialist cancelled before launch" };
   const definition = agentDefinition(cwd, agent); if (!definition) return { ok: false, reason: `specialist role is missing a materialized tool restriction: ${agent}` };
@@ -407,7 +410,18 @@ export const runSpecialistProcess: SpecialistRunner = async (cwd, agent, task, c
     const bounds = specialistBounds();
     const cli = fileURLToPath(new URL("./cli.js", import.meta.resolve("@earendil-works/pi-coding-agent")));
     const args = ["--mode", "json", "-p", "--no-session", "--tools", definition.tools.join(","), "--append-system-prompt", promptFile, `Task: ${task}`];
-    const proc = spawn(process.execPath, specialistArgv(cli, args), { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PI_KIT_INTERNAL_CHILD: "1", PI_KIT_CONDUCTOR_DEPTH: String(childDepth), PI_KIT_PROTECTED_PATHS: specialistProtectedPaths() } });
+    // The specialist keeps the operator's installed extensions (its tools include MCP servers), so
+    // delegation-guard supplies only the environment: the required-protection list the child's own
+    // guard verifies before any tool runs (it fails closed when one is not loaded), and the effort
+    // ledger, so specialists share the request's delegation budget like every other child.
+    const guard = guardRegistry();
+    if (!guard) return { ok: false, reason: "specialist not started: the delegation-guard extension is not loaded, so the specialist cannot be given the mandatory protections and an effort budget" };
+    const prepared = guard.prepareChild({ cwd, kind: "discretionary", role: agent, readOnly: !definition.tools.some((t) => ["write", "edit", "bash"].includes(t)), isolation: "ambient", baseEnv: { ...process.env } });
+    if (!prepared.ok) return { ok: false, reason: `specialist not started: ${prepared.reason}` };
+    const proc = spawn(process.execPath, specialistArgv(cli, args), { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...prepared.env, PI_KIT_INTERNAL_CHILD: "1", PI_KIT_CONDUCTOR_DEPTH: String(childDepth), PI_KIT_PROTECTED_PATHS: specialistProtectedPaths() } });
+    prepared.slot.attach(proc.pid);
+    proc.once("close", () => prepared.slot.settle("closed"));
+    proc.once("error", () => prepared.slot.settle("error"));
     const result = await streamSpecialistChild(proc, bounds, signal, onUpdate ? (text) => onUpdate(`[${agent}] ${text}`) : undefined);
     if (signal?.aborted) return { ok: false, reason: "specialist cancelled" };
     if (result.killed) return { ok: false, reason: `specialist child stopped by ${result.killed}` };

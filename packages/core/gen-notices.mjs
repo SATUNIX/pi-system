@@ -16,11 +16,11 @@ import { WORKSPACE_ROOT, THIRD_PARTY_DIR } from "./lib/paths.mjs";
 const ROOT = WORKSPACE_ROOT;
 const NOTICES_PATH = path.join(ROOT, "THIRD_PARTY_NOTICES.md");
 
-// Upstream of most vendored extensions. The npm artifact does not ship its LICENSE
-// (verified), so the holder is taken from the installed package.json `author` field:
-// `@earendil-works/pi-coding-agent` -> author "Mario Zechner", MIT.
-// Reconcile the year/holder with the upstream repository before a public publish.
-const UPSTREAM_HOLDER = "Mario Zechner";
+// Upstream of most vendored extensions. The npm artifact does not ship its LICENSE, so the
+// notice is reproduced from the upstream repository's LICENSE file, which reads
+// "MIT License / Copyright (c) 2025 Mario Zechner" (checked against the repository's main branch
+// on 2026-09-30).
+const UPSTREAM_HOLDER = "2025 Mario Zechner";
 const UPSTREAM_REPO = "https://github.com/earendil-works/pi";
 
 const MIT_TEXT = `MIT License
@@ -58,10 +58,12 @@ function sourceBody(raw) {
 
 const CAVEMAN_CONCEPT_NOTE = [
   "- Concept attribution: the concept derives in turn from the `caveman` project by",
-  "  Julius Brussee (https://github.com/JuliusBrussee/caveman). That concept repository's",
-  "  license is **unstated**; the kit's `caveman` is a reimplementation, not a verbatim",
-  "  port, and is distributed under the kit's MIT license. Credit the concept source",
-  "  regardless of the upstream `pi-caveman` (MIT) code.",
+  "  Julius Brussee (https://github.com/JuliusBrussee/caveman), which is MIT-licensed with a",
+  "  scope note that its engine directories (engine/, proxy/, rewriter/, browse/, mcp/,",
+  "  shrink/ and others listed in its LICENSING.md) are under the Business Source License 1.1.",
+  "  Nothing from those directories is used: the kit's `caveman` is a reimplementation of the",
+  "  `pi-caveman` extension (MIT, Copyright (c) 2026), not a verbatim port of either project,",
+  "  and is distributed under the kit's MIT license. The concept source is credited regardless.",
 ].join("\n");
 
 function collectVendored() {
@@ -92,9 +94,7 @@ function render() {
     "",
     `Most vendored extensions are derived from \`@earendil-works/pi-coding-agent\` (${UPSTREAM_REPO}),`,
     "which is MIT-licensed. The upstream npm artifact does not ship its LICENSE file, so the",
-    "full notice is reproduced here:",
-    "",
-    "<!-- Reconcile the holder and year with the upstream repository LICENSE before a public npm publish. -->",
+    "notice is reproduced here from the upstream repository's LICENSE:",
     "",
     "```text",
     MIT_TEXT,

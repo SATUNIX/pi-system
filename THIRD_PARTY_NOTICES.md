@@ -12,14 +12,12 @@ changes made in this repository.
 
 Most vendored extensions are derived from `@earendil-works/pi-coding-agent` (https://github.com/earendil-works/pi),
 which is MIT-licensed. The upstream npm artifact does not ship its LICENSE file, so the
-full notice is reproduced here:
-
-<!-- Reconcile the holder and year with the upstream repository LICENSE before a public npm publish. -->
+notice is reproduced here from the upstream repository's LICENSE:
 
 ```text
 MIT License
 
-Copyright (c) Mario Zechner
+Copyright (c) 2025 Mario Zechner
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -76,10 +74,12 @@ SOFTWARE.
     `detailTriggers` entries in the config are ignored.
 
 - Concept attribution: the concept derives in turn from the `caveman` project by
-  Julius Brussee (https://github.com/JuliusBrussee/caveman). That concept repository's
-  license is **unstated**; the kit's `caveman` is a reimplementation, not a verbatim
-  port, and is distributed under the kit's MIT license. Credit the concept source
-  regardless of the upstream `pi-caveman` (MIT) code.
+  Julius Brussee (https://github.com/JuliusBrussee/caveman), which is MIT-licensed with a
+  scope note that its engine directories (engine/, proxy/, rewriter/, browse/, mcp/,
+  shrink/ and others listed in its LICENSING.md) are under the Business Source License 1.1.
+  Nothing from those directories is used: the kit's `caveman` is a reimplementation of the
+  `pi-caveman` extension (MIT, Copyright (c) 2026), not a verbatim port of either project,
+  and is distributed under the kit's MIT license. The concept source is credited regardless.
 
 ### `custom-footer`
 
@@ -100,6 +100,23 @@ SOFTWARE.
   - Tips widget during runs (`/tips on|off`), filtered to loaded commands.
   - Todo checklist widget from `TODO.md` (`/footer todos on|off`).
   - UI settings persist in `<agent dir>/pi-kit/ui.json`.
+- 2026-09-30 rewrite (public beta):
+  - One renderer built from prioritised segments (`render.ts`): light, default and heavy differ in
+    content, not just line count; narrow terminals drop the least important segment first, shorten
+    long ones, and never drop a boundary or failure warning for telemetry. Widths are terminal
+    columns (`width.ts`: wide characters, emoji clusters, combining marks, ANSI/OSC 8).
+  - Shows the effort tier (and a pending change), unattended state (what the firewall enforces, never
+    what the environment claims), compaction state and live/failed children, read from read-only
+    registries their owners publish on globalThis (`data.ts`); costs are labelled measured,
+    estimated or unknown (unknown is not zero); unknown context is `?`, not 0%.
+  - No subprocess and no disk read per render: the branch comes from `.git/HEAD` at session start
+    (or pi's footer data), session totals are incremental, todos are stat-cached, profile and firewall
+    are read once per session. Stale in-flight chips are hidden once idle; failures never are.
+  - Lifecycle: `session_shutdown` clears the ticker, widgets and hooks; a reload replaces, never adds.
+  - Commands: invalid `/footer` and `/tips` arguments no longer toggle or mutate anything (the old
+    fall-through toggled the bar); non-interactive sessions get text on stderr; `/footer status` is
+    the accessible detail view of everything the bar drops; `/footer ascii on|off`.
+  - The working line keeps run tokens and time; the footer no longer repeats them.
 
 ### `dirty-repo-guard`
 
@@ -252,19 +269,27 @@ SOFTWARE.
     - The subagent tool now drives a persistent TUI footer status (`ui.setStatus("subagent", …)`) for
       the duration of a delegation and clears it on finish; each update carries agent, step, turn
       count, elapsed time, last tool+target, and run id.
-  - **Overhaul (2026-09-23)** — see `docs/review-2026-09-23.md`:
+  - **Overhaul (2026-09-23):**
     - Built-in roles resolve from `packages/kit/agents` (trusted "kit" source) under user and
       project roles; the default scope finds them, headless children included. Role
       frontmatter gains `thinking`, `skills` (preloaded), `extensions`, `max_runtime`; a role's
       `model:` is honoured unless `PI_KIT_SUBAGENT_INHERIT_MODEL=1`.
-    - Children are isolated: `--no-extensions` plus an allowlist of enabled safety extensions
-      (`isolation.ts`); the task goes over stdin; stdout/stderr decode as UTF-8 streams.
+    - Children are isolated (`--no-extensions` plus an allowlist); the task goes over stdin;
+      stdout/stderr decode as UTF-8 streams.
     - Esc kills children (`background: true` opts into detached runs, delivered back as a
       session message); live children stop on session shutdown.
     - Run ids carry a random suffix; `runs.jsonl` is compacted; dead runs show `orphaned`.
     - Chain `{previous}` substitution is literal; chain returns the unbounded final output.
     - Workflows (`workflow.ts`, `workflow-tools.ts`): declarative step chains with a run
       directory, parallel groups, gates, resume.
+  - **Single governed launch contract (0.2.4-beta.0):** `isolation.ts` is gone and `launch.ts` is new.
+    Every child, at any depth, is started through the `delegation-guard` extension
+    (`packages/extensions/src/delegation-guard`), which decides the child's extensions (the parent's
+    protections first, then companions), reserves a slot in the shared effort ledger and verifies the
+    protections inside the child, failing closed. `runner.ts` reserves a slot per attempt and settles
+    it; `result.ts` treats a denied or misconfigured launch (exit 78) as fatal, not retryable; role
+    frontmatter gains `effort` and `scout`; `/workflow` launches are kind "user". The
+    `PI_KIT_SUBAGENT_ISOLATE` switch no longer disables isolation. See `docs/agent-orchestration.md`.
 
 ### `todo`
 
@@ -290,3 +315,14 @@ SOFTWARE.
     override, highest precedence), a new `/compact-threshold [amount|reset]` command that
     persists to `<agent dir>/pi-kit/trigger-compact.json`, falling back to the original 100k
     default when neither is set. `/trigger-compact` (manual, immediate compaction) is unchanged.
+  - 2026-09-30: Rebuilt against pi 0.85.1's real semantics. `ctx.compact()` is
+    `AgentSession.compact()`, which aborts the running agent first and never resumes it, while pi's
+    own threshold compaction (`contextWindow - reserveTokens`) runs inside the run and continues it.
+    So: (1) never call `ctx.compact()` in a one-shot child (`PI_KIT_INTERNAL_CHILD=1`, print/json
+    mode) - the aborted child ended with no final message; (2) stand down when pi's own trigger is at
+    or below ours or fires on the same turn (no double compaction); (3) mid-run compactions resume the
+    interrupted run once, a final turn waits for `agent_settled`, and an operator interrupt
+    suppresses the trigger; (4) level trigger with re-arming replaces the edge trigger, so a resumed
+    session already above the threshold fires once and a threshold that compaction cannot get under
+    cannot loop; (5) unknown usage (no window, `tokens: null` after a compaction) is never read as 0;
+    (6) `compaction.enabled`/`reserveTokens` are read with pi's precedence and trust rules.

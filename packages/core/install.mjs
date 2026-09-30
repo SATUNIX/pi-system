@@ -27,13 +27,14 @@
  *                        switches keep them. Alone: capture and exit.
  */
 import { execSync, spawnSync } from "node:child_process";
+import { displayCommand, runPi } from "./lib/pi-cli.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveProfile } from "./lib/resolve.mjs";
 import { readSources } from "./lib/sources.mjs";
 import { mergePackageBlock, removeOtherKitEntries, leanCtxBinaryAvailable, globalSettingsPath, globalAgentDir, readSettings, findPackageEntry, writeSettingsAtomic, isKitNpmSource, isKitGitSource } from "./lib/settings.mjs";
-import { readDistribution, isChannel, parseGitSource, gitSourceFor, channelOfGitSource, releaseTags, latestRelease, lsRemoteTags } from "./lib/distribution.mjs";
-import { readOverrides, writeOverrides, isEmptyOverrides, applyExtensionOverrides, excludedSkills, excludedPrompts, skillFilterPatterns, promptFilterPatterns, captureDrift, overridesPath, canonicalProfileName, writeFirewallConfig, firewallConfigPath } from "./lib/profiles.mjs";
+import { readDistribution, isChannel, parseGitSource, gitSourceFor, channelOfGitSource, releaseTags, latestRelease, lsRemoteTags, isLegacyGitSource } from "./lib/distribution.mjs";
+import { readOverrides, readOverridesChecked, reconcileOverrides, writeOverrides, isEmptyOverrides, applyExtensionOverrides, excludedSkills, excludedPrompts, skillFilterPatterns, promptFilterPatterns, captureDrift, overridesPath, canonicalProfileName, writeFirewallConfig, checkFirewallConfig, firewallConfigPath, kitSkills, kitPrompts, snapshotFiles, restoreSnapshots } from "./lib/profiles.mjs";
 import { resolve as resolveName } from "./lib/resolve.mjs";
 import { WORKSPACE_ROOT, PROFILES_DIR, FIRST_PARTY_DIR, THIRD_PARTY_DIR, SOURCES_PATH, ENV_EXAMPLE, extensionRelPath } from "./lib/paths.mjs";
 
@@ -95,6 +96,24 @@ const markerPath = scope === "global"
   ? path.join(globalAgentDir(), ".pi-kit.json")
   : path.join(process.cwd(), ".pi", ".pi-kit.json");
 
+// Whole-run rollback for the fast --settings-only path (what /profile drives). Each write below is
+// atomic, but the run writes several files in sequence; any exit that is not a clean finish (a
+// failed step, an uncaught exception, SIGINT/SIGTERM) restores every one of them, so the
+// configuration is either the old one or the complete new one. `installCommitted` flips once the
+// marker, the last write, is on disk. A SIGKILL cannot run code; /profile snapshots as well.
+let installCommitted = false;
+if (settingsOnly && !dryRun) {
+  const snapshots = snapshotFiles([settingsPath, markerPath, firewallConfigPath(), overridesPath(), path.join(globalAgentDir(), ".env")]);
+  process.on("exit", (code) => {
+    if (installCommitted || code === 0) return;
+    const failed = restoreSnapshots(snapshots);
+    console.error(failed.length
+      ? `[install] ROLLBACK INCOMPLETE: could not restore ${failed.join(", ")}`
+      : `[install] Rolled back ${snapshots.length} configuration file(s); nothing was changed.`);
+  });
+  for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) process.on(signal, () => process.exit(code));
+}
+
 // A copy pi installed itself lives under <agent dir>/git or <agent dir>/npm (or .pi/git, .pi/npm
 // for project scope). Run from there (by /profile, /update or the first-run auto-profile), the
 // installer keeps registering that same delivery instead of the clone as a local checkout.
@@ -115,7 +134,7 @@ if (!["local", "git", "npm"].includes(mode)) {
   process.exit(1);
 }
 if (explicitChannel && !isChannel(explicitChannel)) {
-  console.error(`[install] invalid --channel "${explicitChannel}" (expected latest, next or an exact version such as 0.2.1-beta.0)`);
+  console.error(`[install] invalid --channel "${explicitChannel}" (expected latest, next or an exact version such as 0.2.4-beta.0)`);
   process.exit(1);
 }
 
@@ -171,41 +190,61 @@ function npmKitSource() {
 }
 
 // git delivery: `next` is the unpinned repository (pi follows its default branch), a release is
-// its `v<version>` tag, and `latest` resolves to the newest release tag with `git ls-remote`
-// (so it uses the user's own git credentials). With no --channel, the registered source and
-// its recorded channel are kept.
+// its `v<version>` tag, and `latest` resolves to the newest release tag with `git ls-remote`.
+// With no --channel, the registered source and its recorded channel are kept.
+//
+// A registration from a retired private source (distribution.json git.legacySources) is never
+// reused: the kit is registered from the public source instead, on the channel the install was
+// following (`next` stays `next`; a release or a pin becomes `latest`, because a private tag
+// does not exist publicly). `legacyMigration` records what was replaced so the rest of the
+// installer can preserve hand edits and remove the old copy.
+let legacyMigration = null;
 function gitKitSource() {
   const registered = registeredKitSource(isKitGitSource);
-  const base = process.env.PI_SYSTEM_GIT_SOURCE?.trim() || registered || distribution.git.source;
+  const legacy = registered && isLegacyGitSource(registered, distribution.git.legacySources) ? registered : null;
+  if (distribution.git.ignoredEnvSource) {
+    console.warn(`[install] Ignoring PI_SYSTEM_GIT_SOURCE=${distribution.git.ignoredEnvSource}: it names the retired private source. Unset it; the kit installs from ${distribution.git.source}.`);
+  }
+  const base = distribution.git.source || (legacy ? "" : registered) || "";
   if (!parseGitSource(base)) {
     console.error(`[install] no usable git source for the kit ("${base}"). Set git.source in packages/core/distribution.json or PI_SYSTEM_GIT_SOURCE=git:<host>/<owner>/pi-system.`);
     process.exit(1);
   }
+  // A registration on some other (non-legacy) fork is the user's choice and is kept when no
+  // explicit source override or --channel says otherwise.
+  const keepRegistered = registered && !legacy && !process.env.PI_SYSTEM_GIT_SOURCE?.trim();
+  const effectiveBase = keepRegistered ? registered : base;
   if (legacyGitRef) {
     const next = legacyGitRef === distribution.git.branch;
-    return { source: gitSourceFor(base, next ? null : legacyGitRef), channel: next ? "next" : legacyGitRef };
+    return { source: gitSourceFor(effectiveBase, next ? null : legacyGitRef), channel: next ? "next" : legacyGitRef };
   }
-  if (!explicitChannel && registered) {
+  if (!explicitChannel && registered && !legacy) {
     return { source: registered, channel: recordedChannel(registered) ?? channelOfGitSource(registered, distribution.git.tagPrefix) };
   }
-  const channel = explicitChannel ?? "latest";
-  if (channel === "next") return { source: gitSourceFor(base, null), channel };
-  if (channel !== "latest") return { source: gitSourceFor(base, `${distribution.git.tagPrefix}${channel}`), channel };
-  const repo = parseGitSource(base).repo;
+  let channel = explicitChannel ?? "latest";
+  if (legacy) {
+    const before = recordedChannel(legacy) ?? channelOfGitSource(legacy, distribution.git.tagPrefix);
+    if (!explicitChannel) channel = before === "next" ? "next" : "latest";
+    legacyMigration = { from: legacy, channel };
+    console.warn(`[install] Migrating the kit from the retired private source ${legacy} to ${distribution.git.source} (channel ${channel}).`);
+  }
+  if (channel === "next") return { source: gitSourceFor(effectiveBase, null), channel };
+  if (channel !== "latest") return { source: gitSourceFor(effectiveBase, `${distribution.git.tagPrefix}${channel}`), channel };
+  const repo = parseGitSource(effectiveBase).repo;
   let versions;
   try {
     versions = releaseTags(lsRemoteTags(repo), distribution.git.tagPrefix);
   } catch (error) {
     console.error(`[install] could not list release tags of ${repo}: ${(error.stderr || error.message || "").toString().trim()}`);
-    console.error("[install] Check that git can reach the repository with your credentials (git ls-remote), or install --channel next.");
+    console.error("[install] Check network access to the repository (git ls-remote), or install --channel next.");
     process.exit(1);
   }
   const version = latestRelease(versions);
   if (!version) {
-    console.error(`[install] ${repo} has no release tags (${distribution.git.tagPrefix}X.Y.Z) yet. Install --channel next, or cut a release (docs/releasing.md).`);
+    console.error(`[install] ${repo} has no release tags (${distribution.git.tagPrefix}X.Y.Z) yet. Install --channel next to follow main, or see docs/releasing.md.`);
     process.exit(1);
   }
-  return { source: gitSourceFor(base, `${distribution.git.tagPrefix}${version}`), channel: "latest" };
+  return { source: gitSourceFor(effectiveBase, `${distribution.git.tagPrefix}${version}`), channel: "latest" };
 }
 
 const kit = mode === "local"
@@ -215,9 +254,10 @@ const kit = mode === "local"
     : gitKitSource();
 const kitSource = kit.source;
 
-function run(cmd) {
-  console.log(`  > ${cmd}`);
-  if (!dryRun) execSync(cmd, { stdio: "inherit" });
+// pi is run with an argument vector (lib/pi-cli.mjs): a source string is data, never shell text.
+function runPiCommand(args) {
+  console.log(`  > ${displayCommand(args)}`);
+  if (!dryRun) runPi(piBin, args);
 }
 
 function resolveCommand(name) {
@@ -230,10 +270,6 @@ function resolveCommand(name) {
     }
   }
   return null;
-}
-
-function shellQuote(value) {
-  return `"${value.replace(/"/g, '\\"')}"`;
 }
 
 // --- Load profile from profiles/<name>.json ---
@@ -266,10 +302,13 @@ function allExtensionNames() {
 }
 
 // --- Capture hand edits as overrides (before anything is rewritten) ---
-if (captureOverrides) {
+// Also runs automatically when the kit is migrated off a retired private source: the old
+// entry is about to be replaced, so its hand edits (extensions added or removed, skill and
+// prompt exclusions) become overrides first and survive the move.
+if (captureOverrides || legacyMigration) {
   const marker = readMarkerFile();
   const settings = readSettings(settingsPath);
-  const idx = findPackageEntry(settings, kitSource, settingsPath);
+  const idx = findPackageEntry(settings, legacyMigration?.from ?? kitSource, settingsPath);
   if (!marker?.profile || idx === -1) {
     console.log("[install] capture-overrides: no installed kit profile/entry to compare against; nothing captured.");
   } else if (!isEmptyOverrides(readOverrides())) {
@@ -291,19 +330,50 @@ if (captureOverrides) {
       console.log(`[install] capture-overrides: saved hand edits to ${overridesPath()}: ${JSON.stringify(drift)}`);
     }
   }
-  if (!explicitProfile && !onlyNames && !all) process.exit(0);
+  if (captureOverrides && !explicitProfile && !onlyNames && !all) process.exit(0);
 }
 
 // Determine selected name set
 let selected;
 let profileDef = null;
-const overrides = readOverrides();
+// Operator overrides. Only a profile install applies them, so only then can they stop the run:
+// an unreadable file may hold a removal of a protection we cannot see (fail closed), and removing
+// a mandatory protection extension is refused outright. Names that no longer exist in this kit
+// (renamed or removed extensions, skills, prompts) are dropped with a warning instead of failing
+// the whole switch.
+let overrides = readOverrides();
+if (!all && !onlyNames) {
+  const read = readOverridesChecked();
+  if (read.error) {
+    console.error(`[install] FAIL: ${read.error}. Fix or delete it, then retry; nothing was changed.`);
+    process.exit(1);
+  }
+  const reconciled = reconcileOverrides(read.overrides, {
+    extensionExists: (name) => resolveName(name) !== null,
+    skills: kitSkills().map((s) => s.name),
+    prompts: kitPrompts(),
+  });
+  for (const warning of reconciled.warnings) console.warn(`[install] WARN: ${warning}`);
+  if (reconciled.errors.length) {
+    for (const error of reconciled.errors) console.error(`[install] FAIL: ${error}`);
+    process.exit(1);
+  }
+  overrides = reconciled.overrides;
+}
 if (all) {
   selected = allExtensionNames();
 } else if (onlyNames) {
   selected = onlyNames;
 } else {
   profileDef = loadProfile(profile);
+  // Safety-critical config is validated before anything is written: an unknown firewall policy or
+  // mode (in the profile or in the existing firewall.json) or an unreadable firewall.json stops here.
+  try {
+    checkFirewallConfig(profileDef);
+  } catch (error) {
+    console.error(`[install] FAIL: ${error.message}`);
+    process.exit(1);
+  }
   // Operator overrides apply on top of every profile so a switch never undoes hand edits.
   selected = applyExtensionOverrides(profileDef.include ?? [], overrides);
 }
@@ -358,7 +428,7 @@ function check(cmd, name, required = true) {
 // git is needed to register a checkout or clone a git source.
 if (mode !== "npm") check("git --version", "git");
 check("pi --version", "pi");
-const piBin = shellQuote(resolveCommand("pi") || "pi");
+const piBin = resolveCommand("pi") || "pi";
 
 console.log(`\n[install] pi-system`);
 console.log(`  profile:      ${all ? "all" : onlyNames ? "--only" : profile}`);
@@ -400,12 +470,12 @@ const isRegistered = (source) => {
 };
 
 // 2. Register the kit
-const scopeFlag = scope === "project" ? " -l" : "";
+const scopeArgs = scope === "project" ? ["-l"] : [];
 if (settingsOnly && isRegistered(kitSource)) {
   console.log("\n[install] Kit already registered; updating its settings entry only.");
 } else {
   console.log("\n[install] Registering kit with pi...");
-  run(`${piBin} install "${kitSource}"${scopeFlag}`);
+  runPiCommand(["install", kitSource, ...scopeArgs]);
 }
 
 // 2b. Narrow the registered package to the profile/--only selection (F-01 fix).
@@ -429,7 +499,19 @@ if (shouldFilterExtensions) {
 // Keep exactly one copy of the kit registered: a checkout, a git clone and the npm package
 // (and the retired dist/pi-kit-* surfaces) all ship the same tools, so any other copy left
 // registered would collide on every shared extension, skill, prompt and theme name.
-if (!dryRun) removeOtherKitEntries(settingsPath, kitSource);
+if (!dryRun) {
+  // pi removes the retired copy's clone as well as its settings entry; if that fails the
+  // settings entry is still dropped below and the orphaned clone is harmless.
+  if (legacyMigration) {
+    try {
+      runPi(piBin, ["remove", legacyMigration.from, ...scopeArgs], { stdio: "pipe" });
+      console.log(`[install] Removed the retired registration ${legacyMigration.from}.`);
+    } catch {
+      console.warn(`[install] Could not run \`pi remove ${legacyMigration.from}\`; dropping its settings entry instead.`);
+    }
+  }
+  removeOtherKitEntries(settingsPath, kitSource);
+}
 
 // Companion sources this install is responsible for, recorded in the state marker so
 // uninstall.mjs can remove them again. Filled inside the block below (empty with
@@ -470,7 +552,7 @@ if (!noExternals) {
     if (missing.length > 0) {
       console.log(`\n[install] Installing ${missing.length} companion external(s)...`);
       for (const c of missing) {
-        run(`${piBin} install "${c.source}"${scopeFlag}`);
+        runPiCommand(["install", c.source, ...scopeArgs]);
       }
     } else if (companions.length > 0) {
       console.log(`\n[install] ${companions.length} companion external(s) already registered.`);
@@ -500,7 +582,10 @@ if (profileDef) {
       const fw = writeFirewallConfig(profileDef);
       console.log(`[install] Firewall: mode ${fw.mode}${fw.source === "user" ? " (kept, set with /auto)" : ""}, policy ${fw.policy} -> ${firewallConfigPath()}`);
     } catch (error) {
-      console.error(`[install] WARN: could not write ${firewallConfigPath()}: ${error.message}`);
+      // The firewall config is safety-critical: continuing would record a profile whose gate was
+      // never applied. Fail closed (the run rolls back under --settings-only).
+      console.error(`[install] FAIL: could not write ${firewallConfigPath()}: ${error.message}`);
+      process.exit(1);
     }
   }
 }
@@ -526,6 +611,7 @@ if (!dryRun) {
   };
   writeSettingsAtomic(markerPath, marker);
 }
+installCommitted = true;
 
 const webConsoleSelected = selected.includes("web-console");
 console.log(`

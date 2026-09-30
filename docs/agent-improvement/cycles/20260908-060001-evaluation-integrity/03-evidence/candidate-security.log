@@ -1,6 +1,0 @@
-
-> @gitops/pi-kit@1.0.0 test:security
-> node tests/tool-firewall-smoke.mjs && node tests/secret-guard-smoke.mjs
-
-[test:security tool-firewall] OK
-[test:security secret-guard] OK

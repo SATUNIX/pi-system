@@ -38,6 +38,7 @@ jobs:
         with:
           languages: javascript-typescript, actions
           queries: security-extended
+          config-file: ./.github/codeql/codeql-config.yml
       - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           category: /language:javascript-typescript
@@ -51,7 +52,8 @@ jobs:
       contents: read
       security-events: write
     container:
-      image: semgrep/semgrep:1.178.0
+      # Pinned by digest (the tag is only a label; it can be moved).
+      image: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

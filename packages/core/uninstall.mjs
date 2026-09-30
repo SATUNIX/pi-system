@@ -8,10 +8,10 @@
  * Usage:
  *   node packages/core/uninstall.mjs [--scope <global|project>] [--dry-run] [--yes]
  */
-import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { globalAgentDir } from "./lib/settings.mjs";
+import { displayCommand, runPi } from "./lib/pi-cli.mjs";
 import { WORKSPACE_ROOT, DOCS_DIR, PROFILES_DIR, FIRST_PARTY_DIR, THIRD_PARTY_DIR, SKILLS_DIR, PROMPTS_DIR, THEMES_DIR, SCHEMA_DIR, POLICIES_DIR, SOURCES_PATH, CORE_DIR, ENV_EXAMPLE, extensionRelPath } from "./lib/paths.mjs";
 
 const args = process.argv.slice(2);
@@ -43,9 +43,11 @@ if (explicitScope === "project") {
   effectiveScope = "global";
 }
 
-function run(cmd) {
-  console.log(`  > ${cmd}`);
-  if (!dryRun) execSync(cmd, { stdio: "inherit" });
+// pi is run with an argument vector: the kit source and companions come from a state marker file, and are data.
+function removeFromPi(source) {
+  const args = ["remove", source, ...scopeArgs];
+  console.log(`  > ${displayCommand(args)}`);
+  if (!dryRun) runPi("pi", args);
 }
 
 console.log("\n[uninstall] pi-system");
@@ -64,13 +66,13 @@ if (fs.existsSync(markerPath)) {
   }
 }
 
-const scopeFlag = effectiveScope === "project" ? " -l" : "";
+const scopeArgs = effectiveScope === "project" ? ["-l"] : [];
 
 // 1. Remove the kit package
 const kitSource = marker?.kitSource ?? process.cwd();
 console.log(`\n[uninstall] Removing kit (${kitSource})...`);
 try {
-  run(`pi remove "${kitSource}"${scopeFlag}`);
+  removeFromPi(kitSource);
 } catch (e) {
   console.warn(`[uninstall] WARN: pi remove failed: ${e.message}`);
 }
@@ -79,7 +81,7 @@ try {
 if (marker?.companions?.length > 0) {
   console.log(`\n[uninstall] Removing ${marker.companions.length} companion(s)...`);
   for (const src of marker.companions) {
-    try { run(`pi remove "${src}"${scopeFlag}`); }
+    try { removeFromPi(String(src)); }
     catch (e) { console.warn(`[uninstall] WARN: pi remove ${src} failed: ${e.message}`); }
   }
 }

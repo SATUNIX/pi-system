@@ -12,6 +12,19 @@ import type { LiveChild } from "./types.ts";
 
 const live = new Map<string, LiveChild>();
 
+// Read-only view for the status bar (globalThis so extensions stay self-contained): how many children
+// run right now and how many have finished, and failed, since this session started.
+const SUBAGENTS_KEY = Symbol.for("pi-kit.subagents");
+let finished = 0;
+let failures = 0;
+(globalThis as Record<symbol, unknown>)[SUBAGENTS_KEY] = { snapshot: () => ({ live: live.size, finished, failures }) };
+
+/** Count a settled child (called once per run, whatever its outcome). */
+export function noteFinished(failed: boolean): void {
+  finished++;
+  if (failed) failures++;
+}
+
 export function registerLive(child: LiveChild): void {
   live.set(child.id, child);
 }

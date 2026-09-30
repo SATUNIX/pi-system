@@ -70,7 +70,7 @@ npm run extract -- secret-guard
 
 This copies `packages/extensions/src/secret-guard/` into a standalone-ready package, sets `homeRepo`, and prints next steps:
 
-1. `git init` the new folder, push to an internal Gitea repo such as `gitops/pi-ext-secret-guard`
+1. `git init` the new folder, push it to a git repository such as `pi-ext-secret-guard`
 2. In `packages/core/sources.json`: add a reference entry, remove the in-repo folder
 3. Profiles need no change — they still list the name `secret-guard`; the resolver finds it via `sources.json`
 

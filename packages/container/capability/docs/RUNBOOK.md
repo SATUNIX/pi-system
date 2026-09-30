@@ -153,7 +153,7 @@ sh capability/tests/smoke.sh
 
 ## Rollback
 
-Rollback through Pi System GitOps state by reverting the desired Git revision or overlay. Do not patch files directly inside the running container.
+Roll back by redeploying the previous image tag or environment overlay. Do not patch files directly inside the running container.
 
 ## Operator Notes
 

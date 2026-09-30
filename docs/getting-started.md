@@ -1,78 +1,54 @@
-# Getting Started
+# Getting started
 
-pi-system is one package: install it once, then pick a **profile** to choose which of its
-extensions load. It is delivered from its git repository, `gitlab.home.internal/lab/pi-system`:
-releases are `vX.Y.Z` tags, and `next` follows `main`.
+pi-system is one pi package. You install it once, then a **profile** chooses which of its
+extensions load. It is delivered from its public git repository, `github.com/SATUNIX/pi-system`:
+releases are `vX.Y.Z` tags and the `next` channel follows `main`.
 
-## 1. Install pi
+This is a **beta** (`0.2.4-beta.0`). See [Beta status](beta.md) for what that means.
+
+## 1. Requirements
+
+- Node.js **22.19 or newer** (pi's own requirement) and npm
+- git
+- pi itself:
 
 ```sh
 npm install -g @earendil-works/pi-coding-agent
 ```
 
-## 2. Check git can reach the kit
+The kit supports pi **0.85.1 and newer**; the version it is tested against is pinned in
+`package.json` (currently 0.87.1). See [Supply chain](supply-chain.md#pi-versions).
 
-pi clones the kit with your own git credentials. This must list the repository's branches
-without asking for a password:
+## 2. Install the kit
 
 ```sh
-git ls-remote https://gitlab.home.internal/lab/pi-system.git
+pi install git:github.com/SATUNIX/pi-system@v0.2.4-beta.0
 ```
 
-If it prompts, set up a credential helper for `gitlab.home.internal`, or use SSH: add an SSH key
-to your GitLab account and export `PI_SYSTEM_GIT_SOURCE=git:git@gitlab.home.internal:lab/pi-system`
-before the next step. See [Installation](INSTALL.md#access-to-the-repository).
+pi clones the release into `~/.pi/agent/git/github.com/SATUNIX/pi-system` and runs
+`npm install --omit=dev` there, as it does for every git package. The kit has no runtime npm
+dependencies of its own, so this reads nothing beyond git.
 
-If it fails with `SSL certificate problem` or `self-signed certificate`, your machine does not
-trust the certificate authority the GitLab server uses yet. Get its CA certificate (a PEM file)
-from whoever runs the server and tell git to use it for this host only:
+To follow `main` instead of a release, leave the tag off:
+`pi install git:github.com/SATUNIX/pi-system`. Switching channels later is
+`/update channel latest|next|X.Y.Z`.
 
-```sh
-git config --global http.https://gitlab.home.internal.sslCAInfo ~/.config/git/ca-bundle-internal.pem
-```
+### Choosing the profile up front
 
-pi and `/update` run git with your git settings, so this covers them too.
-
-## 3. Install pi-system
-
-Clone the repository once and let its installer register the newest release with pi and apply
-a profile:
+The first interactive start applies the `balanced` profile and asks for `/reload`. To pick another
+profile before starting, or to script the install, use the installer from a clone:
 
 ```sh
-git clone https://gitlab.home.internal/lab/pi-system.git
+git clone https://github.com/SATUNIX/pi-system.git
 cd pi-system
-node packages/core/install.mjs --channel latest --profile balanced
+node packages/core/install.mjs --channel latest --profile lite
 ```
 
-pi keeps its own copy of the release (under `~/.pi/agent/git/`), so the clone is only needed
-for the installer. Delete it afterwards, or keep it to develop the kit.
+`--channel latest` needs at least one release tag; until the first tag exists the installer stops
+with a message saying so, and `--channel next` follows `main`. The installer keeps exactly one copy
+of the kit registered, so this replaces a `pi install` copy rather than adding a second one.
 
-To follow `main` instead of releases, use `--channel next`. To pin a release, use
-`--channel 0.2.1-beta.0`.
-
-If you already know the release tag, pi can install it directly. On the first start the kit
-applies the `balanced` profile and asks for a `/reload`:
-
-```sh
-pi install git:gitlab.home.internal/lab/pi-system@v0.2.1-beta.0
-```
-
-## 4. Choose a profile
-
-| Profile | Good for |
-|---|---|
-| `quick` | Basic safety, todo, checkpoints, memory, and status bar |
-| `balanced` | Daily coding with verification and context helpers (the default) |
-| `long-horizon` | Multi-hour work with task graph and branch lab |
-| `autonomous` | Long-running sessions after live validation |
-| `pentest` | Security engagements: strict firewall policy, pentest governance, the Conductor root orchestrator |
-| `self-improving` | Full research setup with Docker-backed memory |
-| `lite` | Small local models and low-context sessions |
-
-Switch at any time inside pi with `/profile` (a picker) or `/profile <name>`. The switch is
-applied in place and pi reloads; nothing is reinstalled. See [Profiles](profiles.md).
-
-## 5. Start pi
+## 3. Start pi
 
 ```sh
 pi
@@ -80,25 +56,50 @@ pi
 
 The first time pi starts in a folder it asks whether to trust it (pi's own prompt: trusting lets
 the project's `.pi/` settings and extensions load). If pi warns `No models available`, run
-`/login` to sign in to a model provider or add an API key; the kit works with any provider pi
-supports.
+`/login` to sign in to a provider or add an API key; the kit works with any provider pi supports.
 
-Use `/kit` for the command cheatsheet and `/footer status` to confirm the status bar is active.
+Then:
 
-## Staying up to date
+- `/kit` prints the command cheatsheet.
+- `/footer status` confirms the status bar is active and shows every detail it drops when narrow.
+- `/effort` shows how hard the agent is set to work ([Effort](effort.md)). The default is
+  E3 Standard.
+- `/profile` shows and switches the profile ([Profiles](profiles.md)).
 
-Once a day the kit checks in the background whether pi, pi-system or a linked package can be
-updated, and tells you. Run `/update` to apply updates. See [Updates](updates.md).
+## 4. Profiles at a glance
+
+| Profile | Good for |
+|---|---|
+| `quick` | Basic safety, todo, checkpoints and memory |
+| `balanced` | Daily coding with verification and context helpers (the default) |
+| `long-horizon` | Multi-hour work with task graph, branches and delegation |
+| `autonomous` | Long-running sessions and [unattended runs](autonomy.md) |
+| `pentest` | Authorised security engagements: strict firewall, scope and rules of engagement |
+| `self-improving` | Research setup with Docker-backed memory (experimental) |
+| `lite` | Small local models and short contexts |
+
+Switch inside pi with `/profile` (a picker) or `/profile <name>`. The switch is verified and rolled
+back if anything fails; nothing is reinstalled. The exact contents are in the generated
+[capability matrix](capability-matrix.md).
+
+## 5. Staying up to date
+
+Once a day the kit checks in the background whether pi, the kit or a linked package can be
+updated, and tells you. Run `/update` to apply updates. Every step is verified afterwards, and a
+failed step is reported as failed. See [Updates](updates.md).
 
 ## Working on the kit itself
 
-To develop pi-system, register a checkout in place instead: edits take effect on `/reload`.
+Register a checkout in place instead: edits take effect on `/reload`.
 
 ```sh
-git clone https://gitlab.home.internal/lab/pi-system.git && cd pi-system
+git clone https://github.com/SATUNIX/pi-system.git && cd pi-system
 npm ci --ignore-scripts
 node packages/core/install.mjs --profile balanced --yes
 ```
 
-The installer keeps exactly one copy of the kit registered, so registering a checkout replaces
-a release install and the other way round.
+`CLAUDE.md` and `CONTRIBUTING.md` (both in the repository root) describe the development workflow.
+
+## If something goes wrong
+
+See [Troubleshooting](troubleshooting.md).

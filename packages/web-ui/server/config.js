@@ -33,8 +33,14 @@ export const SKILLS_DIR = path.join(KIT_ROOT, "skills");
 export const SETTINGS_FILE = path.join(PI_HOME, "settings.json");
 export const MODELS_FILE = path.join(PI_HOME, "models.json");
 
-export const RUNTIME_DIR = path.join(APP_ROOT, ".runtime");
+// Scratch state (temp agent prompts, a generated token file). Overridable so an automated test
+// can run a server without touching the runtime directory of a console the developer has open.
+export const RUNTIME_DIR =
+	env.PI_CONSOLE_RUNTIME_DIR || path.join(APP_ROOT, ".runtime");
 export const PUBLIC_DIR = path.join(APP_ROOT, "public");
+// Where a server that generated its own access token leaves it (mode 0600) when stdout is
+// not a terminal. `/console` uses the same file name for the token it hands to the server.
+export const TOKEN_FILE = path.join(RUNTIME_DIR, "console.token");
 
 // The pi entrypoint: resolved from PATH (works for nvm and system installs alike).
 export const PI_BIN = env.PI_BIN || "pi";
@@ -43,5 +49,6 @@ export const HOST = env.PI_CONSOLE_HOST || "127.0.0.1";
 export const PORT = Number(env.PI_CONSOLE_PORT || "8123");
 
 export function ensureRuntimeDir() {
-	fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+	// Owner-only: the directory can hold the access token file and the server log.
+	fs.mkdirSync(RUNTIME_DIR, { recursive: true, mode: 0o700 });
 }

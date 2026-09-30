@@ -1,21 +1,27 @@
-# Loaded automatically by the baseline secret_scan job (gitleaks reads
-# .gitleaks.toml from the scan root). The default rules stay on; this only
-# allowlists known synthetic values, matched on the line, never whole files.
+# Loaded automatically by the `gitleaks` job in .github/workflows/security.yml (gitleaks reads
+# .gitleaks.toml from the scan root). The default rules stay on; this only allowlists known
+# synthetic values, matched on the line, never whole files.
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Synthetic test fixtures and lab-only placeholder tokens"
+description = "Synthetic test fixtures and placeholder tokens"
 regexTarget = "line"
 regexes = [
-  # pi-system/tests/save-smoke.mjs: fake tokens that the redaction test must scrub.
+  # tests/save-smoke.mjs: fake tokens that the redaction test must scrub.
   '''glpat-ABCDEFGHIJKLMNOPQRST and AKIAABCDEFGHIJKLMNOP''',
-  # Eval evidence against the throwaway lab target: placeholder bearer tokens.
+  # packages/core/eval/live/target.mjs: placeholder bearer tokens for the throwaway eval target.
   '''Bearer lab-[a-z]+''',
-  '''curl -s -i http://lab:8080/''',
   # tests/firewall-gate-smoke.mjs, tests/tool-capture-smoke.mjs: fake bearer tokens the
   # firewall/capture redaction must handle.
   '''Authorization: Bearer abcdefghijklmnop(1234)?''',
+  # packages/web-ui/scripts/ui-smoke.mjs: obvious counting-sequence tokens for the console's
+  # client tests; they authenticate nothing.
+  '''const TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef"''',
+  '''const TOKEN = "fedcba9876543210fedcba9876543210fedcba9876543210"''',
+  # tests/autonomy-contract-smoke.mjs: credential-shaped placeholders the contract validator must
+  # refuse (the AWS documentation-style key and an alphabet-sequence GitLab token).
+  '''"glpat-abcdefghij0123456789", "ghp_0123456789abcdefghij0123456789abcd", "AKIAABCDEFGHIJKLMNOP"''',
   # tests/secret-guard-smoke.mjs: a stub key body ("abc") the secret guard must block.
   '''BEGIN OPENSSH PRIVATE KEY-----\\nabc\\n-----END''',
 ]

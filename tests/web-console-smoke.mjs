@@ -40,6 +40,19 @@ function health(port, timeoutMs = 500) {
   });
 }
 
+// Status code of a console API request, optionally with a bearer token.
+function apiStatus(port, pathname, token) {
+  return new Promise((resolve, reject) => {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    http
+      .get({ host: "127.0.0.1", port, path: pathname, headers, timeout: 2000 }, (res) => {
+        res.resume();
+        res.on("end", () => resolve({ status: res.statusCode }));
+      })
+      .on("error", reject);
+  });
+}
+
 async function waitHealthy(port) {
   for (let i = 0; i < 60; i++) {
     if (await health(port)) return true;
@@ -101,20 +114,111 @@ async function run() {
     assert.match(startMessage, /web UI started/);
     assert.ok(await waitHealthy(port), "a fresh server must start despite the stale pid file");
 
-    // Status reports running.
+    // Access token: /console start prints the tokenised login URL, the server enforces it,
+    // and the token is never in the server log (it travels by an owner-only file).
+    const tokenMatch = /http:\/\/127\.0\.0\.1:\d+\/#token=([0-9a-f]{64})\b/.exec(startMessage);
+    assert.ok(tokenMatch, `start must print the login URL with a 256-bit token: ${startMessage}`);
+    assert.ok(startMessage.includes(`http://127.0.0.1:${port}/#token=`));
+    const token = tokenMatch[1];
+    const tokenPath = path.join(webUiRoot, ".runtime", "console.token");
+    const logPath = path.join(webUiRoot, ".runtime", "server.log");
+    assert.equal((await apiStatus(port, "/api/sessions")).status, 401, "the console must refuse requests without the token");
+    assert.equal((await apiStatus(port, "/api/sessions", token)).status, 200, "the printed token must work");
+    assert.equal(fs.readFileSync(tokenPath, "utf8").trim(), token, "the token file holds the printed token");
+    if (process.platform !== "win32") assert.equal(fs.statSync(tokenPath).mode & 0o777, 0o600, "token file must be owner-only");
+    assert.ok(!fs.readFileSync(logPath, "utf8").includes(token), "the token must not be written to the server log");
+
+    // Status reports running, and does not print the token unless asked.
     await consoleCmd.handler("status", ctx);
     assert.match(notifications.at(-1).message, /running/);
+    assert.ok(!notifications.at(-1).message.includes(token), "/console status must not print the token");
+    assert.match(notifications.at(-1).message, /hidden/);
+    await consoleCmd.handler("status --show-token", ctx);
+    assert.ok(notifications.at(-1).message.includes(`#token=${token}`), "--show-token prints the login URL");
 
-    // Start again is idempotent.
+    // Start again is idempotent and offers the same working link.
     await consoleCmd.handler("start", ctx);
     assert.match(notifications.at(-1).message, /already running/);
+    assert.ok(notifications.at(-1).message.includes(`#token=${token}`));
 
-    // Stop and confirm the port is dead.
+    // Stop and confirm the port is dead and the token file is gone.
     await consoleCmd.handler("stop", ctx);
     stopped = true;
     assert.match(notifications.at(-1).message, /stopped the web UI/);
     for (let i = 0; i < 40 && (await health(port)); i++) await wait(50);
     assert.equal(await health(port), false, "server must be stopped after /console stop");
+    assert.equal(fs.existsSync(tokenPath), false, "stop must remove the token file");
+
+    // An operator-supplied token is used as given and no token file is written.
+    {
+      const supplied = "a1b2c3d4".repeat(8);
+      const undo = setEnv("PI_CONSOLE_TOKEN", supplied);
+      try {
+        await consoleCmd.handler("start", ctx);
+        assert.ok(notifications.at(-1).message.includes(`#token=${supplied}`), "supplied token is used in the login URL");
+        assert.ok(await waitHealthy(port));
+        assert.equal((await apiStatus(port, "/api/sessions", supplied)).status, 200);
+        assert.equal(fs.existsSync(tokenPath), false, "no token file for an operator-supplied token");
+      } finally {
+        await consoleCmd.handler("stop", ctx);
+        undo();
+      }
+      for (let i = 0; i < 40 && (await health(port)); i++) await wait(50);
+      assert.equal(await health(port), false);
+    }
+
+    // Explicit PI_CONSOLE_AUTH=off: loud warning, no token in the URL, no token file.
+    {
+      const undo = setEnv("PI_CONSOLE_AUTH", "off");
+      try {
+        await consoleCmd.handler("start", ctx);
+        const message = notifications.at(-1).message;
+        assert.match(message, /AUTHENTICATION IS OFF/);
+        assert.doesNotMatch(message, /#token=/);
+        assert.ok(await waitHealthy(port));
+        assert.equal((await apiStatus(port, "/api/sessions")).status, 200);
+        assert.equal(fs.existsSync(tokenPath), false);
+        await consoleCmd.handler("status", ctx);
+        assert.match(notifications.at(-1).message, /auth: OFF/);
+      } finally {
+        await consoleCmd.handler("stop", ctx);
+        undo();
+      }
+      for (let i = 0; i < 40 && (await health(port)); i++) await wait(50);
+      assert.equal(await health(port), false);
+    }
+
+    // An unreadable operator token file is refused by the server, not silently replaced.
+    {
+      const undo = setEnv("PI_CONSOLE_TOKEN_FILE", path.join(ws, "no-such-token-file"));
+      try {
+        await consoleCmd.handler("start", ctx);
+        const { message, level } = notifications.at(-1);
+        assert.equal(level, "error");
+        assert.match(message, /PI_CONSOLE_TOKEN_FILE/);
+        assert.equal(fs.existsSync(tokenPath), false, "no substitute token file may be written");
+      } finally {
+        undo();
+      }
+    }
+
+    // A refused configuration is reported promptly with the reason, and leaves no token behind.
+    {
+      const undo = setEnv("PI_CONSOLE_HOST", "0.0.0.0");
+      try {
+        const started = Date.now();
+        await consoleCmd.handler("start", ctx);
+        const { message, level } = notifications.at(-1);
+        assert.equal(level, "error");
+        assert.match(message, /exited while starting/);
+        assert.match(message, /PI_CONSOLE_ALLOW_REMOTE/, "the refusal reason is shown");
+        assert.ok(Date.now() - started < 5000, "must not wait out the readiness timeout for a server that already exited");
+        assert.equal(fs.existsSync(tokenPath), false, "a refused start must not leave a token file");
+        assert.doesNotMatch(message, /#token=/);
+      } finally {
+        undo();
+      }
+    }
 
     // stop-safety (B-090): a stale pid file pointing at an unrelated live process must
     // not be SIGTERMed while no console is answering the health endpoint.

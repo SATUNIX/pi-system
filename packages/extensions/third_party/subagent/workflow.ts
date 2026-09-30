@@ -357,6 +357,9 @@ export interface ExecuteOptions {
   onProgress?: (text: string) => void;
   spawnChild?: SpawnChild;
   concurrency?: number;
+  // "user" when the person typed the command (bounded by platform ceilings only); the model-callable
+  // tool uses the default, "discretionary" (bounded by the effort tier).
+  launchKind?: "discretionary" | "user";
 }
 
 function projectSlug(cwd: string): string {
@@ -461,6 +464,7 @@ async function runStep(step: StepDef, state: RunState, runDir: string, loop: num
     parentModel: opts.parentModel,
     spawnChild: opts.spawnChild,
     overrides,
+    launchKind: opts.launchKind,
     onUpdate: (t) => opts.onProgress?.(`${state.workflow} · ${step.id} · ${t}`),
   });
   if (result.runId) st.runIds.push(result.runId);

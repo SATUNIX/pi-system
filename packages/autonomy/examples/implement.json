@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "run": "todo-api-1",
+  "template": "implement",
+  "objective": {
+    "title": "Todo API",
+    "specFile": "implement/spec.md",
+    "backlog": [
+      { "id": "T1", "title": "Health endpoint", "detail": "GET /health returns 200 and {\"ok\":true}.", "acceptance": ["unit"] },
+      { "id": "T2", "title": "Create and list todos", "acceptance": ["unit", "acceptance"] },
+      { "id": "T3", "title": "Document how to run it in README.md" }
+    ]
+  },
+  "inputs": { "repository": null },
+  "acceptance": {
+    "checks": [
+      { "id": "unit", "run": ["node", "--test", "tests/"], "timeoutMinutes": 10, "required": true, "description": "the worker's own tests must pass" },
+      { "id": "acceptance", "run": ["node", "--test", "tests/acceptance/"], "timeoutMinutes": 10, "required": true, "description": "held-out tests the supervisor copies over the clone; the worker never sees them" }
+    ],
+    "overlay": [{ "source": "implement/acceptance/api.acceptance.mjs", "target": "tests/acceptance/api.acceptance.test.mjs" }],
+    "review": true
+  },
+  "permissions": {
+    "writeAreas": ["src/**", "tests/**", "README.md", "package.json"],
+    "network": { "egress": [] },
+    "unattended": { "authorised": true, "autoApprove": true }
+  },
+  "model": { "provider": "openrouter", "worker": "deepseek/deepseek-v4.1-flash" },
+  "effort": "E3",
+  "budget": { "totalUsd": 10, "perStepUsd": 2, "maxSteps": 30, "maxMinutes": 240 },
+  "recovery": { "softNudges": 2, "hardRestarts": 1, "maxAttemptsPerStep": 8 },
+  "promotion": { "policy": "none" }
+}

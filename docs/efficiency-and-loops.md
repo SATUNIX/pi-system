@@ -16,10 +16,10 @@ stalls.
   search, so navigating a repo costs far fewer calls than full-file reads.
 - **`caveman`** keeps the agent's own output terse.
 
-These need no model action — they just make each call cheaper. The full-kit profiles also
-ship **`pi-lean-ctx`** (compresses bash/read/grep output), but it requires the external
-`lean-ctx` CLI (leanctx.com) on PATH — it is **not** in the lite surface, which relies on
-`pi-readseek` instead.
+These need no model action — they just make each call cheaper. **`pi-lean-ctx`** (which
+compresses bash/read/grep output) is opt-in and in no profile: it needs the external `lean-ctx`
+CLI and adds shell and edit tools the firewall does not classify as shell (see
+[Supply chain](supply-chain.md)). The `lite` surface relies on `pi-readseek` instead.
 
 ### 2. Facts: `trace-ledger`
 Records every tool call/result to `.pi/trace.jsonl` (tool, target, args hash, ok/error),
@@ -43,7 +43,7 @@ since the last edit** — and helps break out:
   system prompt) that tells the model to reflect and, if looping, delegate the stuck step to
   a fresh sub-agent that returns only the answer.
 
-**Auto mode is now automatic on unattended runs (0.6.0):** arming `autonomous-loop`
+**Auto mode is automatic on unattended runs:** arming `autonomous-loop`
 (`/loop <goal>`) writes `.pi/autonomous-loop.armed.json`, and `progress-guard` flips to
 `auto` when that marker is present — no `PI_KIT_GUARD_MODE=auto` needed. `/boost on|off`
 still overrides per session.
@@ -60,7 +60,7 @@ causes + a primary/backup plan + a delegated fix). Non-destructive; bounded to
 `PI_KIT_RECOVERY_MAX_ATTEMPTS` (default 2) per signature before escalating to the operator.
 Manual trigger: `/recover`. Ships in `long-horizon`/`autonomous`/`self-improving`.
 
-## Threshold calibration (0.6.0)
+## Threshold calibration
 
 The detection thresholds are first-principles defaults, validated against **scripted
 fixtures** in the eval harness (`packages/core/eval/fixtures.mjs`) rather than mined from live sessions
@@ -71,12 +71,12 @@ them. The reasoning:
 |---|---|---|---|
 | Repeat | `PI_KIT_GUARD_REPEAT` | 3 | 1–2 identical actions are normal (retry after a fix); the 3rd identical action with no progress is the earliest point a loop is unambiguous without false-firing on legitimate retries. |
 | Oscillation | `PI_KIT_GUARD_OSC` | 3 | A→B→A (length 3, exactly 2 distinct alternating actions) is the shortest run that distinguishes a genuine ping-pong loop from normal interleaving. Shorter would fire on ordinary A→B→C work. |
-| Read stall | `PI_KIT_GUARD_STALL` | 6 | Six reads with no edit is well past "orient then act"; small models that thrash typically exceed this. Lower risks nagging during legitimate investigation. |
+| Read stall | `PI_KIT_GUARD_STALL` | 10 | Ten reads with no edit is well past "orient then act"; a model that thrashes typically exceeds this. Lower risks nagging during legitimate investigation. It is ignored entirely in a session with no write-capable tool active. |
 | Escalate | `PI_KIT_GUARD_ESCALATE` | 2 | Nudge twice; if the same signature still recurs, assistance isn't working — hand off to the deep recovery pass rather than nudging indefinitely. |
 | Recovery cap | `PI_KIT_RECOVERY_MAX_ATTEMPTS` | 2 | Two deep root-cause passes per signature; past that, escalate to the operator instead of spawning further. |
 
-Re-tune by exporting the env vars above; a future pass can fit them to a real
-`.pi/trace.jsonl` corpus once one is available.
+Re-tune by exporting the env vars above; they have not been fitted to a corpus of real
+sessions.
 
 ## Quick reference
 

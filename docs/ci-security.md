@@ -1,65 +1,71 @@
-# CI Security
+# CI security
 
-What the pipelines check on every change, and where. The repository lives on the private
-GitLab, so **`.gitlab-ci.yml` is the pipeline that runs**. The GitHub Actions workflows in
-`.github/workflows/` hold the same checks for when the repository is also on GitHub (they are
-dormant on GitLab); their npm release workflow is paused. Releasing is described in
-[Releasing](releasing.md).
+What the pipelines check on every change, and where. They are GitHub Actions workflows in
+`.github/workflows/`. Releasing is described in [Releasing](releasing.md).
 
-## GitLab pipeline (`.gitlab-ci.yml`)
+## Workflows
 
-| Job | Stage | Runs on | What it does |
-|---|---|---|---|
-| `checks` | test | every pipeline | `npm run check:all`: verify, eval, every smoke test (including delivery, update and package checks), profile checks |
-| `gitleaks` | security | every pipeline | Secret scan of the full git history. Blocking |
-| `semgrep` | security | every pipeline | SAST, fails on ERROR-severity findings. Blocking |
-| `dependencies` | security | every pipeline | Lockfile integrity, `npm audit signatures`, `npm audit --audit-level=high`. Blocking |
-| SAST / Secret Detection | test | every pipeline | GitLab's own analyzers (templates); reports for the Security dashboard, not blockers |
-| `docs` | docs | every pipeline | Strict MkDocs build |
-| `release-preflight` | release | every pipeline except tags | The release path without writing: GitLab CA, fetch of `main`, notes for the current version, read access to the Releases API |
-| `gitlab-release` | release | `vX.Y.Z` tags only | Tag matches `package.json` and is on `main`; notes from CHANGELOG; creates the GitLab Release (`packages/core/gitlab-release.mjs`) |
+| Workflow | Runs on | What it does |
+|---|---|---|
+| `ci.yml` | push to `main`, pull requests, and as a reusable gate | `check:all` (verify, eval, every smoke and security suite, profile checks, the packed-tarball check and the clean install), lockfile integrity, the strict docs build, every profile on Linux and Windows, and the pi-compat matrix (floor must pass; the newest release looked at is advisory) |
+| `security.yml` | push to `main`, pull requests, weekly, and as a reusable gate | CodeQL, Semgrep, gitleaks, dependency checks, OSV-Scanner, dependency review (pull requests), zizmor |
+| `scorecard.yml` | push to `main`, weekly | OpenSSF Scorecard supply-chain rating |
+| `release.yml` | manual (`workflow_dispatch`) only | Dry-run plan by default; creates a GitHub Release, and optionally publishes to npm, only when an operator unticks `dry-run` from a `v*` tag. See [Releasing](releasing.md) |
+| `dependabot.yml` | weekly | Grouped updates for actions and npm with a 7-day cooldown; pi minor releases and TypeScript majors are left to hand review |
 
-## GitHub workflows (dormant while the repository is GitLab-only)
-
-| Workflow | What it does |
-|---|---|
-| `ci.yml` | `check:all`, lockfile integrity, strict docs build, every profile on Linux and Windows, pi floor/ceiling compatibility |
-| `security.yml` | CodeQL, Semgrep, gitleaks, dependency checks, OSV-Scanner, dependency review, zizmor |
-| `scorecard.yml` | OpenSSF Scorecard supply-chain rating |
-| `dependabot.yml` | Grouped updates for actions and npm, with a 7-day cooldown |
-| `release.yml` | **Paused** npm publishing with provenance (manual dry runs only); see [Releasing](releasing.md#switching-to-npm-delivery) |
+`check:all` is the single definition of "the checks": it enumerates every `smoke:*` and `test:*`
+script in `package.json`, plus `verify`, `eval`, `docs:check`, `docs:mermaid` and a `profile:check`
+run per profile. It also fails on a test file that no script runs or that asserts nothing
+(`smoke:wiring`), so a green run cannot hide a suite that is not running.
 
 ## Checks
 
-The checks, wherever they run:
-
 | Area | Tool | Blocks on | Config |
 |---|---|---|---|
-| SAST | CodeQL, `security-extended` queries, JS/TS and Actions (GitHub only) | Code-scanning alerts (branch protection) | `security.yml` |
+| SAST | CodeQL, `security-extended` queries, JavaScript/TypeScript and Actions | Code-scanning alerts (branch protection) | `security.yml` |
 | SAST | Semgrep: `p/javascript`, `p/typescript`, `p/nodejs`, `p/secrets`, `p/owasp-top-ten` | ERROR severity | `.semgrepignore` |
-| Secrets | gitleaks over the full git history | Any finding | `.gitleaks.toml` (line-level allowlist for synthetic test fixtures only) |
-| Secrets | GitLab Secret Detection / GitHub secret scanning and push protection | Reports (GitLab); a push containing a secret (GitHub) | templates / repository settings |
-| Dependencies | `npm audit` | High or critical | triage in [Supply Chain](supply-chain.md) |
+| Secrets | gitleaks over the full git history | Any finding | `.gitleaks.toml` (a line-level allowlist for synthetic test fixtures only) |
+| Secrets | GitHub secret scanning and push protection | A push containing a secret | repository settings |
+| Dependencies | `npm audit` | High or critical | triage in [Supply chain](supply-chain.md) |
 | Dependencies | `npm audit signatures` | A dependency with a missing or invalid registry signature or attestation | |
-| Dependencies | OSV-Scanner (GitHub only) | Known vulnerabilities (OSV database) | |
-| Dependencies | Dependency review (GitHub PRs only) | A new dependency with a high-severity advisory or a non-allowlisted license | `security.yml` |
+| Dependencies | OSV-Scanner | Known vulnerabilities (OSV database) | |
+| Dependencies | Dependency review (pull requests) | A new dependency with a high-severity advisory | `security.yml` |
 | Lockfile | `packages/core/lockfile-check.mjs` | A package resolved from anywhere but the npm registry, a missing sha512 hash, or an unreviewed install script | allowlist in the script |
-| Workflows | zizmor (GitHub workflows) | Template injection, over-broad permissions, credential persistence, cache poisoning, unpinned actions | |
+| Workflows | zizmor | Template injection, over-broad permissions, credential persistence, cache poisoning, unpinned actions | |
 | Package | `packages/core/pack-check.mjs` | A missing required file, a leaked private file, an oversize tarball, a profile that does not resolve from the tarball | |
+| Install | `tests/clean-install-smoke.mjs` | The packed tarball failing to install for a profile, or the real pi failing to load it | |
+| Release | `tests/release-workflow-smoke.mjs` | A release workflow that could publish or create a release on a dry run | |
 
-## Hardening in the GitHub workflows
+## Hardening in the workflows
 
 - Every action is pinned to a full commit SHA (with the version in a comment); Dependabot bumps
   them.
-- The default token is read-only (`permissions: contents: read`); jobs that need more ask for it
-  per job. Only the publish job gets `id-token: write` (npm trusted publishing) and
-  `contents: write` (to create the GitHub Release).
+- The default token is read-only (`permissions: contents: read`); a job that needs more asks for it
+  itself. Only the release jobs get `contents: write` (to create a GitHub Release) or
+  `id-token: write` (npm trusted publishing), and only behind the explicit `dry-run == false` guard.
 - `actions/checkout` never persists credentials.
 - `npm ci --ignore-scripts` everywhere: no dependency lifecycle script runs in CI.
-- The publish job has no dependency cache, runs in the protected `npm` environment, and only
-  publishes a tag whose commit is on `main` and matches `package.json`.
+- The release jobs use no dependency cache, run in the protected `npm` environment where they
+  publish, and only act on a tag whose commit is on `main` and matches `package.json`.
 - Scanner binaries are either pinned container images or downloads verified against a pinned
   SHA-256.
+
+## Repository settings the workflows depend on
+
+Workflows cannot switch these on, and nothing in this repository changes them; someone with
+administrator rights sets them once (Settings, Code security).
+
+| Setting | Needed by | Without it |
+|---|---|---|
+| **Dependency graph** | `dependency-review` (pull requests) | The job fails at once with "Dependency review is not supported on this repository" |
+| **Code scanning** (SARIF upload) | CodeQL, Semgrep, OSV-Scanner, zizmor and Scorecard results | The upload step fails, or the results have nowhere to go |
+| **Secret scanning and push protection** | the "GitHub secret scanning" row above | A pushed secret is not blocked at the push |
+| **Private vulnerability reporting** | `SECURITY.md`, which asks reporters to use it | Reporters have no private channel |
+| **Branch protection on `main`** with the checks above as required | the whole gate | A red check does not stop a merge |
+| **The `npm` environment and npm trusted publisher** | the optional npm publish in `release.yml` | The publish job cannot run (by design, nothing else is affected) |
+
+`scorecard.yml` publishes its result to the OpenSSF Scorecard service (`publish_results: true`) on
+pushes to `main` and weekly. Set that to `false`, or remove the workflow, if that is not wanted.
 
 ## Running the checks locally
 
@@ -71,6 +77,41 @@ gitleaks git --redact .                          # https://github.com/gitleaks/g
 semgrep scan --config p/javascript --config p/typescript --config p/nodejs --config p/secrets --config p/owasp-top-ten
 zizmor .github/workflows                          # pipx install zizmor
 ```
+
+## What CodeQL and zizmor leave out
+
+Both read a config file, so the exclusions are reviewed with the code and stay narrow.
+
+**CodeQL** (`.github/codeql/codeql-config.yml`, read by the `init` step of the `codeql` job):
+
+- *Paths ignored*: the test suites (`tests/`, `packages/*/tests/`, `packages/*/scripts/`, `packages/core/eval/`), the built
+  `site/` and `node_modules/`. The tests do on purpose what the queries look for (fake upstreams that write what they receive,
+  a probe that turns certificate checks off to test a TLS tunnel, temp files, synthetic credentials), and none of it is in the
+  package or the git install's runtime path. Everything that ships stays in scope.
+- *Queries switched off*, each with one known site and a reason in the file:
+  `js/insufficient-password-hash` (a SHA-256 of an environment variable's name, and a fingerprint of a random provider key that
+  an in-container probe compares against; neither is a stored password),
+  `js/file-access-to-http` (the web console's authenticated probe sends the console's own token to the console's own address) and
+  `js/http-to-file-access` (the web console's agent editor writes the agent file its authenticated user asked for, under a
+  validated name inside the agents directory). Switching a query off hides a new instance of it too, so revisit these when
+  either site changes.
+
+**zizmor** (`.github/zizmor.yml` and one inline comment):
+
+- `adhoc-packages` on the `pi-compat` install step in `ci.yml`: installing a pi version outside the lockfile is what that job is
+  for. The version is a literal from the job's matrix and reaches the command through an environment variable.
+- `self-repository` on the release workflow's `uses: ./.github/workflows/ci.yml`: the `./` form is the one GitHub documents for a
+  reusable workflow in the same repository.
+
+No test pins these exclusions: the `codeql` and `zizmor` jobs apply them, and a change to either file shows in the diff.
+
+## Not run in CI
+
+The container-boundary probe for autonomous runs (`packages/autonomy/tests/boundary-probe.mjs`)
+and the container capability scripts under `packages/container/capability/tests/` need a
+container engine and are run by the operator. `check:all` lists them as manual-only, with the
+reason, in `packages/core/lib/wiring.mjs`. Windows is exercised by the per-profile install check
+only; the full suite runs on Linux.
 
 ## Adding an allowlist entry
 

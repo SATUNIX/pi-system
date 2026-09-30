@@ -7,23 +7,30 @@
  * IMPORTANT: this script NEVER pushes. Pushing is a deliberate, separate manual step after
  * the tag is reviewed (`git push origin main --follow-tags`). There is no --push flag. The
  * pushed `v*` tag is the release: installs on the `latest` channel see it through /update, and
- * the GitLab pipeline re-runs the gate and creates the GitLab Release (see docs/releasing.md).
+ * the GitHub Actions release workflow re-runs the gate (see docs/releasing.md).
  *
  * Usage:
  *   node packages/core/release.mjs <version> [--dry-run]
- *   node packages/core/release.mjs 0.2.1-beta.1
- *   node packages/core/release.mjs 0.2.1
+ *   node packages/core/release.mjs 0.2.4-beta.1
+ *   node packages/core/release.mjs 0.2.4
+ *   node packages/core/release.mjs <version> --bump-only   # sync version fields + lockfile only:
+ *                                                          # no gates, no commit, no tag
+ *
+ * --bump-only is for preparing a release branch: it needs the CHANGELOG section but not a clean
+ * tree, and it creates no commit and no tag. The operator later runs the full command, which
+ * (finding every version field already at <version> and no earlier tag) only gates and tags.
  */
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { WORKSPACE_ROOT, PROFILES_DIR, PACKAGES_DIR } from "./lib/paths.mjs";
+import { WORKSPACE_ROOT, PACKAGES_DIR } from "./lib/paths.mjs";
 import { SEMVER, compareSemver } from "./lib/semver.mjs";
 import { setReadmeBadgeVersion } from "./lib/version-badge.mjs";
 
 const ROOT = WORKSPACE_ROOT;
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
+const bumpOnly = args.includes("--bump-only");
 const version = args.find((a) => SEMVER.test(a));
 
 function fail(msg) {
@@ -52,6 +59,8 @@ function gitLines(command) {
   }
 }
 
+// A fixed command line is a string. Anything that carries the version or a path goes through git() as an argv array to a
+// literal `git`, never through a shell.
 function run(cmd, opts = {}) {
   console.log(`[release] > ${cmd}`);
   if (!dryRun || opts.always) {
@@ -63,6 +72,19 @@ function run(cmd, opts = {}) {
   }
 }
 
+function git(args) {
+  const shown = `git ${args.map((a) => (/^[\w@:/.+=,-]+$/.test(a) ? a : JSON.stringify(a))).join(" ")}`;
+  console.log(`[release] > ${shown}`);
+  if (dryRun) return;
+  try {
+    execFileSync("git", args, { cwd: ROOT, stdio: "inherit" });
+  } catch (error) {
+    fail(`command failed: ${shown} (${error instanceof Error ? error.message : String(error)})`);
+  }
+}
+
+const escapeRegExp = (text) => text.replace(/[\\^$.*+?()[\]{}|/-]/g, "\\$&");
+
 if (!version) fail("missing <version> (expected X.Y.Z or X.Y.Z-pre.N)");
 if (/(^|[.-])next\./.test(version)) fail("snapshot (next) versions are published from main by CI, not released");
 
@@ -70,7 +92,7 @@ if (/(^|[.-])next\./.test(version)) fail("snapshot (next) versions are published
 const changelogPath = path.join(ROOT, "CHANGELOG.md");
 if (!fs.existsSync(changelogPath)) fail("CHANGELOG.md missing");
 const changelog = fs.readFileSync(changelogPath, "utf8");
-if (!new RegExp(`^##\\s*\\[${version.replace(/\./g, "\\.")}\\]`, "m").test(changelog)) {
+if (!new RegExp(`^##\\s*\\[${escapeRegExp(version)}\\]`, "m").test(changelog)) {
   fail(`CHANGELOG.md has no "## [${version}]" section — document the release first`);
 }
 
@@ -78,7 +100,7 @@ if (!new RegExp(`^##\\s*\\[${version.replace(/\./g, "\\.")}\\]`, "m").test(chang
 // were excluded unconditionally, so arbitrary pre-existing dirty content in either would
 // be silently swept into the release commit alongside the version bump this script makes
 // itself). Everything, including package.json, must be clean before we touch anything.
-const status = gitLines("git status --porcelain");
+const status = bumpOnly ? [] : gitLines("git status --porcelain");
 if (status.length > 0) {
   fail(`working tree not clean — commit or stash first:\n${status.join("\n")}`);
 }
@@ -106,7 +128,7 @@ const workspaceManifests = fs
   .readdirSync(PACKAGES_DIR)
   .map((dir) => path.join(PACKAGES_DIR, dir, "package.json"))
   .filter((file) => fs.existsSync(file));
-if (!dryRun && !firstRelease) {
+if (!dryRun && (!firstRelease || bumpOnly)) {
   pkg.version = version;
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   for (const file of workspaceManifests) {
@@ -118,29 +140,28 @@ if (!dryRun && !firstRelease) {
   fs.writeFileSync(readmePath, setReadmeBadgeVersion(fs.readFileSync(readmePath, "utf8"), version));
   run("npm install --package-lock-only --ignore-scripts");
 }
+if (bumpOnly) {
+  console.log(`\n[release] --bump-only: version fields, README badge and lockfile now say ${version}${dryRun ? " (dry-run: nothing written)" : ""}. No gates were run, nothing was committed or tagged.`);
+  process.exit(0);
+}
 
-// 6. Full gate. `npm ci` first, so a lockfile that can't reproduce a clean install
-// blocks the release rather than shipping one (F-05's exact failure mode). Includes the
-// full per-profile + lite capstone matrix (H-08 fix: previously omitted entirely from
-// the release gate despite being the plan's own capstone acceptance criterion) and a
-// real, strict MkDocs build (H-08 fix: previously only the lighter custom link-checker
-// ran, which does not catch every broken-link class a real `mkdocs build --strict` does
-// - see docs/getting-started.md for the `requirements-docs.txt` prerequisite).
-run("npm ci --dry-run --ignore-scripts", { always: true });
-run("node packages/core/verify.mjs", { always: true });
-run("npm run test:security", { always: true });
-run("npm run eval", { always: true });
-run("npm run smoke:docs", { always: true });
-run("node packages/core/lockfile-check.mjs", { always: true });
-for (const file of fs.readdirSync(PROFILES_DIR)) {
-  if (!file.endsWith(".json")) continue;
-  run(`node packages/core/profile-check.mjs --profile ${file.replace(/\.json$/, "")}`, { always: true });
-}
+// 6. Full gate. MkDocs is part of it and is the one tool that is not an npm dependency, so find out now, not after
+// the whole suite, that it is missing (`run` exits on failure, so a check after it could never report this).
+// `npm ci` next, so a lockfile that can't reproduce a clean install blocks the release rather than shipping one
+// (F-05's exact failure mode). Then `npm run check:all`: the repository's single definition of "all the checks"
+// (what CI runs): the manifest, profile and catalogue checks, every smoke and security suite, the per-profile
+// install checks, the clean-install test on the packed tarball, the test-wiring check and the Mermaid check.
+// Then the checks that are not npm scripts of that kind: the lockfile check and a real, strict MkDocs build
+// (the lighter link checker does not catch every class of broken link; requirements-docs.txt is the prerequisite).
 try {
-  run("python -m mkdocs build --strict", { always: true });
+  execSync("python -m mkdocs --version", { cwd: ROOT, stdio: "ignore" });
 } catch {
-  fail("MkDocs build failed or MkDocs is not installed — run: python -m pip install --user -r requirements-docs.txt");
+  fail("MkDocs is not installed — the docs build is part of the release gate. Run: python -m pip install --user -r requirements-docs.txt");
 }
+run("npm ci --dry-run --ignore-scripts", { always: true });
+run("npm run check:all", { always: true });
+run("node packages/core/lockfile-check.mjs", { always: true });
+run("python -m mkdocs build --strict", { always: true });
 
 // 7. The one published package packs cleanly and works from its unpacked copy.
 run("node packages/core/pack-check.mjs", { always: true });
@@ -148,13 +169,13 @@ run("node packages/core/pack-check.mjs", { always: true });
 // 8. One reviewable commit + annotated tag. NO push.
 if (!firstRelease) {
   const manifests = ["package.json", "package-lock.json", ...workspaceManifests.map((f) => path.relative(ROOT, f))];
-  run(`git add ${manifests.join(" ")}`);
-  run("git add README.md"); // its version badge moves with the version
-  run(`git commit -m "chore(release): ${version}"`);
+  git(["add", ...manifests]);
+  git(["add", "README.md"]); // its version badge moves with the version
+  git(["commit", "-m", `chore(release): ${version}`]);
 }
-run(`git tag -a v${version} -m "Release ${version}"`);
+git(["tag", "-a", `v${version}`, "-m", `Release ${version}`]);
 
 console.log(`\n[release] Done: ${firstRelease ? "" : "committed + "}tagged v${version} (local only).`);
 console.log(`[release] NOT pushed. To publish after review: git push origin main --follow-tags`);
-console.log(`[release] Pushing the v${version} tag releases it: the GitLab pipeline re-runs the gate and creates the GitLab Release.`);
+console.log(`[release] Pushing the v${version} tag makes it the \`latest\` release for git installs; the GitHub release workflow (manual) re-runs the gate before any npm publish.`);
 if (dryRun) console.log("[release] (dry-run: validation gates ran for real; no files changed, no commit/tag created)");

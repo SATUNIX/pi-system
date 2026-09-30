@@ -1,6 +1,6 @@
 {
   "name": "@satunix/pi-system",
-  "version": "0.2.1-beta.0",
+  "version": "0.2.4-beta.0",
   "description": "Safety-first kit for the pi coding agent: tool firewall, secret guard, checkpoints, verification, memory, orchestration, skills and themes. One package; pick a profile with /profile.",
   "type": "module",
   "keywords": [
@@ -12,16 +12,16 @@
   ],
   "license": "MIT",
   "author": "SATUNIX",
-  "homepage": "https://gitlab.home.internal/lab/pi-system",
+  "homepage": "https://github.com/SATUNIX/pi-system#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://gitlab.home.internal/lab/pi-system.git"
+    "url": "git+https://github.com/SATUNIX/pi-system.git"
   },
   "bugs": {
-    "url": "https://gitlab.home.internal/lab/pi-system/-/issues"
+    "url": "https://github.com/SATUNIX/pi-system/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "publishConfig": {
     "access": "public"
@@ -74,21 +74,28 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.76.0",
+    "@earendil-works/pi-coding-agent": ">=0.85.1",
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1",
-    "@earendil-works/pi-ai": "0.85.1",
-    "typescript": "^5.4.0",
-    "ajv": "^8.12.0"
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "ajv": "^8.12.0",
+    "jsdom": "30.1.1",
+    "mermaid": "11.17.2",
+    "typescript": "^5.4.0"
   },
   "scripts": {
     "verify": "node packages/core/verify.mjs",
     "check:all": "node packages/core/check-all.mjs",
-    "test:security": "node tests/tool-firewall-smoke.mjs && node tests/firewall-shell-smoke.mjs && node tests/firewall-gate-smoke.mjs && node tests/secret-guard-smoke.mjs",
+    "test:security": "node tests/tool-firewall-smoke.mjs && node tests/firewall-shell-smoke.mjs && node tests/firewall-gate-smoke.mjs && node tests/secret-guard-smoke.mjs && node tests/firewall-preauth-smoke.mjs && node tests/firewall-noeffect-smoke.mjs && node tests/firewall-approvals-smoke.mjs && node tests/firewall-outcomes-smoke.mjs && node tests/firewall-unattended-smoke.mjs && node tests/protections-registry-smoke.mjs && node tests/delegation-guard-smoke.mjs && node tests/web-ui-security-smoke.mjs && node tests/web-ui-bind-policy-smoke.mjs && node tests/web-ui-rpc-smoke.mjs",
     "smoke:firewall-shell": "node tests/firewall-shell-smoke.mjs",
     "smoke:firewall-gate": "node tests/firewall-gate-smoke.mjs",
+    "smoke:protections-registry": "node tests/protections-registry-smoke.mjs",
+    "smoke:firewall-approvals": "node tests/firewall-approvals-smoke.mjs",
+    "smoke:firewall-outcomes": "node tests/firewall-outcomes-smoke.mjs",
+    "smoke:firewall-noeffect": "node tests/firewall-noeffect-smoke.mjs",
+    "smoke:firewall-unattended": "node tests/firewall-unattended-smoke.mjs",
     "smoke:firewall-preauth": "node tests/firewall-preauth-smoke.mjs",
     "firewall:replay": "node packages/core/firewall-replay.mjs",
     "eval": "node packages/core/eval/run.mjs",
@@ -104,7 +111,17 @@
     "smoke:extract-extension": "node tests/extract-extension-smoke.mjs",
     "smoke:caveman": "node tests/caveman-smoke.mjs",
     "smoke:autonomy": "node tests/autonomy-smoke.mjs",
+    "smoke:autonomy-contract": "node tests/autonomy-contract-smoke.mjs",
+    "smoke:autonomy-lifecycle": "node tests/autonomy-lifecycle-smoke.mjs",
+    "smoke:autonomy-boundary": "node tests/autonomy-boundary-smoke.mjs",
+    "smoke:autonomy-egress": "node tests/autonomy-egress-smoke.mjs",
+    "smoke:autonomy-run": "node tests/autonomy-run-smoke.mjs",
+    "smoke:autonomy-selfimprove": "node tests/autonomy-selfimprove-smoke.mjs",
+    "smoke:autonomy-cli": "node tests/autonomy-cli-smoke.mjs",
+    "smoke:autonomy-container": "node tests/autonomy-container-smoke.mjs",
+    "smoke:autonomy-command": "node tests/autonomy-command-smoke.mjs",
     "smoke:compaction-continuity": "node tests/compaction-continuity-smoke.mjs",
+    "smoke:compaction-state": "node tests/compaction-state-smoke.mjs",
     "smoke:completion-review": "node tests/completion-review-smoke.mjs",
     "smoke:compress": "node tests/compress-smoke.mjs",
     "smoke:conductor": "node tests/conductor-engagement-smoke.mjs",
@@ -116,6 +133,8 @@
     "smoke:ctx-contributions": "node tests/ctx-contributions-smoke.mjs",
     "smoke:docs": "node tests/docs-smoke.mjs",
     "smoke:dual-review": "node tests/dual-review-smoke.mjs",
+    "smoke:delegation-guard": "node tests/delegation-guard-smoke.mjs",
+    "smoke:effort": "node tests/effort-smoke.mjs",
     "smoke:env-isolation": "node tests/env-isolation-smoke.mjs",
     "smoke:epic1": "node tests/epic1-smoke.mjs",
     "smoke:epic2": "node tests/epic2-smoke.mjs",
@@ -139,13 +158,17 @@
     "smoke:observability-contracts": "node tests/observability-contracts-smoke.mjs",
     "smoke:orchestrate-commands": "node tests/orchestrate-commands-smoke.mjs",
     "smoke:package": "node packages/core/pack-check.mjs",
+    "smoke:clean-install": "node tests/clean-install-smoke.mjs",
+    "smoke:container-static": "node tests/container-static-smoke.mjs",
     "smoke:progress-guard": "node tests/progress-guard-agsix-smoke.mjs",
     "smoke:profile": "node tests/profile-command-smoke.mjs",
+    "smoke:profile-transaction": "node tests/profile-transaction-smoke.mjs",
+    "smoke:profile-safety": "node tests/profile-safety-smoke.mjs",
     "smoke:publish-plan": "node tests/publish-plan-smoke.mjs",
     "smoke:protected-paths": "node tests/protected-paths-smoke.mjs",
     "smoke:recovery-grounding": "node tests/recovery-grounding-smoke.mjs",
-    "smoke:role-runner": "node tests/role-runner-smoke.mjs",
     "smoke:release-lockfile": "node tests/release-lockfile-smoke.mjs",
+    "smoke:release-workflow": "node tests/release-workflow-smoke.mjs",
     "smoke:save": "node tests/save-smoke.mjs",
     "smoke:secret-guard": "node tests/secret-guard-smoke.mjs",
     "smoke:self-improvement": "node tests/self-improvement-smoke.mjs",
@@ -167,7 +190,7 @@
     "smoke:tool-capture": "node tests/tool-capture-smoke.mjs",
     "smoke:kit-update": "node tests/kit-update-smoke.mjs",
     "smoke:distribution": "node tests/distribution-smoke.mjs",
-    "smoke:gitlab-release": "node tests/gitlab-release-smoke.mjs",
+    "smoke:pi-cli": "node tests/pi-cli-smoke.mjs",
     "smoke:trigger-compact-threshold": "node tests/trigger-compact-threshold-smoke.mjs",
     "smoke:verification-lifecycle": "node tests/verification-lifecycle-smoke.mjs",
     "smoke:verifier-board-trust": "node tests/verifier-board-trust-smoke.mjs",
@@ -176,13 +199,20 @@
     "smoke:workflow": "node tests/workflow-smoke.mjs",
     "smoke:workspace-root": "node tests/workspace-root-smoke.mjs",
     "smoke:core-manifest-guard": "node tests/core-manifest-guard-smoke.mjs",
+    "smoke:wiring": "node tests/wiring-smoke.mjs",
+    "smoke:mermaid-check": "node tests/mermaid-check-smoke.mjs",
     "smoke:web-console": "node tests/web-console-smoke.mjs",
+    "smoke:web-console-open": "node tests/web-console-open-smoke.mjs",
     "smoke:web-ui-server": "node tests/web-ui-server-smoke.mjs",
     "smoke:web-ui-static": "node tests/web-ui-static-smoke.mjs",
     "smoke:web-ui-api": "node tests/web-ui-api-smoke.mjs",
     "smoke:web-ui-install": "node tests/web-ui-install-smoke.mjs",
     "smoke:web-ui-spawn": "node tests/web-ui-spawn-smoke.mjs",
     "smoke:web-ui-spawn-late-meta": "node tests/web-ui-spawn-late-meta-smoke.mjs",
+    "smoke:web-ui-security": "node tests/web-ui-security-smoke.mjs",
+    "smoke:web-ui-bind-policy": "node tests/web-ui-bind-policy-smoke.mjs",
+    "smoke:web-ui-rpc": "node tests/web-ui-rpc-smoke.mjs",
+    "smoke:web-ui-client": "node packages/web-ui/scripts/ui-smoke.mjs",
     "smoke:memory-mcp": "node packages/container/mcp-servers/memory-mcp/smoke.js",
     "smoke:memory-mcp-ledger": "node tests/memory-mcp-ledger-smoke.mjs",
     "install:web": "node packages/web-ui/install.mjs",
@@ -190,6 +220,7 @@
     "docs:build": "python -m mkdocs build",
     "catalog": "node packages/core/registry.mjs --write-docs && node packages/core/skills-catalogue.mjs && node packages/core/capability-matrix.mjs",
     "docs:check": "node packages/core/docs-nav-check.mjs",
+    "docs:mermaid": "node packages/core/check-mermaid.mjs",
     "profile:check": "node packages/core/profile-check.mjs",
     "new": "node packages/core/new-extension.mjs",
     "extract": "node packages/core/extract-extension.mjs",

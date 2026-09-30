@@ -1,13 +1,10 @@
 # Paths Semgrep does not scan (security.yml and local runs honour this file).
-# Documentation and historical review records: prose, not shipped code.
+# Documentation: prose, not shipped code.
 docs/
-reviews/
 # Test fixtures deliberately contain fake credentials and attack strings.
 tests/
 # The gitleaks allowlist necessarily contains the fake credentials it allows.
 .gitleaks.toml
-# GitLab analyzer reports (CI artifacts): they quote what they found in the fixtures above.
-gl-*-report.json
 # Local runtime state and build output.
 .pi/
 node_modules/

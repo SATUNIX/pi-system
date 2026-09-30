@@ -32,17 +32,27 @@ export default function (pi: ExtensionAPI, spawnChild: typeof spawn = spawn, run
     });
   }
 
-  function launchReviewer(diff: string, cwd: string, signal?: AbortSignal): void {
-    if (signal?.aborted) return;
+  // The reviewer reads the repository (and, given a prompt injection in the diff, could read anything the parent can),
+  // so it runs under the parent's boundary like every other child: delegation-guard supplies the mandatory protections
+  // (firewall, secret-guard, protected-paths), the child checks that they loaded and exits 78 otherwise, and the launch
+  // is charged to the effort ledger. A launch the guard refuses, or a session without the guard, starts nothing.
+  // `kind` is "user" for /review (the operator asked) and "discretionary" for the model-callable tool.
+  function launchReviewer(diff: string, cwd: string, kind: "user" | "discretionary", signal?: AbortSignal): { ok: true } | { ok: false; reason: string } {
+    if (signal?.aborted) return { ok: true };
+    const guard = (globalThis as Record<symbol, unknown>)[Symbol.for("pi-kit.delegation")] as { prepareChild(request: Record<string, unknown>): { ok: true; args: string[]; env: Record<string, string | undefined>; slot: { attach(pid: number | undefined): void; settle(outcome: string): void } } | { ok: false; reason: string } } | undefined;
+    if (!guard) return { ok: false, reason: "the delegation-guard extension is not loaded, so the reviewer cannot be given the mandatory protections" };
+    const prepared = guard.prepareChild({ cwd, kind, role: "reviewer", readOnly: true, baseEnv: { ...process.env } });
+    if (!prepared.ok) return { ok: false, reason: prepared.reason };
     const reviewEpoch = epoch;
     const prompt = `You are a code reviewer. Review the following diff for correctness, security, and style. Be concise.\n\n${diff.slice(0, 8000)}`;
     const args = DUAL_REVIEW_MODEL
       ? ["--print", prompt, "--no-session", "--model", DUAL_REVIEW_MODEL]
       : ["--print", prompt, "--no-session"];
     const cli = fileURLToPath(new URL("./cli.js", import.meta.resolve("@earendil-works/pi-coding-agent")));
-    // The reviewer is a plain read-only model call: no kit/package extensions (formatters,
-    // steering, memory) belong in it.
-    const child = spawnChild(process.execPath, piChildArgv(cli, ["--no-extensions", "--tools", "read,grep,find,ls", ...args]), { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PI_KIT_INTERNAL_CHILD: "1" } });
+    // A plain read-only model call: the guard's arguments load only the governance extensions (no formatters,
+    // steering or memory), and the tools are the read-only four.
+    const child = spawnChild(process.execPath, piChildArgv(cli, [...prepared.args, "--tools", "read,grep,find,ls", ...args]), { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...prepared.env, PI_KIT_INTERNAL_CHILD: "1" } });
+    prepared.slot.attach(child.pid);
     let out = "";
     let exited = false;
     let cancelled = false;
@@ -64,6 +74,7 @@ export default function (pi: ExtensionAPI, spawnChild: typeof spawn = spawn, run
     child.stdout?.on("data", collect);
     child.stderr?.on("data", collect);
     const cleanup = () => {
+      if (!exited) prepared.slot.settle(cancelled ? "cancelled" : "closed");
       exited = true;
       clearTimeout(timer);
       if (escalation) clearTimeout(escalation);
@@ -88,6 +99,7 @@ export default function (pi: ExtensionAPI, spawnChild: typeof spawn = spawn, run
       cleanup();
       report(`## Code Review (${code === 0 ? "completed" : "failed"})\n\n${out.trim() || "(no output)"}`);
     });
+    return { ok: true };
   }
 
   function getGitDiff(args: string, cwd: string): Promise<string> {
@@ -119,8 +131,12 @@ export default function (pi: ExtensionAPI, spawnChild: typeof spawn = spawn, run
         ctx.ui.notify("dual-review: no diff to review.", "info");
         return;
       }
+      const started = launchReviewer(diff, ctx.cwd, "user");
+      if (!started.ok) {
+        ctx.ui.notify(`dual-review: reviewer not started: ${started.reason}`, "error");
+        return;
+      }
       ctx.ui.notify("dual-review: reviewer launched. Result will follow.", "info");
-      launchReviewer(diff, ctx.cwd);
     },
   });
 
@@ -132,9 +148,9 @@ export default function (pi: ExtensionAPI, spawnChild: typeof spawn = spawn, run
       content: Type.String({ description: "Diff or code to review" }),
     }),
     async execute(_id, params, signal, _onUpdate, ctx) {
-      launchReviewer(params.content, ctx.cwd, signal);
+      const started = launchReviewer(params.content, ctx.cwd, "discretionary", signal);
       return {
-        content: [{ type: "text" as const, text: "Review running… result will be displayed without starting another turn." }],
+        content: [{ type: "text" as const, text: started.ok ? "Review running… result will be displayed without starting another turn." : `Review not started: ${started.reason}` }],
         details: undefined,
       };
     },

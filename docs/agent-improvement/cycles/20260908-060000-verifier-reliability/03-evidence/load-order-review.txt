@@ -1,4 +1,0 @@
-Independent offline review: prior PASS, successful edit, failing project verification.
-Reversed extension order is a validated-but-deferred risk, not a default-profile regression.
-{"order":["orchestrator","verify-gate"],"finalPass":false,"diagnostics":0}
-{"order":["verify-gate","orchestrator"],"finalPass":false,"diagnostics":1}

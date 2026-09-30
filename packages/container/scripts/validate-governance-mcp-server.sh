@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-SERVER_DIR=".pi/mcp-servers/governance"
+SERVER_DIR="mcp-servers/governance"
 
 [ -f "$SERVER_DIR/package.json" ] || {
   echo "Missing governance MCP package.json" >&2

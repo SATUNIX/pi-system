@@ -25,12 +25,22 @@ export function readDistribution(file = DISTRIBUTION_PATH, env = process.env) {
   }
   const delivery = (env.PI_KIT_DELIVERY || config.delivery || "git").trim();
   if (!["git", "npm"].includes(delivery)) throw new Error(`unknown kit delivery "${delivery}" (expected git or npm)`);
+  const legacySources = Array.isArray(config.git?.legacySources)
+    ? config.git.legacySources.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim().toLowerCase())
+    : [];
+  // PI_SYSTEM_GIT_SOURCE used to be the documented way to reach the private remote over SSH. An
+  // override that still names a retired source is ignored (and reported), so a stale variable
+  // in a shell profile can never reconnect an install to the private remote.
+  const envSource = (env.PI_SYSTEM_GIT_SOURCE || "").trim();
+  const envIsLegacy = envSource !== "" && isLegacyGitSource(envSource, legacySources);
   return {
     delivery,
     git: {
-      source: (env.PI_SYSTEM_GIT_SOURCE || config.git?.source || "").trim(),
+      source: ((envIsLegacy ? "" : envSource) || config.git?.source || "").trim(),
       branch: config.git?.branch || "main",
       tagPrefix: config.git?.tagPrefix ?? "v",
+      legacySources,
+      ignoredEnvSource: envIsLegacy ? envSource : null,
     },
     npm: {
       package: config.npm?.package || "@satunix/pi-system",
@@ -82,6 +92,12 @@ export function parseGitSource(source) {
   const ref = at < 0 ? null : rest.slice(at + 1) || null;
   if (!host || repoPath.split("/").length < 2) return null;
   return { repo: rebuild(repoPath), ref, key: `${host.toLowerCase()}/${repoPath.toLowerCase()}` };
+}
+
+/** True when `source` (any ref, any URL form) is one of the retired private sources in `legacySources` (host/path keys). */
+export function isLegacyGitSource(source, legacySources = []) {
+  const key = parseGitSource(source)?.key;
+  return Boolean(key && legacySources.some((legacy) => legacy.toLowerCase() === key));
 }
 
 /** The settings source for a git ref: `null` (next) is the unpinned repository, otherwise `<repo>@<ref>`. */

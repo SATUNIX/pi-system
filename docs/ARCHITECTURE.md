@@ -32,26 +32,28 @@ Profiles (`packages/kit/profiles/*.json`) are lists of extension names, plus opt
 
 ## Distribution
 
-`packages/core/distribution.json` sets how the kit reaches users. Today it is **git**: pi installs the repository from the private GitLab, `latest` is the newest `vX.Y.Z` tag and `next` is `main`. **npm** (dist-tags of `@satunix/pi-system`, published from GitHub Actions with trusted publishing and provenance) is built but paused. The installer, `/profile` and the `kit-update` extension (`/update`) all read the setting. See `docs/releasing.md` and `docs/updates.md`.
+`packages/core/distribution.json` sets how the kit reaches users. Today it is **git**: pi installs the repository from the public GitHub repository, `latest` is the newest `vX.Y.Z` tag and `next` is `main`. **npm** (dist-tags of `@satunix/pi-system`, published from GitHub Actions with trusted publishing and provenance) is built and tested but not enabled; the package is not published. The installer, `/profile` and the `kit-update` extension (`/update`) all read the setting. See `docs/releasing.md` and `docs/updates.md`.
 
 ## Toolchain
 
 `packages/core/` is the toolchain only — never imported at extension runtime:
 - `install.mjs` — installs the kit + profile, from a checkout or as a release (git or npm; also the package's `npx` entry point)
 - `lib/distribution.mjs` — reads `distribution.json`; git sources, release tags and channels
-- `release.mjs` / `release-notes.mjs` / `gitlab-release.mjs` — cut a release; its notes; the GitLab Release (via the Releases API)
+- `release.mjs` / `release-notes.mjs` — cut a release commit and tag (never pushes); write its notes (the GitHub Release itself is created by `.github/workflows/release.yml`)
 - `pack-check.mjs` — checks the npm tarball; `publish-plan.mjs` / `snapshot-version.mjs` pick the npm version and dist-tag; `lockfile-check.mjs` checks lockfile integrity
 - `verify.mjs` — the static gate: schema + tsc + self-containment + collision + profile/manifest
   drift + stub quarantine + firewall policy + security parity + catalogue/matrix drift + docs
   nav. **Every check has a worked failure example in `WRITING_EXTENSIONS.md`.**
 - `registry.mjs` / `skills-catalogue.mjs` / `capability-matrix.mjs` — generate the catalogues
-- `docs-nav-check.mjs` — offline `mkdocs build --strict` stand-in
+- `docs-nav-check.mjs` — offline `mkdocs build --strict` stand-in; `check-mermaid.mjs` — parses every Mermaid diagram
+- `check-all.mjs` — runs every check the repository defines, and fails on a test file no script runs (`lib/wiring.mjs`)
+- `lib/effort.mjs` — the effort policy loader shared by the toolchain and the autonomy runner
 - `eval/` — the offline behavioural fixture harness (`npm run eval`)
-- `dream.mjs` — offline dream-mode pass (allowlisted internal state only)
+- `dream.mjs` — offline dream-mode pass (allowlisted internal state only; it does not write `AGENTS.md`)
 - `new-extension.mjs` / `extract-extension.mjs` — scaffolding helpers
 - `lib/` — shared toolchain utilities
 
 Static checks (`verify`) + behavioural checks (`eval`, `test:security`) + docs checks
 (`smoke:docs`, `docs:check`) together form the release gate. See `WRITING_EXTENSIONS.md` for the
-full check list and `docs/roadmap.md` for the current plan. `PI_KIT_REPO_PLAN.md` is the
-(superseded) original design rationale.
+full check list and `docs/roadmap.md` for the current plan. [Concepts](concepts.md) defines the
+tiers, layers and design rules the extensions follow.

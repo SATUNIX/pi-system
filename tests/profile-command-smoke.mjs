@@ -68,6 +68,48 @@ function makeAgentDir(currentProfile, extra = {}) {
   return dir;
 }
 
+// A stand-in for install.mjs --settings-only. /profile no longer trusts an exit code (pi.exec
+// reports a signal-killed child as code 0) - it verifies the files the installer left behind - so a
+// fake installer that "succeeds" must leave a consistent marker, settings entry and firewall
+// config, exactly as the real one does. Reads the requested profile from the kit under test.
+function simulateInstall(args, options) {
+  const flag = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
+  const profile = flag("--profile");
+  const scope = flag("--scope", "global");
+  const agent = process.env.PI_CODING_AGENT_DIR;
+  const root = process.env.PI_KIT_ROOT;
+  const project = options.cwd;
+  // Never let a simulated install write outside a throwaway directory (a test without ctx.cwd would hit the repo).
+  assert.ok(path.resolve(scope === "project" ? project : agent).startsWith(os.tmpdir()), `simulated install would write outside the temp dir: ${scope === "project" ? project : agent}`);
+  const settingsPath = scope === "project" ? path.join(project, ".pi", "settings.json") : path.join(agent, "settings.json");
+  const markerPath = scope === "project" ? path.join(project, ".pi", ".pi-kit.json") : path.join(agent, ".pi-kit.json");
+  const profilesDir = fs.existsSync(path.join(root, "packages", "kit", "profiles")) ? path.join(root, "packages", "kit", "profiles") : path.join(root, "profiles");
+  const def = JSON.parse(fs.readFileSync(path.join(profilesDir, `${profile}.json`), "utf8"));
+  const include = def.include ?? [];
+  const patterns = [];
+  for (const name of include) {
+    for (const avenue of ["src", "third_party"]) {
+      if (fs.existsSync(path.join(root, "packages", "extensions", avenue, name, "index.ts"))) patterns.push(`packages/extensions/${avenue}/${name}/index.ts`);
+    }
+  }
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  let settings = {};
+  try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch { /* new file */ }
+  const packages = Array.isArray(settings.packages) ? settings.packages : [];
+  const isKit = (p) => { const s = typeof p === "string" ? p : p?.source; return typeof s === "string" && (s === root || /pi-system/.test(s)); };
+  const at = packages.findIndex(isKit);
+  const entry = { source: at >= 0 ? (typeof packages[at] === "string" ? packages[at] : packages[at].source) : root, extensions: patterns };
+  if (at >= 0) packages[at] = entry; else packages.push(entry);
+  settings.packages = packages;
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+  fs.writeFileSync(markerPath, JSON.stringify({ kitSource: root, profile, scope, mode: "local", extensions: include, installedAt: new Date().toISOString() }, null, 2));
+  const firewallPath = path.join(agent, "pi-kit", "firewall.json");
+  fs.mkdirSync(path.dirname(firewallPath), { recursive: true });
+  fs.writeFileSync(firewallPath, JSON.stringify({ mode: def.firewall?.mode ?? "manual", policy: def.firewall?.policy ?? "coding", source: "profile" }, null, 2));
+  return "[install] Done.\n";
+}
+
 // Wires the real command into a fake pi, and captures every pi.exec invocation.
 function loadCommand() {
   const pi = fakePi();
@@ -75,7 +117,9 @@ function loadCommand() {
   const calls = [];
   pi.api.exec = async (command, args, options) => {
     calls.push({ command, args, options });
-    return { stdout: "", stderr: "", code: pi.execCode ?? 0 };
+    const code = pi.execCode ?? 0;
+    const stdout = code === 0 && pi.simulate !== false ? simulateInstall(args, options) : "";
+    return { stdout, stderr: "", code };
   };
   return { pi, calls, handler: pi.commands.get("profile").handler };
 }
@@ -124,14 +168,14 @@ const tests = {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-profile-git-"));
     const settings = path.join(dir, "settings.json");
     try {
-      fs.writeFileSync(settings, JSON.stringify({ packages: [{ source: "git:gitlab.home.internal/lab/pi-system@v0.2.1-beta.0", extensions: ["packages/extensions/third_party/todo/index.ts"] }] }));
+      fs.writeFileSync(settings, JSON.stringify({ packages: [{ source: "git:github.com/SATUNIX/pi-system@v0.2.1-beta.0", extensions: ["packages/extensions/third_party/todo/index.ts"] }] }));
       assert.deepEqual(loadedKitExtensions(settings, root), ["todo"]);
       assert.equal(unfilteredKitEntry(settings), false);
-      for (const bare of ["git:gitlab.home.internal/lab/pi-system", "git:git@gitlab.home.internal:lab/pi-system@v0.2.1-beta.0"]) {
+      for (const bare of ["git:github.com/SATUNIX/pi-system", "git:git@github.com:SATUNIX/pi-system@v0.2.1-beta.0"]) {
         fs.writeFileSync(settings, JSON.stringify({ packages: [bare] }));
         assert.equal(unfilteredKitEntry(settings), true, bare);
       }
-      fs.writeFileSync(settings, JSON.stringify({ packages: ["git:gitlab.home.internal/root/other-tool"] }));
+      fs.writeFileSync(settings, JSON.stringify({ packages: ["git:github.com/example/other-tool"] }));
       assert.equal(unfilteredKitEntry(settings), false, "other git packages are not the kit");
     } finally {
       rmWorkspace(root);
@@ -141,6 +185,7 @@ const tests = {
 
   "a bare npm install gets the default profile applied on the first interactive session": async () => {
     const root = makeMonorepoRoot();
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "@satunix/pi-system", version: "0.2.1-beta.0" }));
     const agent = makeAgentDir("balanced");
     fs.writeFileSync(path.join(agent, "settings.json"), JSON.stringify({ packages: ["npm:@satunix/pi-system"] }));
     const restoreRoot = setEnv("PI_KIT_ROOT", root);
@@ -173,6 +218,7 @@ const tests = {
 
   "a project-scoped auto-profile runs the installer in the project": async () => {
     const root = makeMonorepoRoot();
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "@satunix/pi-system", version: "0.2.1-beta.0" }));
     const agent = makeAgentDir("balanced");
     const project = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-profile-project-auto-"));
     fs.mkdirSync(path.join(project, ".pi"), { recursive: true });
@@ -434,7 +480,8 @@ const tests = {
       assert.equal(ctx.reloaded, 0, "a failed install must not reload");
       const last = ctx.notes.at(-1);
       assert.equal(last.level, "error");
-      assert.match(last.message, /install failed \(exit 1\)/);
+      assert.match(last.message, /FAILED at install: installer exited 1/);
+      assert.match(last.message, /Nothing was changed/);
     } finally {
       restoreRoot();
       restoreAgent();
@@ -529,6 +576,7 @@ const tests = {
     try {
       const { handler, calls } = loadCommand();
       const ctx = fakeCtx({ hasUI: true });
+      ctx.cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-profile-scope-cwd-"));
       await handler("self-improving", ctx);
       assert.deepEqual(calls[0].args.slice(1), [
         "--profile",

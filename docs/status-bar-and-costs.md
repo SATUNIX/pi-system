@@ -1,98 +1,86 @@
-# Status Bar and Costs
+# Status bar and costs
 
-The GitOps status bar is implemented by the `custom-footer` extension. The extension id stays `custom-footer` for compatibility.
+The status bar is implemented by the `custom-footer` extension (the id is kept for
+compatibility). It replaces pi's built-in footer while loaded, and is one renderer with three
+layouts.
 
-## Status Bar Settings
-
-The current three-line bar remains the `default` preset. The selection is stored in
-`<agent dir>/pi-kit/ui.json`, so it survives reloads and new sessions.
+## Layouts
 
 ```text
-/footer config             open the status-bar selector
-/footer default            current three-line layout
-/footer light              one compact line
-/footer heavy              expanded four-line layout
-/footer off                restore Pi's built-in footer
+/footer light      one compact line
+/footer default    two lines: identity and context (the default)
+/footer heavy      adds session totals, cost provenance and every status chip
+/footer config     open the layout selector
+/footer off        restore pi's built-in footer (accounting continues)
+/footer on         show the bar again
+/footer status     everything the bar drops when it is narrow, in plain text
+/footer reload     re-read pricing without restarting pi
+/footer ascii on|off      plain characters instead of symbols (automatic for ISO, ANSI and TTY themes)
+/footer todos on|off      the todo checklist above the editor
+/tips on|off              the usage tip under the working line
 ```
 
-`/footer` by itself still toggles the selected preset on and off. `/footer status`
-reports the active preset and `/footer todos on|off` continues to control the todo widget.
+The layout is stored in `<agent dir>/pi-kit/ui.json` and survives reloads and new sessions.
+`/footer` on its own toggles the bar on and off. Any other argument is rejected with the usage
+line and changes nothing.
 
-## What It Shows
+The layouts differ in what they show, not just in line count:
 
-The status bar has three colored lines. It replaces pi's built-in footer while
-loaded.
+```text
+light     ● project │ ctx 70% │ on main                                       model
+default   ● project │ on main │ /path/to/project                 provider │ model
+          ctx ████████░░░░ 70% 18k free                                 status chips
+heavy     (default, then)
+          session ↑1.0k ↓500 ⟲200 │ cost ?                          pricing costs.json
+          extension status chips
+```
 
-Line 1 (location and model):
+## What it shows
 
-- project folder and short path
-- git branch
-- session name, if set
-- provider and model id
-- thinking level, if the model reasons
+- **Identity**: project, model, and the **effort tier** (`E3 Standard`; `→ E4` while a change waits
+  for your next message).
+- **Boundary and health warnings**, which are never dropped to make room for telemetry:
+  unattended mode (shown from what the firewall *enforces*, never from what the environment
+  claims: a requested-but-not-enforced setting is shown as a misconfiguration), compaction off or
+  degraded, failed or blocked children, and the firewall mode.
+- **Active work**: running children, todo progress, running checks.
+- **Context**: a bar, the percentage and tokens free. Unknown context is shown as `?`, never as 0%.
+- **Orientation**: git branch, thinking level, profile.
+- **Telemetry** (heavy): session tokens (`↑` input, `↓` output, `⟲` cache reads) and cost.
+- **Detail**: path, provider, session name.
 
-Line 2 (context and tokens):
+Cost carries its provenance: **measured** (the provider or catalogue reported it), **estimated**
+(computed from your configured prices), or **unknown** (`?`: no price is configured and none was
+reported). An unknown cost is unknown, not zero. Usage a partial turn did not report is flagged
+`partial`.
 
-- a context usage bar, the percent, and used/window tokens
-- session totals: input, output, cache reads, estimated cost
-- a live run block during a turn: elapsed time and run tokens
+When the terminal is narrow the least important segment goes first (path and provider, then
+tokens, then branch and thinking); long segments shorten before anything is dropped. Widths are
+measured in terminal columns (wide characters, emoji and escape sequences handled). A render error
+falls back to one plain line. `/footer status` prints every detail the bar dropped and works
+without a terminal UI (it writes to standard error).
 
-Line 3 (status):
-
-- todo progress (done/total)
-- one chip per extension status (for example the trace-ledger loss count)
-
-Colors follow the theme. The context bar turns amber above 70% and red above
-90%. Narrow terminals drop the least important parts to fit. A render error
-falls back to one plain line.
+The bar reads the state other extensions publish (effort, unattended, compaction, running
+children) from small read-only registries; it never runs a subprocess or reads a file per
+render.
 
 ## The working line
 
-While the agent runs, the working line shows the current activity, the elapsed
-time, and the run tokens, for example:
+While the agent runs, the working line shows the current activity, the elapsed time and the run
+tokens, for example:
 
 ```text
 Reading server.ts… (1m 04s · ↑12k ↓~850)
 ```
 
-The activity follows the running tool, the stream type (thinking, writing, a
-tool call), or a rotating phrase. Output tokens marked `~` are an estimate until
-the turn records real usage. This shows progress even when thinking is hidden.
+The activity follows the running tool, the stream type (thinking, writing, a tool call), or a
+rotating phrase. Output tokens marked `~` are an estimate until the turn records real usage.
 
-## Tips
+## Tips and the todo checklist
 
-A one-line usage tip appears under the working line during a run. It rotates and
-lists only commands that are loaded.
-
-```text
-/tips        toggle tips
-/tips off    hide tips
-```
-
-## Todo checklist
-
-The status bar shows a checklist above the editor from `TODO.md`, with progress
-and each item's state (done, in progress, open). The `todo` tool keeps the file.
-
-```text
-/footer todos        toggle the checklist
-/footer todos off    hide the checklist
-```
-
-## Commands
-
-```text
-/footer
-/footer status
-/footer reload
-/footer todos on|off
-/tips on|off
-```
-
-`/footer` toggles the status bar. `/footer off` restores pi's built-in footer.
-`/footer status` prints the pricing source and current totals. `/footer reload`
-reloads pricing without restarting Pi. Settings persist in
-`<agent dir>/pi-kit/ui.json`.
+A one-line usage tip appears under the working line during a run. It rotates and lists only
+commands that are loaded. The checklist above the editor is read from `TODO.md` (kept by the
+`todo` tool) and shows progress and each item's state.
 
 ## Pricing Files
 
@@ -119,7 +107,10 @@ Example:
 }
 ```
 
-Prices are dollars per million tokens. Missing values default to `0`, which is the expected default for local models.
+Prices are dollars per million tokens. **A price you leave out is unknown, not zero**: the cost is
+shown as *estimated* only when every token category the session has used has a price. Otherwise
+it falls back to the cost the provider reported (*measured*, when that is above zero), and
+otherwise shows `?`. For a local model that costs nothing, set the prices to `0` explicitly.
 
 ## Environment Overrides
 
@@ -140,7 +131,7 @@ PI_KIT_COST_CACHE_READ_PER_MTOK
 PI_KIT_COST_CACHE_WRITE_PER_MTOK
 ```
 
-Malformed pricing files produce a warning and keep the previous/default pricing.
+A malformed pricing file produces a warning and keeps the previous pricing.
 
 ## Themes
 
@@ -181,3 +172,10 @@ pi list
 ```sh
 pi list
 ```
+
+### Theme credits
+
+The `catppuccin-mocha`, `dracula`, `gruvbox-dark`, `monokai`, `nord-dark`, `rosepine` and
+`tokyo-night` themes use the colour palettes of the projects of those names, re-expressed as pi
+theme files; the palettes belong to their respective authors. The `marathon` and `code-marathon*`
+themes use this project's own palette.

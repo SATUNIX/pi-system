@@ -15,7 +15,7 @@ export type SessionState = {
   untrusted: boolean;
   recent: Recent[];
   deletes: number[];
-  judgeCache: Record<string, { verdict: "allow" | "block"; reason: string; differs?: string; turn: string }>;
+  judgeCache: Record<string, { verdict: "allow" | "block"; reason: string; differs?: string; confidence?: "high" | "medium" | "low"; turn: string }>;
   stats: { actions: number; human: number; judged: number; judgeBlocks: number; learnedHits: number; grantHits: number; denied: number };
   updated: number;
 };
@@ -164,11 +164,11 @@ export function recordAction(s: SessionState, a: Assessment, tier: Tier, outcome
   s.deletes = s.deletes.filter((t) => now - t < DELETE_WINDOW_MS);
 }
 
-// Session grants belong to the operator's root session and are shared with every agent it
+// Session approvals belong to the operator's root session and are shared with every agent it
 // spawns: a root exports PI_KIT_FIREWALL_ROOT_SESSION, kit children (PI_KIT_INTERNAL_CHILD=1)
 // inherit it, and "allow for this session" given on a subagent's request (via the human
 // console) informs its siblings and the parent too. Any other process is its own root and follows its
-// current session, so a /new never keeps the previous session's grants.
+// current session, so a /new never keeps the previous session's approvals.
 export const ROOT_SESSION_ENV = "PI_KIT_FIREWALL_ROOT_SESSION";
 
 export function rootSessionId(own: string): string {
@@ -178,9 +178,10 @@ export function rootSessionId(own: string): string {
   return own;
 }
 
-// A session grant: the full action the operator allowed with "allow for this session". An
-// exact repeat runs; a similar action (same host or privilege scope, or a shared family) goes to
-// the judge, which reasons over the grant's steps, severity and chain and explains any mismatch.
+// What the judge sees of a session approval (approvals.ts holds the stored form): the full action
+// the operator allowed with "allow for this session". An exact repeat runs; a similar action (same
+// host or privilege scope, or a shared family) goes to the judge, which reasons over the grant's
+// steps, severity and chain and explains any mismatch.
 export type SessionGrant = {
   at: number;
   session: string;
@@ -194,53 +195,3 @@ export type SessionGrant = {
   families: string[];
   scopes: string[];
 };
-
-const MAX_GRANTS = 40;
-
-function grantFile(root: string): string {
-  return path.join(sessionsDir(), `${root.replace(/[^A-Za-z0-9._-]/g, "_")}.grants.json`);
-}
-
-export function readGrants(root: string): SessionGrant[] {
-  try {
-    const raw = JSON.parse(fs.readFileSync(grantFile(root), "utf8"));
-    // A grant is authorisation-adjacent data: drop any element that is not a
-    // complete, well-formed grant rather than normalising a partial one. Missing
-    // scopes/steps/reasons/chain would otherwise crash similarGrants/grantBlock.
-    return Array.isArray(raw?.grants)
-      ? raw.grants.filter(
-          (g: any) =>
-            g !== null &&
-            typeof g === "object" &&
-            typeof g.hash === "string" &&
-            Array.isArray(g.families) &&
-            Array.isArray(g.scopes) &&
-            Array.isArray(g.steps) &&
-            Array.isArray(g.reasons) &&
-            Array.isArray(g.chain),
-        )
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-export function addGrant(root: string, grant: SessionGrant): void {
-  try {
-    const file = grantFile(root);
-    const next = [...readGrants(root).filter((g) => g.hash !== grant.hash), grant].slice(-MAX_GRANTS);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ root, grants: next, updated: new Date().toISOString() }));
-    fs.renameSync(tmp, file);
-  } catch {
-    /* best effort: the operator is asked again */
-  }
-}
-
-// Similar: shares a family, or runs in the same non-local scope (host or root).
-export function similarGrants(grants: SessionGrant[], families: string[], scopes: string[]): SessionGrant[] {
-  const fam = new Set(families);
-  const sc = new Set(scopes.filter((x) => x !== "local"));
-  return grants.filter((g) => g.families.some((f) => fam.has(f)) || g.scopes.some((x) => sc.has(x)));
-}

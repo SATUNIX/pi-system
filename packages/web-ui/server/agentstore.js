@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { AGENT_DIRS } from "./config.js";
 import { agentBody, resolveAgent } from "./agents.js";
+import { HttpError } from "./validate.js";
 
 const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
@@ -17,7 +18,8 @@ export function agentDirFor(source) {
 
 function assertName(name) {
 	if (typeof name !== "string" || !NAME_RE.test(name) || name.length > 64) {
-		throw new Error(
+		throw new HttpError(
+			400,
 			"invalid agent name (use lowercase letters, digits, dot, dash, underscore)",
 		);
 	}
@@ -29,7 +31,7 @@ function agentPath(name, source) {
 	const dir = path.resolve(agentDirFor(source));
 	const resolved = path.resolve(dir, `${name}.md`);
 	if (!resolved.startsWith(dir + path.sep))
-		throw new Error("invalid agent path");
+		throw new HttpError(400, "invalid agent path");
 	return resolved;
 }
 
@@ -63,8 +65,6 @@ export function createAgent(input) {
 	const source = input.source === "project" ? "project" : "user";
 	const filePath = agentPath(input.name, source);
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	if (fs.existsSync(filePath))
-		throw new Error(`agent already exists: ${input.name}`);
 	const doc = serialize({
 		name: input.name,
 		description: input.description,
@@ -72,7 +72,14 @@ export function createAgent(input) {
 		model: input.model,
 		body: input.body,
 	});
-	fs.writeFileSync(filePath, doc, "utf8");
+	try {
+		// "wx": created only if it does not exist, in one step (no window between the check and the write).
+		fs.writeFileSync(filePath, doc, { encoding: "utf8", flag: "wx" });
+	} catch (error) {
+		if (error && error.code === "EEXIST")
+			throw new HttpError(409, `agent already exists: ${input.name}`);
+		throw error;
+	}
 	return getAgent(input.name, source);
 }
 
@@ -83,7 +90,7 @@ export function createAgent(input) {
 export function updateAgent(name, input) {
 	const source = input.source === "project" ? "project" : "user";
 	const existing = resolveAgent(name, source);
-	if (!existing) throw new Error(`agent not found: ${name}`);
+	if (!existing) throw new HttpError(404, `agent not found: ${name}`);
 	const renameTo = input.name && input.name !== name ? input.name : null;
 	const targetSource = input.moveTo || source;
 	const targetPath = agentPath(renameTo || name, targetSource);
@@ -96,7 +103,7 @@ export function updateAgent(name, input) {
 	});
 	fs.mkdirSync(path.dirname(targetPath), { recursive: true });
 	if (targetPath !== existing.path && fs.existsSync(targetPath)) {
-		throw new Error(`cannot rename: ${input.name} already exists`);
+		throw new HttpError(409, `cannot rename: ${input.name} already exists`);
 	}
 	fs.writeFileSync(targetPath, doc, "utf8");
 	if (targetPath !== existing.path) fs.unlinkSync(existing.path);
@@ -105,11 +112,11 @@ export function updateAgent(name, input) {
 
 export function deleteAgent(name, source) {
 	const existing = resolveAgent(name, source);
-	if (!existing) throw new Error(`agent not found: ${name}`);
+	if (!existing) throw new HttpError(404, `agent not found: ${name}`);
 	const resolved = path.resolve(existing.path);
 	const allowed = AGENT_DIRS.map((d) => path.resolve(d));
 	if (!allowed.some((dir) => resolved.startsWith(dir + path.sep))) {
-		throw new Error("refusing to delete outside the agent directories");
+		throw new HttpError(400, "refusing to delete outside the agent directories");
 	}
 	fs.unlinkSync(resolved);
 	return { deleted: true, name, source: existing.source };

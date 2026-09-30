@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "run": "static-site-1",
+  "template": "deploy",
+  "objective": {
+    "title": "Static site served from a run-scoped web server",
+    "spec": "Build the static site described in SPEC.md into ./dist with `node scripts/build.mjs`, so that the run's web service (already started for you, named `web`) serves it. The site needs an index page with the title \"Hello, zone\". Deploy by building into ./dist; the service serves that directory read-only. Do not try to reach anything outside the run's internal network.",
+    "backlog": [
+      { "id": "B1", "title": "Build script that writes dist/index.html", "acceptance": ["build"] },
+      { "id": "B2", "title": "The web service serves the built page", "acceptance": ["web-up"] }
+    ]
+  },
+  "inputs": { "repository": null },
+  "acceptance": {
+    "checks": [
+      { "id": "build", "run": "node scripts/build.mjs && grep -q 'Hello, zone' dist/index.html", "timeoutMinutes": 5, "required": true },
+      { "id": "web-up", "type": "service-health", "service": "web", "path": "/", "expectStatus": 200, "required": true }
+    ],
+    "review": true
+  },
+  "permissions": {
+    "writeAreas": ["scripts/**", "src/**", "dist/**", "SPEC.md", "README.md"],
+    "network": {
+      "egress": [],
+      "serviceImages": ["nginxinc/nginx-unprivileged:1.27-alpine"],
+      "services": [
+        {
+          "name": "web",
+          "image": "nginxinc/nginx-unprivileged:1.27-alpine",
+          "port": 8080,
+          "workspaceMounts": [{ "source": "dist", "target": "/usr/share/nginx/html" }],
+          "tmpfs": ["/tmp"],
+          "health": { "path": "/", "expectStatus": 200, "intervalSeconds": 2, "retries": 30 }
+        }
+      ]
+    },
+    "unattended": { "authorised": true, "autoApprove": true }
+  },
+  "model": { "provider": "openrouter", "worker": "deepseek/deepseek-v4.1-flash" },
+  "effort": "standard",
+  "budget": { "totalUsd": 5, "perStepUsd": 1, "maxSteps": 20, "maxMinutes": 120 },
+  "promotion": { "policy": "none" }
+}

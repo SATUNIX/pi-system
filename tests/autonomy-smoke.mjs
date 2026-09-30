@@ -4,7 +4,7 @@
  * decision validation, the RPC auto-operator, mirror refspec limits, relay routing and usage
  * metering, the host git mirror and the integration branch (real git against local bare
  * repositories), the merge review's verdict parsing, the container
- * boundary arguments, and the cycle control loop driven by a fake runtime with a virtual clock.
+ * boundary arguments (the full containment table is tests/autonomy-boundary-smoke.mjs), and the cycle control loop driven by a fake runtime with a virtual clock.
  * Docker and the network are not touched; the live boundary test is packages/autonomy/tests/boundary.sh.
  */
 import assert from "node:assert/strict";
@@ -19,6 +19,9 @@ import { runCycle } from "../packages/autonomy/lib/cycle.mjs";
 import * as gm from "../packages/autonomy/lib/gitmirror.mjs";
 import * as dk from "../packages/autonomy/lib/docker.mjs";
 import { modelEntries, agentModelsJson } from "../packages/autonomy/lib/models.mjs";
+import { resolveContract } from "../packages/autonomy/lib/contract.mjs";
+import { runtimeConfig } from "../packages/autonomy/lib/runcfg.mjs";
+import { testEffort } from "./autonomy-helpers.mjs";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -41,6 +44,8 @@ await check("config: defaults, derived branch/tags, and unsafe values rejected",
   assert.equal(cfg.integration.review, true);
   assert.equal(cfg.reviewModel, cfg.managerModel, "the review model defaults to the manager's");
   assert.throws(() => resolveConfig({ run: "ok-run", integration: { branch: "main" } }), /integration\.branch/);
+  assert.equal(resolveConfig({ run: "ok-run", integration: { branch: "bots/integration" } }).integrationBranch, "bots/integration", "the integration branch is configurable, not hard-coded to experimental/*");
+  assert.equal(cfg.gitRemote, null, "there is no default remote");
   assert.throws(() => resolveConfig({ run: "ok-run", integration: { branch: "experimental/../main" } }), /integration\.branch/);
   assert.equal(cfg.cycles, 50);
   assert.equal(cfg.limits.softMinutes, 180);
@@ -162,33 +167,41 @@ await check("relay: only the run's models; OpenRouter web search refused or stri
 });
 
 await check("docker: agent on the internal network only, no credentials or host home, hardened", () => {
-  const p = { remote: "/r/remote.git", work: "/r/work", agentState: "/r/agent-state", meter: "/r/meter", bundles: "/r/bundles", gateWork: "/r/gate" };
-  const agent = dk.agentRunArgs(cfg, p, { n: 3, attempt: 1, reset: true });
+  const p = { remote: "/r/remote.git", work: "/r/work", agentState: "/r/agent-state", meter: "/r/meter", bundles: "/r/bundles", gateWork: "/r/gate", public: "/r/public", checks: "/r/checks.json", overlay: "/r/overlay", egress: "/r/egress", deploy: "/r/deploy", root: "/r" };
+  // A run's flat configuration is derived from its contract (lib/runcfg.mjs); v0's resolveConfig no longer feeds the builders.
+  const contractCfg = (over = {}) => {
+    const r = resolveContract({ schemaVersion: 1, run: "perpetual-test", template: "implement", objective: { title: "t", spec: "s" }, acceptance: { checks: [{ id: "gate", run: ["true"] }] }, permissions: { unattended: { authorised: true, autoApprove: true } }, ...over }, { effort: testEffort });
+    assert.equal(r.ok, true, JSON.stringify(r.problems));
+    return runtimeConfig(r.contract);
+  };
+  const dcfg = contractCfg();
+  const agent = dk.agentRunArgs(dcfg, p, { n: 3, attempt: 1, reset: true });
   const flag = (args, f) => args.flatMap((a, i) => (a === f ? [args[i + 1]] : []));
   assert.deepEqual(flag(agent, "--network"), ["pi-exp-perpetual-test"]);
   for (const f of ["--read-only", "--cap-drop", "--security-opt", "--pids-limit", "--memory"]) assert.ok(agent.includes(f), f);
-  assert.deepEqual(flag(agent, "--mount").map((m) => m.split(",")[1]), ["source=/r/remote.git", "source=/r/work", "source=/r/agent-state"]);
+  assert.deepEqual(flag(agent, "--mount").map((m) => m.split(",")[1]), ["source=/r/remote.git", "source=/r/work", "source=/r/agent-state", "source=/r/public"]);
   const env = flag(agent, "--env").join("\n");
   assert.doesNotMatch(env, /KEY|TOKEN|SECRET|PASSWORD/i);
   assert.match(env, /^CYCLE_RESET=1$/m);
   assert.ok(!agent.join(" ").includes("docker.sock") && !agent.join(" ").includes(os.homedir()));
   assert.ok(!agent.includes("--privileged") && !agent.some((a) => a.startsWith("--cap-add")));
-  const [internal, egress] = dk.networkCreateArgs(cfg);
+  const [internal, egress] = dk.networkCreateArgs(dcfg);
   assert.deepEqual(internal, ["network", "create", "--internal", "pi-exp-perpetual-test"]);
   assert.equal(egress.at(-1), "pi-exp-perpetual-test-egress");
-  assert.deepEqual(flag(dk.relayRunArgs(cfg, p, "/k/relay.mjs"), "--network"), ["pi-exp-perpetual-test-egress"], "relay joins the run network only by alias, after start");
-  for (const helper of [dk.bundleRunArgs(cfg, p), dk.gateRunArgs(cfg, p, { bundleFile: "/b", sha: "a".repeat(40) }), dk.setAgentRefRunArgs(cfg, p, { bundleFile: "/b", sha: "a".repeat(40) })]) {
+  assert.deepEqual(flag(dk.relayRunArgs(dcfg, p, "/k/relay.mjs"), "--network"), ["pi-exp-perpetual-test-egress"], "relay joins the run network only by alias, after start");
+  const checkArgs = dk.checkRunArgs(dcfg, p, { bundleFile: "/b", sha: "a".repeat(40), checkId: "gate", runnerScript: "/k/check-runner.mjs", hasOverlay: false });
+  for (const helper of [dk.bundleRunArgs(dcfg, p), checkArgs, dk.setAgentRefRunArgs(dcfg, p, { bundleFile: "/b", sha: "a".repeat(40) }), dk.snapshotRunArgs(dcfg, p, { message: "m" })]) {
     assert.deepEqual(flag(helper, "--network"), ["none"]);
   }
-  assert.ok(dk.bundleRunArgs(cfg, p).some((a) => a.includes("target=/git/remote.git,readonly")), "bundling reads the agent repo read-only");
-  const withRef = dk.agentRunArgs(resolveConfig({ run: "perpetual-test", references: { "agentic-repo-kit": "/src/ark" } }), { ...p, references: "/r/references" }, { n: 1, attempt: 1, reset: false });
+  assert.ok(dk.bundleRunArgs(dcfg, p).some((a) => a.includes("target=/git/remote.git,readonly")), "bundling reads the agent repo read-only");
+  const withRef = dk.agentRunArgs(contractCfg({ inputs: { references: { "agentic-repo-kit": "/src/ark" } } }), { ...p, references: "/r/references" }, { n: 1, attempt: 1, reset: false });
   assert.ok(withRef.includes("type=bind,source=/r/references/agentic-repo-kit,target=/reference/agentic-repo-kit,readonly"), "references are snapshots, mounted read-only");
   assert.ok(!withRef.join(" ").includes("/src/ark"), "the live reference repo is never mounted");
   assert.throws(() => resolveConfig({ run: "ok-run", references: { "../x": "/y" } }), /references/);
   assert.equal(dk.userSpec({ container: { user: "host" } }, 1234, 99), "1234:99");
-  assert.equal(cfg.engine, "podman");
+  assert.equal(dcfg.engine, "podman");
   assert.ok(agent.includes("--userns=keep-id"), "podman maps the operator's uid to itself");
-  assert.ok(!dk.agentRunArgs(resolveConfig({ run: "perpetual-test", engine: "docker" }), p, { n: 1, attempt: 1 }).includes("--userns=keep-id"));
+  assert.ok(!dk.agentRunArgs(contractCfg({ runtime: { engine: "docker" } }), p, { n: 1, attempt: 1 }).includes("--userns=keep-id"));
   assert.throws(() => resolveConfig({ run: "ok-run", engine: "lxc" }), /engine/);
   assert.equal(dk.userSpec({ container: { user: "0:0" } }), "0:0");
 });

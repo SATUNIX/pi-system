@@ -1,0 +1,346 @@
+/**
+ * Effort ledger: the shared, cross-process record of delegation for one scope (one user turn of
+ * a root session, or one autonomous step).
+ *
+ * Every child a launch point starts, at any depth, reserves against the SAME ledger file, so
+ * descendants never get a fresh budget: the root's concurrent-live, total-invocation and scout
+ * limits bound the whole tree. Reservations are atomic (an exclusive lock file around
+ * read-modify-write) so two siblings racing for the last slot cannot both win.
+ *
+ * Accounting rules (docs/effort.md):
+ *  - a reservation charges one child execution (an automatic retry or a resumed run is a new
+ *    execution and reserves again; polling an existing child is not a launch and never reserves);
+ *  - charges are never refunded, including when the child fails or never starts;
+ *  - `live` counts descendants that hold a slot right now (the root is excluded);
+ *  - "discretionary" launches (the model-callable delegation tools) obey the tier limits;
+ *  - "recovery" launches spend a separate, small budget that only opens while the trusted
+ *    recovery extension has recovery active, and only for read-only roles;
+ *  - "mandatory" launches (completion review, validators) are required by verification policy,
+ *    so they are always allowed up to a fixed bound and never draw on the discretionary budget;
+ *  - "user" launches are ones the person typed (a /workflow command): they are not the agent's own
+ *    initiative, so only the platform ceilings bound them, and they never draw on the tier budget.
+ *
+ * Effort budgets govern cost and behaviour, not security: the ledger is a file the session can
+ * write, so a hostile process with shell access in the same account could tamper with it. The
+ * hard boundary is the container or the firewall, never this file (docs/effort.md).
+ */
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import type { TierLimits } from "./policy.ts";
+
+export type LaunchKind = "discretionary" | "recovery" | "mandatory" | "user";
+
+export interface LiveEntry {
+  id: string;
+  kind: LaunchKind;
+  role: string;
+  scout: boolean;
+  requesterTier: string;
+  pid: number | null;
+  reservedAt: number;
+}
+
+export interface Charge {
+  id: string;
+  at: number;
+  kind: LaunchKind;
+  role: string;
+  scout: boolean;
+  outcome?: string;
+}
+
+export interface LedgerData {
+  schemaVersion: 1;
+  scope: string;
+  createdAt: number;
+  /** The root's tier when the scope opened; a snapshot, never raised by later effort changes. */
+  tier: string;
+  limits: TierLimits;
+  recovery: { maxInvocations: number; maxConcurrent: number; roles: string[]; active: boolean };
+  /** Total children charged in earlier scopes of the same root session (for the session ceiling). */
+  sessionTotalBefore: number;
+  sessionCeiling: number;
+  mandatoryMax: number;
+  /** Platform ceilings, the only bound on user-directed launches. */
+  ceilings: TierLimits;
+  total: number;
+  userUsed: number;
+  scouts: number;
+  recoveryUsed: number;
+  mandatoryUsed: number;
+  live: LiveEntry[];
+  charges: Charge[];
+}
+
+export type DenialCode = "no-ledger" | "concurrency" | "total" | "scouts" | "tier" | "session-ceiling" | "recovery-closed" | "recovery-budget" | "recovery-role" | "mandatory-budget" | "invalid";
+
+export interface Denial {
+  ok: false;
+  code: DenialCode;
+  reason: string;
+}
+
+export interface Granted {
+  ok: true;
+  id: string;
+}
+
+export interface ReserveRequest {
+  kind: LaunchKind;
+  role: string;
+  scout?: boolean;
+  /** The tier of the process asking (a child asks with its own, lower-or-equal tier). */
+  requesterTier: string;
+  /** That tier's own limits: a child's request is bounded by the tighter of these and the ledger's. */
+  requesterLimits: TierLimits;
+  /** A short label of the tier for messages, e.g. "E3 Standard". */
+  requesterLabel: string;
+  /** Whether the requested role is read-only (recovery launches accept only those). */
+  readOnly?: boolean;
+}
+
+const LOCK_STALE_MS = 15_000;
+const LOCK_WAIT_MS = 5_000;
+const RESERVATION_ORPHAN_MS = 120_000;
+const MAX_CHARGES = 200;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === "EPERM";
+  }
+}
+
+// A stale lock (its holder crashed or stalled for longer than LOCK_STALE_MS) is broken under a second, short-lived
+// lock, and only after looking at the main lock again while holding it. Without that, two waiters that both saw
+// the same stale lock could each remove "it": the second removal deletes the first waiter's FRESH lock, and both
+// enter the critical section and grant the last slot twice. A break lock left behind by a crash is itself stale
+// after a moment.
+const LOCK_BREAK_STALE_MS = 3_000;
+
+function breakStaleLock(lock: string): void {
+  const breaker = `${lock}.break`;
+  try {
+    fs.writeFileSync(breaker, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
+    try {
+      if (Date.now() - fs.statSync(breaker).mtimeMs > LOCK_BREAK_STALE_MS) fs.rmSync(breaker, { force: true });
+    } catch {
+      /* gone already */
+    }
+    return; // another waiter is breaking it (or we just cleared a dead breaker): the caller looks again
+  }
+  try {
+    let mtimeMs: number;
+    try {
+      mtimeMs = fs.statSync(lock).mtimeMs;
+    } catch {
+      return; // released meanwhile
+    }
+    if (Date.now() - mtimeMs > LOCK_STALE_MS) fs.rmSync(lock, { force: true });
+  } finally {
+    fs.rmSync(breaker, { force: true });
+  }
+}
+
+/**
+ * Run `fn` holding the ledger's exclusive lock (O_EXCL lock file; a lock older than 15 s is stale and is broken
+ * by one waiter at a time). The lock carries this acquisition's own token, and is removed only if it still does.
+ */
+export function withLock<T>(file: string, fn: () => T): T {
+  const lock = `${file}.lock`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  const token = `${process.pid}:${crypto.randomUUID()}\n`;
+  for (;;) {
+    try {
+      fs.writeFileSync(lock, token, { flag: "wx", mode: 0o600 });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) {
+          breakStaleLock(lock);
+          continue;
+        }
+      } catch {
+        continue; // the holder released it between our attempt and the stat
+      }
+      if (Date.now() > deadline) throw new Error(`timed out waiting for the effort ledger lock ${lock}`);
+      sleepSync(15);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    // Only our own lock: if a stall let someone break it and take over, theirs is not ours to remove.
+    try {
+      if (fs.readFileSync(lock, "utf8") === token) fs.rmSync(lock, { force: true });
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+export function readLedger(file: string): LedgerData | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as LedgerData;
+    if (parsed?.schemaVersion !== 1 || !Array.isArray(parsed.live) || !Array.isArray(parsed.charges)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeLedger(file: string, data: LedgerData): void {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
+export function createLedger(file: string, init: Pick<LedgerData, "scope" | "tier" | "limits" | "recovery" | "sessionTotalBefore" | "sessionCeiling" | "mandatoryMax" | "ceilings">): LedgerData {
+  const data: LedgerData = {
+    schemaVersion: 1,
+    ...init,
+    recovery: { ...init.recovery, active: false },
+    createdAt: Date.now(),
+    userUsed: 0,
+    total: 0,
+    scouts: 0,
+    recoveryUsed: 0,
+    mandatoryUsed: 0,
+    live: [],
+    charges: [],
+  };
+  withLock(file, () => writeLedger(file, data));
+  return data;
+}
+
+/** Drop reservations that will never settle: a dead process, or a slot that never got a pid. */
+function reap(data: LedgerData, now: number): void {
+  data.live = data.live.filter((entry) => {
+    if (entry.pid !== null) return processAlive(entry.pid);
+    return now - entry.reservedAt < RESERVATION_ORPHAN_MS;
+  });
+}
+
+const deny = (code: DenialCode, reason: string): Denial => ({ ok: false, code, reason });
+
+/** Atomically reserve a slot, or say exactly why not. A grant charges the ledger permanently. */
+export function reserve(file: string, request: ReserveRequest, now = Date.now(), newId: () => string = () => `${process.pid}-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`): Granted | Denial {
+  if (!/^(discretionary|recovery|mandatory|user)$/.test(request.kind)) return deny("invalid", `unknown launch kind "${request.kind}"`);
+  try {
+    return withLock(file, () => {
+      const data = readLedger(file);
+      if (!data) return deny("no-ledger", "the effort ledger for this request is missing or unreadable, so delegation cannot be budgeted");
+      reap(data, now);
+      const id = newId();
+      const scout = Boolean(request.scout);
+      const entry: LiveEntry = { id, kind: request.kind, role: request.role, scout, requesterTier: request.requesterTier, pid: null, reservedAt: now };
+      const live = data.live.filter((e) => e.kind === request.kind);
+
+      if (request.kind === "user") {
+        if (data.userUsed >= data.ceilings.maxTotal) return deny("total", `this request has already run ${data.userUsed} user-directed children, the platform ceiling (${data.ceilings.maxTotal})`);
+        if (live.length >= data.ceilings.maxConcurrent) return deny("concurrency", `${live.length} user-directed children are already running (platform ceiling ${data.ceilings.maxConcurrent})`);
+        data.userUsed++;
+      } else if (request.kind === "mandatory") {
+        if (data.mandatoryUsed >= data.mandatoryMax) return deny("mandatory-budget", `the mandatory verification budget for this request is used up (${data.mandatoryUsed}/${data.mandatoryMax})`);
+        data.mandatoryUsed++;
+      } else if (request.kind === "recovery") {
+        if (!data.recovery.active) return deny("recovery-closed", "recovery launches are only available while the recovery extension has recovery active");
+        if (!data.recovery.roles.includes(request.role) || request.readOnly === false) return deny("recovery-role", `recovery may only start read-only roles (${data.recovery.roles.join(", ")}); "${request.role}" is not one`);
+        if (data.recoveryUsed >= data.recovery.maxInvocations) return deny("recovery-budget", `the recovery budget is used up (${data.recoveryUsed}/${data.recovery.maxInvocations}); stop and report what is blocking instead of retrying`);
+        if (live.length >= data.recovery.maxConcurrent) return deny("recovery-budget", `${live.length} recovery child(ren) already running (limit ${data.recovery.maxConcurrent})`);
+        data.recoveryUsed++;
+      } else {
+        // Discretionary: the tighter of the ledger's (root snapshot) and the requester's own tier.
+        const limits: TierLimits = {
+          maxConcurrent: Math.min(data.limits.maxConcurrent, request.requesterLimits.maxConcurrent),
+          maxTotal: Math.min(data.limits.maxTotal, request.requesterLimits.maxTotal),
+          maxScouts: Math.min(data.limits.maxScouts, request.requesterLimits.maxScouts),
+        };
+        const liveNow = data.live.filter((e) => e.kind === "discretionary").length;
+        if (limits.maxTotal === 0) return deny("tier", `${request.requesterLabel} does not delegate (no child invocations are allowed). Do the work directly, or ask the user to raise effort with /effort.`);
+        if (data.sessionTotalBefore + data.total >= data.sessionCeiling) return deny("session-ceiling", `this session has started ${data.sessionTotalBefore + data.total} children, the platform ceiling. Finish directly or start a new session.`);
+        if (data.total >= limits.maxTotal) return deny("total", `child invocations for this request are used up (${data.total}/${limits.maxTotal} at ${request.requesterLabel}; retries and failed children count). Continue directly, or ask the user to raise effort with /effort.`);
+        if (liveNow >= limits.maxConcurrent) return deny("concurrency", `${liveNow} child(ren) are already running (limit ${limits.maxConcurrent} at ${request.requesterLabel}). Wait for one to finish; the limit counts live descendants at any depth.`);
+        if (scout && data.scouts >= limits.maxScouts) return deny("scouts", `scout invocations for this request are used up (${data.scouts}/${limits.maxScouts} at ${request.requesterLabel}); scouts count within the shared total.`);
+        data.total++;
+        if (scout) data.scouts++;
+      }
+      data.live.push(entry);
+      data.charges.push({ id, at: now, kind: request.kind, role: request.role, scout });
+      if (data.charges.length > MAX_CHARGES) data.charges = data.charges.slice(-MAX_CHARGES);
+      writeLedger(file, data);
+      return { ok: true as const, id };
+    });
+  } catch (error) {
+    return deny("no-ledger", `the effort ledger could not be updated (${error instanceof Error ? error.message : String(error)}); refusing to launch a child without a budget check`);
+  }
+}
+
+/** Record the child's pid so a dead child's slot can be reclaimed. Best-effort. */
+export function attach(file: string, id: string, pid: number | undefined): void {
+  if (!pid) return;
+  try {
+    withLock(file, () => {
+      const data = readLedger(file);
+      const entry = data?.live.find((e) => e.id === id);
+      if (data && entry) {
+        entry.pid = pid;
+        writeLedger(file, data);
+      }
+    });
+  } catch {
+    /* the slot is reclaimed by the orphan timer instead */
+  }
+}
+
+/** Release the concurrency slot. The charge stays: a failed or cancelled child is never refunded. */
+export function settle(file: string, id: string, outcome: string): void {
+  try {
+    withLock(file, () => {
+      const data = readLedger(file);
+      if (!data) return;
+      data.live = data.live.filter((e) => e.id !== id);
+      const charge = data.charges.find((c) => c.id === id);
+      if (charge) charge.outcome = outcome;
+      writeLedger(file, data);
+    });
+  } catch {
+    /* an unreadable ledger cannot be settled; the reaper handles the slot */
+  }
+}
+
+export function setRecoveryActive(file: string, active: boolean): void {
+  try {
+    withLock(file, () => {
+      const data = readLedger(file);
+      if (!data) return;
+      data.recovery.active = active;
+      writeLedger(file, data);
+    });
+  } catch {
+    /* recovery stays closed */
+  }
+}
+
+export interface Usage {
+  live: number;
+  total: number;
+  scouts: number;
+  recoveryUsed: number;
+  mandatoryUsed: number;
+}
+
+export function usageOf(data: LedgerData | null): Usage {
+  return { live: data?.live.filter((e) => e.kind === "discretionary").length ?? 0, total: data?.total ?? 0, scouts: data?.scouts ?? 0, recoveryUsed: data?.recoveryUsed ?? 0, mandatoryUsed: data?.mandatoryUsed ?? 0 };
+}

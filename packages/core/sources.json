@@ -7,26 +7,17 @@
       "entry": "dist/index.js",
       "provides": ["pi-lens"],
       "profiles": ["balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
-      "review": "MIT. Self-contained Node; bundles @ast-grep/napi (native) + tree-sitter WASM + typescript. Auto-runs LSP/type/lint/structural + impact diagnostics on write/edit via hooks (no model tool required). Also registers optional LSP/AST agent tools — filter off in balanced to keep the visible surface minimal."
+      "review": "MIT. Self-contained Node; bundles @ast-grep/napi (native) + tree-sitter WASM + typescript. Auto-runs LSP/type/lint/structural + impact diagnostics on write/edit via hooks (no model tool required). Also registers optional LSP/AST agent tools — filter off in balanced to keep the visible surface minimal. 4.3.0 was evaluated for this release: it loads cleanly in a real pi 0.85.1 TUI, but it is a new major line (4.0.0 breaking changes), declares peer @earendil-works/pi-tui ^0.84.1 || ^0.85.0 and Node >=22.19, and its write/edit hooks cannot be exercised without a model provider, so 3.8.63 stays pinned for the beta."
     },
     {
       "name": "pi-lean-ctx",
       "mode": "reference",
-      "source": "npm:pi-lean-ctx@3.8.18",
+      "source": "npm:pi-lean-ctx@3.10.5",
       "entry": "extensions/index.ts",
       "optional": true,
       "provides": ["pi-lean-ctx"],
-      "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
-      "review": "Apache-2.0. Routes bash/read/grep/find/ls output through lean-ctx compression + MCP session cache (~13 tokens on unchanged re-reads). Behavior-only; adds no visible model tools. REQUIRES the external `lean-ctx` CLI (leanctx.com) on PATH or configured in ~/.pi/agent/extensions/pi-lean-ctx/config.json — it is not bundled and not on npm, so without it the MCP bridge fails with spawn ENOENT and no compression happens. Left out of the lite profile for this reason (readseek covers navigation there); still referenced by the full-kit profiles for setups that install the binary."
-    },
-    {
-      "name": "pi-impact-analyzer",
-      "mode": "reference",
-      "source": "npm:pi-impact-analyzer@0.3.1",
-      "entry": "dist/extensions",
-      "provides": ["pi-impact-analyzer"],
-      "profiles": ["long-horizon", "autonomous", "self-improving", "pentest"],
-      "review": "MIT. web-tree-sitter (WASM). Passive auto-indexing; answers 'if I change this symbol, what else breaks?'. Registers a query tool — keep dormant/filtered outside higher tiers."
+      "profiles": [],
+      "review": "Apache-2.0. OPT-IN, in no profile: it needs the external `lean-ctx` Rust CLI (`cargo install lean-ctx` or brew; not bundled, not in this package's supply chain) and, in its default additive mode, registers extra model-visible tools even when that CLI is absent (ctx_shell, ctx_read, ctx_ls, ctx_find, ctx_grep, lean_ctx, ctx_edit; checked against 3.10.5 in a real pi 0.85.1 TUI). Those tools are not inspected the way the built-in ones are: secret-guard matches the built-in names bash/write/edit, so ctx_shell and ctx_edit are outside its checks, and tool-firewall sees them only as unknown tools (policy default: ask) rather than as shell commands. Enable it only for trusted repositories and expect an approval prompt per call; it is installed by `install.mjs --all` only when its binary is on PATH. Installing 3.10.5 (verified to load and degrade gracefully without the CLI) replaces 3.8.18, whose review here wrongly said it adds no visible tools."
     },
     {
       "name": "pi-readseek",
@@ -35,16 +26,7 @@
       "entry": "index.ts",
       "provides": ["pi-readseek"],
       "profiles": ["long-horizon", "autonomous", "self-improving", "pentest", "lite"],
-      "review": "MIT. @jarkkojs/readseek (native) + xxhash-wasm. Hash-anchored read/edit/grep + structural code maps + AST search — a lean file-I/O primitive for navigating large repos cheaply. Registers replacement tools (manual)."
-    },
-    {
-      "name": "pi-subagents",
-      "mode": "reference",
-      "source": "npm:pi-subagents@0.32.0",
-      "entry": "src/extension/index.ts",
-      "provides": ["pi-subagents"],
-      "profiles": [],
-      "review": "MIT. Optional power-up over the kit's own subagent/orchestrator layer: background jobs, TUI clarification questions, and an 'oracle' second-opinion agent. Deps: pi-tui, jiti, typebox (light). Does NOT auto-invoke; the kit's orchestrator provides the autonomy. Enable when you want background delegation or oracle critiques. Not in any profile's default include: both this and the kit's own vendor/subagent/index.ts register a tool literally named \"subagent\", so co-selecting them always collides - see docs/agent-orchestration.md."
+      "review": "MIT. @jarkkojs/readseek (native) + xxhash-wasm. Hash-anchored read/edit/grep + structural code maps + AST search — a lean file-I/O primitive for navigating large repos cheaply. Registers replacement tools (manual). 0.10.1 was evaluated and not adopted: its licence is now Apache-2.0 (this review covers the MIT 0.4.x line), the entry moved to dist/index.ts and it depends on @jarkkojs/readseek-api; 0.4.26 stays pinned until 0.10.x has been reviewed as a whole."
     }
   ]
 }

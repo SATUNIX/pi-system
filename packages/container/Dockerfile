@@ -1,6 +1,6 @@
 FROM node:22-alpine
 
-ARG PI_CODING_AGENT_VERSION=0.76.0
+ARG PI_CODING_AGENT_VERSION=0.87.1
 ARG PI_MCP_ADAPTER_VERSION=2.8.0
 # dev: kit is mounted / installed at runtime via PI_KIT_PATH
 # release: kit is baked into the image from git at build time

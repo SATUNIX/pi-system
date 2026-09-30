@@ -128,25 +128,26 @@ async function run() {
       assert.equal(result, undefined, `first-party tool ${toolName} must be allowed headlessly`);
     }
 
-    // F4: a persisted grants file may be corrupted/tampered. An element missing
-    // scopes/steps/reasons/chain must be dropped by readGrants, not passed on to
-    // similarGrants (g.scopes.some -> TypeError) or grantBlock (g.steps.length).
+    // F4: a persisted approvals file may be corrupted/tampered. Session grants moved from
+    // firewall-sessions/<root>.grants.json into the versioned approvals file (approvals.ts); the same
+    // guarantee holds there: an element of the wrong shape (null, missing scopes/steps/reasons/chain,
+    // unknown fields) is dropped and reported, never normalised into an allow, and similarApprovals
+    // must tolerate what is left. A legacy grants file is no longer read at all.
     const root = "smoke-root";
-    const grantFile = path.join(workspace, "firewall-sessions", `${root}.grants.json`);
-    fs.mkdirSync(path.dirname(grantFile), { recursive: true });
-    fs.writeFileSync(
-      grantFile,
-      JSON.stringify({
-        root,
-        grants: [null, { hash: "abc", families: ["network"] }],
-        updated: new Date().toISOString(),
-      }),
-    );
+    const approvalsFile = path.join(workspace, "firewall-approvals.json");
+    const restoreApprovals = setEnv("PI_KIT_FIREWALL_APPROVALS", approvalsFile);
+    const legacyGrantFile = path.join(workspace, "firewall-sessions", `${root}.grants.json`);
+    fs.mkdirSync(path.dirname(legacyGrantFile), { recursive: true });
+    fs.writeFileSync(legacyGrantFile, JSON.stringify({ root, grants: [null, { hash: "abc", families: ["network"] }], updated: new Date().toISOString() }));
+    fs.writeFileSync(approvalsFile, JSON.stringify({ schemaVersion: 1, updated: new Date().toISOString(), approvals: [null, { hash: "abc", families: ["network"] }, { id: "apr_deadbeef", extra: true }] }));
     const trajectory = await loadModule("extensions/tool-firewall/trajectory.ts");
-    const grants = trajectory.readGrants(root);
-    // Pre-fix this threw `TypeError: Cannot read properties of undefined (reading 'some')`.
-    assert.deepEqual(trajectory.similarGrants(grants, ["filesystem"], ["local"]), [], "similarGrants must tolerate sanitized grants");
-    assert.deepEqual(grants, [], "readGrants must drop malformed/tampered grant elements");
+    const approvals = await loadModule("extensions/tool-firewall/approvals.ts");
+    const approvalsView = approvals.readApprovals();
+    assert.deepEqual(approvalsView.approvals, [], "readApprovals must drop malformed/tampered approval elements");
+    assert.equal(approvalsView.problems.length, 3, "every dropped element is reported");
+    assert.deepEqual(approvals.similarApprovals(approvalsView.approvals, ["filesystem"], ["local"]), [], "similarApprovals must tolerate what is left");
+    assert.equal(typeof trajectory.readGrants, "undefined", "the legacy grants reader is gone: a grants file can no longer authorise anything");
+    restoreApprovals();
 
     // F5: persisted session/profile files are untrusted input. A wrong-typed session field must
     // be dropped so trajectoryFindings/recordAction cannot throw in the shipped tool_call gate;

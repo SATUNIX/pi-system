@@ -287,11 +287,17 @@ export default function (pi: ExtensionAPI) {
     try {
       const reportAbs = path.join(cwd, reportRel!);
       fs.mkdirSync(path.dirname(reportAbs), { recursive: true });
-      if (!fs.existsSync(reportAbs)) fs.writeFileSync(reportAbs, reportScaffold(esc!, attempt!, cwd), "utf8");
+      fs.writeFileSync(reportAbs, reportScaffold(esc!, attempt!, cwd), { encoding: "utf8", flag: "wx" }); // created only if absent, in one step
     } catch {
       /* report is best-effort; the steer is the important part */
     }
     writeContribution(cwd, recoveryContent(esc!, attempt!, reportRel!));
+    // Open the small recovery delegation budget (read-only scouts) for this request. Only this trusted
+    // code path can: a minimal-effort session may not delegate at will, but it can recover. The budget
+    // closes with the next user turn (docs/effort.md).
+    try {
+      ((globalThis as Record<symbol, unknown>)[Symbol.for("pi-kit.effort")] as { setRecoveryActive?(active: boolean, reason?: string): void } | undefined)?.setRecoveryActive?.(true, `recovery for ${esc!.signature}`);
+    } catch { /* effort is optional here */ }
     clearEscalation(cwd); // consumed — don't re-enter for the same escalation marker
     if (c.hasUI) c.ui.notify(`recovery-orchestrator: entered recovery for '${esc!.signature}' (attempt ${attempt}/${MAX_ATTEMPTS}). See ${reportRel}.`, "warning");
   });
@@ -319,7 +325,7 @@ export default function (pi: ExtensionAPI) {
         try {
           const reportAbs = path.join(dir, plan.reportRel!);
           fs.mkdirSync(path.dirname(reportAbs), { recursive: true });
-          if (!fs.existsSync(reportAbs)) fs.writeFileSync(reportAbs, reportScaffold(plan.escalation!, plan.attempt!, dir), "utf8");
+          fs.writeFileSync(reportAbs, reportScaffold(plan.escalation!, plan.attempt!, dir), { encoding: "utf8", flag: "wx" }); // created only if absent, in one step
         } catch { /* ignore */ }
         writeContribution(dir, recoveryContent(plan.escalation!, plan.attempt!, plan.reportRel!));
         clearEscalation(dir);

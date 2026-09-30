@@ -23,6 +23,14 @@ updates:
     # found and pulled within days.
     cooldown:
       default-days: 7
+    # pi is a 0.x line, where a minor release can break the extension API: those bumps are made by
+    # hand after the pi-compat matrix in ci.yml has looked at them. A major TypeScript release is
+    # a toolchain migration, not a routine update.
+    ignore:
+      - dependency-name: "@earendil-works/*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-toolchain:
         patterns: ["*"]

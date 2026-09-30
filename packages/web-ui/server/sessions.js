@@ -71,8 +71,16 @@ export function listSessions() {
 		for (const file of files) {
 			const filePath = path.join(dirPath, file);
 			try {
-				const stat = fs.statSync(filePath);
-				const text = fs.readFileSync(filePath, "utf8");
+				// One open file: the stat and the text describe the same file.
+				let stat;
+				let text;
+				const fd = fs.openSync(filePath, "r");
+				try {
+					stat = fs.fstatSync(fd);
+					text = fs.readFileSync(fd, "utf8");
+				} finally {
+					fs.closeSync(fd);
+				}
 				const head = parseFirstLine(text) || {};
 				const { entryCount, preview } = summarizeMessages(text);
 				sessions.push({

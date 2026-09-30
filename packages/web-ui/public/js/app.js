@@ -1,5 +1,12 @@
 // app.js — pi-console client: state, views, session wiring, inspector, activity wheel.
-import { api } from "./api.js";
+import { api, setUnauthorizedHandler } from "./api.js";
+import {
+	clearToken,
+	consumeFragmentToken,
+	getToken,
+	isPlausibleToken,
+	setToken,
+} from "./auth.js";
 import { SessionStream } from "./sse.js";
 import {
 	ActivityWheel,
@@ -91,6 +98,93 @@ function applyPanels() {
 function togglePanel(name) {
 	state.panels[name] = !state.panels[name];
 	applyPanels();
+}
+
+// ------------------------------------------------------------ access token ----
+let unlockPending = null;
+
+function showUnlockError(message) {
+	dom.unlockError.textContent = message || "";
+	dom.unlockError.hidden = !message;
+}
+
+/**
+ * Ask the operator for the access token and resolve once the server has accepted one.
+ * Idempotent: concurrent callers share the same dialog.
+ */
+function promptForToken(reason) {
+	if (unlockPending) return unlockPending;
+	unlockPending = new Promise((resolve) => {
+		showUnlockError(reason);
+		dom.unlockInput.value = "";
+		if (!dom.unlockDialog.open) dom.unlockDialog.showModal();
+		dom.unlockInput.focus();
+		const onSubmit = async (event) => {
+			event.preventDefault();
+			const value = dom.unlockInput.value.trim();
+			if (!isPlausibleToken(value)) {
+				showUnlockError(
+					"That does not look like an access token (32-256 letters, digits, . _ ~ -).",
+				);
+				return;
+			}
+			setToken(value);
+			try {
+				await api.authCheck();
+			} catch (err) {
+				clearToken();
+				showUnlockError(
+					err.status === 401 ? "That token was not accepted." : err.message,
+				);
+				return;
+			}
+			dom.unlockForm.removeEventListener("submit", onSubmit);
+			dom.unlockInput.value = "";
+			dom.unlockDialog.close();
+			unlockPending = null;
+			resolve();
+		};
+		dom.unlockForm.addEventListener("submit", onSubmit);
+	});
+	return unlockPending;
+}
+
+/**
+ * Establish access before any data is requested: take a `#token=` fragment if the operator
+ * opened the console via its login link, otherwise ask for the token. Nothing to do when the
+ * server reports authentication off, or cannot be reached (the health poll shows that).
+ */
+async function ensureAccess() {
+	consumeFragmentToken();
+	let health = null;
+	try {
+		health = await api.health();
+	} catch {
+		/* offline: pollHealth reports it */
+	}
+	if (health && health.auth === "token") {
+		if (getToken()) {
+			try {
+				await api.authCheck();
+			} catch (err) {
+				if (err.status === 401) {
+					clearToken();
+					await promptForToken(
+						"The saved token is no longer valid (the console may have restarted). Paste the current one.",
+					);
+				}
+			}
+		} else {
+			await promptForToken();
+		}
+	}
+	// From here on, a 401 means the token went stale mid-session (e.g. a server restart).
+	setUnauthorizedHandler(() => {
+		clearToken();
+		promptForToken(
+			"The access token was rejected or has expired. Paste the current one.",
+		).then(() => location.reload());
+	});
 }
 
 // --------------------------------------------------------------- health -----
@@ -567,6 +661,10 @@ function cacheDom() {
 		"f-thinking",
 		"dialog-error",
 		"dialog-create",
+		"unlock-dialog",
+		"unlock-form",
+		"unlock-input",
+		"unlock-error",
 		"drawer-scrim",
 		"toast",
 		"toggle-sidebar",
@@ -716,6 +814,9 @@ let agentEditor;
 
 async function init() {
 	cacheDom();
+	// Escape must not dismiss the token prompt: nothing works until it is answered.
+	dom.unlockDialog.addEventListener("cancel", (event) => event.preventDefault());
+	await ensureAccess();
 	state.renderer = makeRenderer();
 	agentEditor = new AgentEditor({
 		tools: state.tools,

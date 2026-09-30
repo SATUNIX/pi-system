@@ -44,27 +44,32 @@ try {
   const event = { type: "turn_end", turnIndex: 0, message: usage, toolResults: [] };
   await pi.handlers.get("turn_end")(event, ctx);
   await pi.handlers.get("turn_end")(event, ctx); // duplicate delivery of same message
+  // The default bar is two lines (identity, context); the session totals live in the heavy
+  // layout, which is what this contract check reads.
+  const deflt = custom().render(140);
+  assert.match(deflt[1], /ctx .*70% 18k free/, deflt[1]);
+  assert.match(deflt[0], /synthetic/);
+  assert.match(deflt[0], /on main/);
+  assert.match(deflt[1], /trace-ledger lost=0/, "extension statuses render as chips");
+  await pi.commands.get("footer").handler("heavy", ctx);
   const lines = custom().render(140);
-  assert.match(lines[1], /ctx .*70% 42k\/60k.*session ↑1\.0k ↓500 ⟲200/, lines[1]);
-  assert.match(lines[0], /synthetic/);
-  assert.match(lines[0], /on main/);
-  assert.match(lines[2], /trace-ledger lost=0/, "extension statuses render as chips");
-  assert.ok(lines.every((l) => l.replace(/\x1b\[[0-9;]*m/g, "").length <= 140), "lines fit the width");
+  assert.match(lines.join("\n"), /session ↑1\.0k ↓500 ⟲200/, lines.join("\n"));
+  assert.ok([...deflt, ...lines].every((l) => l.replace(/\x1b\[[0-9;]*m/g, "").length <= 140), "lines fit the width");
   await pi.commands.get("footer").handler("", ctx); // hidden, but accounting continues
   assert.equal(children.has(footer), true, "/footer restores the built-in footer");
   entries.push({ type: "message", message: { ...usage } });
   await pi.handlers.get("turn_end")({ ...event, message: { ...usage } }, ctx);
   await pi.commands.get("footer").handler("", ctx);
   assert.equal(children.has(footer), false);
-  assert.match(custom().render(140)[1], /↑2\.0k ↓1\.0k/);
+  assert.match(custom().render(140).join("\n"), /↑2\.0k ↓1\.0k/);
   await pi.commands.get("footer").handler("reload", ctx);
-  assert.match(custom().render(140)[1], /↑2\.0k/, "refresh must not recount context or usage");
+  assert.match(custom().render(140).join("\n"), /↑2\.0k/, "refresh must not recount context or usage");
   entries.push({ type: "message", message: { role: "assistant" } });
   await pi.handlers.get("turn_end")({ message: { role: "assistant" } }, ctx);
-  assert.match(custom().render(140)[1], /partial/);
+  assert.match(custom().render(140).join("\n"), /partial/);
   entries = [];
   await pi.handlers.get("session_start")({}, ctx);
-  assert.match(custom().render(140)[1], /↑0 ↓0/, "a new session shows its own totals");
+  assert.match(custom().render(140).join("\n"), /↑0 ↓0/, "a new session shows its own totals");
   const broken = { fg: () => { throw new Error("theme broke"); }, bold: (s) => s };
   mode.footer = custom();
   setExtensionFooter.call(mode, null, plain);

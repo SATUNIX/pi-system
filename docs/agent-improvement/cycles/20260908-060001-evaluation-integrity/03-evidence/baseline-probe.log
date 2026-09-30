@@ -1,3 +1,0 @@
-{"repeat":1,"emptyExistingReport":"false_pass","incompleteMatrix":"fails_control","missingTargetLog":"uncaught_ENOENT"}
-{"repeat":2,"emptyExistingReport":"false_pass","incompleteMatrix":"fails_control","missingTargetLog":"uncaught_ENOENT"}
-Timing includes host validation; usage stores completed-message array without totals/completeness.

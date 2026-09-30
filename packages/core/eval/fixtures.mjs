@@ -394,8 +394,9 @@ export const fixtures = [
 
         execFileSync("node", ["packages/core/dream.mjs", "--cwd", ws], { cwd: ROOT, encoding: "utf8" });
 
-        // Allowlisted paths updated; non-allowlisted source untouched.
-        assert(/Learned notes \(dream mode\)/.test(fs.readFileSync(path.join(ws, "AGENTS.md"), "utf8")), "dream must update AGENTS.md");
+        // Allowlisted paths updated; non-allowlisted source untouched. AGENTS.md is loaded into the
+        // model's context and committed, so dream mode must leave it alone.
+        assert(fs.readFileSync(path.join(ws, "AGENTS.md"), "utf8") === "# AGENTS.md\n", "dream must NOT write trace-derived notes into AGENTS.md");
         assert(fs.existsSync(path.join(ws, ".pi", "memory", "dream-notes.md")), "dream must write a memory note");
         assert(fs.readFileSync(path.join(ws, "src", "app.ts"), "utf8") === srcBefore, "dream must NOT touch src/");
 

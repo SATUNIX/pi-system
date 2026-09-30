@@ -7,8 +7,8 @@
  * Enumerating the scripts from the manifest means a new `smoke:*` or `test:*` script is
  * picked up automatically instead of being forgotten.
  *
- * Included: every `smoke:*` and `test:*` script, plus `verify`, `eval`, `docs:check` and
- * `profile:check` (the last one runs once per shipped profile, because it takes one
+ * Included: every `smoke:*` and `test:*` script, plus `verify`, `eval`, `docs:check`,
+ * `docs:mermaid` and `profile:check` (the last one runs once per shipped profile, because it takes one
  * target per invocation).
  *
  * Excluded on purpose: `docs:serve` / `docs:build` (long-running server / site build),
@@ -20,6 +20,7 @@
  *   node packages/core/check-all.mjs             # run everything
  *   node packages/core/check-all.mjs --list      # print what would run, run nothing
  *   node packages/core/check-all.mjs --skip=eval,smoke:docs
+ *   node packages/core/check-all.mjs --check-wiring   # only report unwired / empty tests
  *
  * Exits non-zero if any check fails, printing a summary of all failures (checks are run
  * to completion so one CI run reports every problem, not just the first).
@@ -28,10 +29,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describeProblems, findWiringProblems } from "./lib/wiring.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const INCLUDE_PREFIX = ["smoke:", "test:"];
-const INCLUDE_EXACT = ["verify", "eval", "docs:check", "profile:check"];
+const INCLUDE_EXACT = ["verify", "eval", "docs:check", "docs:mermaid", "profile:check"];
 
 /**
  * Resolve the npm executable for the running platform. Windows needs the `.cmd`
@@ -44,15 +46,16 @@ export function resolveNpmCommand(platform = process.platform) {
 }
 
 function parseArgs(argv) {
-  const options = { list: false, skip: new Set() };
+  const options = { list: false, wiring: false, skip: new Set() };
   for (const arg of argv) {
     if (arg === "--list") options.list = true;
+    else if (arg === "--check-wiring") options.wiring = true;
     else if (arg.startsWith("--skip=")) {
       for (const name of arg.slice("--skip=".length).split(",")) {
         if (name.trim()) options.skip.add(name.trim());
       }
     } else if (arg === "--help" || arg === "-h") {
-      console.log("usage: node packages/core/check-all.mjs [--list] [--skip=a,b]");
+      console.log("usage: node packages/core/check-all.mjs [--list] [--check-wiring] [--skip=a,b]");
       process.exit(0);
     } else {
       console.error(`check-all: unknown argument "${arg}" (try --help)`);
@@ -103,8 +106,22 @@ function argumentSetsFor(name) {
   return targets.length > 0 ? targets : [[]];
 }
 
+function wiringFailures() {
+  let scripts = {};
+  try { scripts = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).scripts ?? {}; } catch { /* checkNames reports it */ }
+  return describeProblems(findWiringProblems({ root: ROOT, scripts }));
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
+
+  if (options.wiring) {
+    const problems = wiringFailures();
+    for (const line of problems) console.error(`check-all: ${line}`);
+    console.log(problems.length ? `check-all: ${problems.length} wiring problem(s)` : "check-all: every test file is wired into a script and asserts something");
+    process.exit(problems.length ? 1 : 0);
+  }
+
   const names = checkNames();
 
   if (names.length === 0) {
@@ -135,6 +152,13 @@ function main() {
   console.log(`check-all: running ${runs.length} check run(s)\n`);
   const failures = [];
   const started = Date.now();
+
+  // A test nobody runs is worse than no test: fail the gate, but still run everything else so
+  // one pass reports every problem.
+  for (const problem of wiringFailures()) {
+    console.error(`check-all: ${problem}`);
+    failures.push(`wiring: ${problem}`);
+  }
 
   for (const run of runs) {
     const began = Date.now();

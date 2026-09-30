@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "effort",
+  "summary": "Execution-effort control: five tiers (E1 Minimal to E5 Exhaustive) that set how deep and broad the agent works and how much it delegates, independent of thinking level, profile and permissions. /effort picks and saves the tier, one prompt contribution replaces the last at each user turn, and a shared ledger enforces concurrent/total/scout child limits at every depth.",
+  "category": "workflow",
+  "tier": "T1",
+  "layer": 4,
+  "entry": "index.ts",
+  "hooks": ["session_start", "session_shutdown", "before_agent_start"],
+  "registers": { "tools": [], "commands": ["effort"] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["fs", "os", "path", "url"],
+    "npm": [],
+    "piPeers": ["@earendil-works/pi-coding-agent"],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_EFFORT", "PI_KIT_EFFORT_CAP", "PI_KIT_EFFORT_LEDGER", "PI_KIT_EFFORT_CONFIG", "PI_KIT_EFFORT_POLICY_DIR"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta",
+  "childGovernance": true
+}

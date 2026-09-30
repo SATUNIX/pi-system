@@ -20,13 +20,13 @@
     "tier": {
       "type": "string",
       "enum": ["T0", "T1", "T2", "T3", "T4", "T1-T4", "T2-T4", "T2-T3", "T1-T3"],
-      "description": "Capability tier from NORTH_STAR §4"
+      "description": "Capability tier (docs/concepts.md, Tiers)"
     },
     "layer": {
       "type": "integer",
       "minimum": 1,
       "maximum": 6,
-      "description": "Architecture layer from NORTH_STAR §5 (1=substrate, 2=tool-surface, 3=context+memory, 4=orchestration, 5=verification, 6=observability)"
+      "description": "Architecture layer (docs/concepts.md, Layers): 1=substrate, 2=tool-surface, 3=context+memory, 4=orchestration, 5=verification, 6=observability"
     },
     "entry": { "type": "string", "pattern": "\\.ts$" },
     "hooks": {
@@ -65,9 +65,13 @@
         "enum": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"]
       },
       "minItems": 0,
-      "description": "NORTH_STAR §7 profiles the extension ships in. quick=T0-T1, balanced=T0-T3 core, long-horizon=T0-T3 full, autonomous=T0-T3+loop, self-improving=T0-T4, pentest=security-engagement-optimised Conductor composition, lite=low-context set for small local models. Empty [] means quarantined (status stub) — kept in-repo but shipped in no profile. verify.mjs cross-checks this list against profiles/*.json exactly."
+      "description": "Profiles the extension ships in (docs/profiles.md). quick=T0-T1, balanced=T0-T3 core, long-horizon=T0-T3 full, autonomous=T0-T3+loop, self-improving=T0-T4, pentest=security-engagement-optimised Conductor composition, lite=low-context set for small local models. Empty [] means quarantined (status stub) — kept in-repo but shipped in no profile. verify.mjs cross-checks this list against profiles/*.json exactly."
     },
     "enabledByDefault": { "type": "boolean" },
+    "childGovernance": {
+      "type": "boolean",
+      "description": "true = the extension is a mandatory protection or task governance that every child session (subagent, reviewer, validator, grandchild) must load whenever the parent session has it enabled. Read by delegation-guard; a child that cannot load one fails closed."
+    },
     "platforms": {
       "type": "array",
       "items": { "type": "string", "enum": ["windows", "linux", "darwin"] },

@@ -11,13 +11,14 @@ non-trivial**. Works in both the lite and full installs.
 
 | Extension | Role |
 | --- | --- |
-| `subagent` (vendored) | The mechanism: single / parallel / chain delegation to role agents in isolated `pi` subprocesses (tool restriction, per-role model, skill preloading), plus [workflows](workflows.md). |
+| `subagent` (vendored) | The one delegation engine: single / parallel / chain delegation to role agents in isolated `pi` subprocesses (tool restriction, per-role model, skill preloading), plus [workflows](workflows.md). Every other launcher goes through the same launch contract. |
+| `delegation-guard` | The launch contract: decides which extensions a child loads, reserves its budget, and verifies inside the child that its protections loaded. See [Child governance](#child-governance). |
+| `effort` | The [effort tier](effort.md) and the shared delegation ledger every launch reserves against. |
 | `orchestrator` | The autonomy: scores task complexity and, when non-trivial, steers the main agent into the plan → implement → validate flow (via a context-sieve message). |
 | `goal-core` | Persists the mission goal to `.pi/GOAL.yaml` (survives compaction). |
 | `task-graph` | Shared DAG task board (`.pi/task-graph.json`): planner emits units, implementers claim the next unblocked one. *(full)* |
 | `verifier-board` | Definition-of-done gate (`.pi/verdicts.json`): the mission isn't done until verdicts pass and at least one trusted source (`verify`/`review`/`validator:<id>`) passes. *(full)* |
 | `branch-lab` | Git worktree leases so parallel implementers don't clobber each other. *(full)* |
-| `pi-subagents` | Optional external power-up: background jobs, clarification questions, `oracle` second opinion. |
 
 ## Roles
 
@@ -35,27 +36,60 @@ built-in roles; byte-identical copies are not flagged.
 
 Role frontmatter: `name`, `description`, `tools` (comma list), `model` (`provider/id`),
 `thinking` (`off` … `max`), `skills` (SKILL.md bodies preloaded into the role's system
-prompt), `extensions` (extra kit extensions for the isolated child), and `max_runtime`
-(`30m`).
+prompt), `extensions` (extra kit extensions for the isolated child), `max_runtime`
+(`30m`), `effort` (ask for a lower [effort tier](effort.md) for this role) and `scout: true`
+(count against the scout limit).
 
 ## Subagent model policy
 
 A role's `model:` is used when set. Otherwise the child gets the parent session's active
 model. Set `PI_KIT_SUBAGENT_INHERIT_MODEL=1` to force the parent model for every role.
 
-## Child isolation
+## Child governance
 
-Children run `pi --no-extensions` plus an allowlist: `secret-guard`, `protected-paths`,
-`tool-firewall`, `finish-reason-retry` and `todo`, each only if you have it enabled. A role
-whose tools include `subagent` also gets `subagent`, and a role or step can add
-`extensions:`. Before this, children ran every extension. Their orchestrator and memory
-hooks treated the delegated task as a user prompt, rewrote the parent's shared
-`.pi/ctx-contributions`, and told implementers to delegate again. Override the allowlist
-with `PI_KIT_SUBAGENT_EXTENSIONS=a,b`, or disable isolation with
-`PI_KIT_SUBAGENT_ISOLATE=0`.
+A child is a separate `pi` process started with `--no-extensions` plus an allowlist that
+`delegation-guard` builds. Every launch path uses it: the `subagent` tool, `/workflow`, the
+completion reviewer in `verify-gate`, the specialists and validators in `conductor`, the second-model
+reviewer in `dual-review` (`/review` and the `dual_review` tool), and recovery. A test scans the
+extension sources and fails when a launcher of `pi` children does not ask the guard
+(`tests/delegation-guard-smoke.mjs`). There is one engine, so there is one set of rules:
 
-The task reaches the child over stdin (print mode merges it into the prompt), not as one argv
-string, so large chained tasks can't hit the 128 KiB argument limit.
+```mermaid
+flowchart TD
+    call[A launcher asks to start a child] --> guard{delegation-guard}
+    guard -->|missing protection, no ledger,<br/>policy unreadable| refuse[Refused, with the reason]
+    guard --> reserve[Reserve a slot in the shared effort ledger]
+    reserve -->|over budget| refuse
+    reserve --> start[pi --no-extensions -e governance... -e companions...]
+    start --> self{Child checks its own protections}
+    self -->|one did not load| fail[Blocks every tool, exits 78]
+    self --> run[Child runs, at the parent's tier or lower]
+    run --> settle[Slot settled: no refund]
+```
+
+- **Governance first.** The child loads `delegation-guard`, then `protected-paths`, `secret-guard`
+  and `tool-firewall` (each if the parent has it), then any other extension whose manifest says
+  `childGovernance: true` (`effort`, `pentest-governance-domain`), then the companions
+  `finish-reason-retry` and `todo`. The firewall is always ahead of anything that could act.
+- **Fail closed.** If a required protection cannot be located or did not load in the child, the
+  child is not started, or (if it started) blocks every tool call and exits with code 78
+  (`EX_CONFIG`) so the parent sees a visible failure. A child is never started with weaker
+  protection than its parent, at any depth: grandchildren go through the same contract.
+- **Fatal, not retried.** A denied or misconfigured launch is not treated as a transient failure.
+- **Budgeted.** Every launch reserves a slot in the [effort ledger](effort.md#how-delegation-is-budgeted);
+  a child's tier is its parent's or lower.
+- **Roles that need more.** A role whose tools include `subagent` also gets `subagent`, and a
+  role or step can add `extensions:`, by **name**: a kit extension's registry name, never a path,
+  so a role, workflow or settings file cannot load arbitrary code into a governed child (a name
+  that is not one is skipped). Ambient launchers (a pentest specialist that needs the operator's
+  MCP servers) keep the operator's extensions but are always given `delegation-guard` explicitly
+  and the guard's environment, so the child-side check runs even if the child's settings would not
+  have loaded it.
+
+`PI_KIT_SUBAGENT_EXTENSIONS=a,b` replaces the **companion** list (governance cannot be removed).
+`PI_KIT_SUBAGENT_ISOLATE=0` no longer disables isolation. The task reaches the child over stdin
+(print mode merges it into the prompt), not as one argument, so large chained tasks cannot hit the
+128 KiB argument limit.
 
 ## How autonomy works
 
@@ -111,7 +145,7 @@ suppressed entirely in a session with no write-capable tool active. See
 - **Lite ("Plan→Do→Check"):** `planner → implementer → reviewer` chain, in-place, higher threshold.
   Ships `subagent`, `orchestrator`, `goal-core` + the role agents. No external deps.
 - **Full ("Agent Team"):** adds `scout`, parallel implementers in `branch-lab` worktrees, the
-  `task-graph` DAG, the `verifier-board` gate, and (optionally) `pi-subagents`.
+  `task-graph` DAG and the `verifier-board` gate.
 
 ## Manual entry points
 
@@ -159,21 +193,12 @@ Shell-only changes and external tools still need explicit project checks or an
 explicit workflow. This completion guidance is not an authorization boundary or
 proof that model-authored evidence is correct.
 
-## Enabling the optional power-up
-
-`pi-subagents` is registered in `packages/core/sources.json` but not installed by default. Add it when you want
-background delegation or `oracle` critiques:
-
-```sh
-pi install npm:pi-subagents
-```
-
 ## Root orchestration with Conductor
 
 `conductor` is the layer-4 orchestration layer above this task-level `orchestrator`. It owns durable,
 multi-phase engagements, dynamically synthesises least-privilege specialists rather than relying only
 on static `.pi/agents/*.md` roles, and routes claimed findings/results through causally independent
-validation. See the [Conductor design of record](proposals/root-orchestrator-conductor.md) and the
+validation. See [Subagents and orchestration](architecture/subagents-and-orchestration.md) and the
 `engagement-conductor` and `dynamic-agent-synthesis` skills under
 [Orchestration & recovery](skills-catalogue.md#orchestration-recovery), and the
 `independent-finding-validation` skill under

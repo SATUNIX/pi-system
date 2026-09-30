@@ -6,7 +6,7 @@ name: ci
 
 on:
   push:
-    branches: [main, "experimental/**"]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_call:
@@ -34,9 +34,11 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run -s security:lockfile
       # One definition of done: check:all enumerates verify, eval, docs:check, every
-      # smoke:*/test:* script (including smoke:package, the published-tarball check) and
+      # smoke:*/test:* script (including smoke:package, the published-tarball check, and
+      # smoke:clean-install, which installs that tarball and starts the real pi) and
       # profile:check per profile from package.json, so a new check is picked up without
-      # editing this workflow (matches .gitlab-ci.yml).
+      # editing this workflow. It also fails on a test file no script runs (smoke:wiring),
+      # so a green run cannot hide an unwired suite.
       - run: npm run -s check:all
 
   docs-build:
@@ -70,16 +72,28 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run profile:check -- --profile ${{ matrix.profile }}
+      # bash on both runners, so "$PROFILE" expands the same way on Windows.
+      - run: npm run profile:check -- --profile "$PROFILE"
+        shell: bash
+        env:
+          PROFILE: ${{ matrix.profile }}
 
-  # Version pin discipline: verify at the supported floor AND the tested ceiling.
+  # Version pin discipline. devDependencies pin the tested version (the `verify` job runs against
+  # it); this matrix runs the whole check suite at the supported FLOOR (must pass) and at the
+  # newest pi release we have looked at (advisory: it may fail after a pi release, and that
+  # failure is the signal to review before the peer range is widened).
   pi-compat:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    continue-on-error: ${{ matrix.advisory }}
     strategy:
       fail-fast: false
       matrix:
-        pi: ["0.76.0", "0.79.6"]
+        include:
+          - pi: "0.85.1"
+            advisory: false
+          - pi: "0.99.1"
+            advisory: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -89,7 +103,13 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: >-
-          npm install --no-save --ignore-scripts
-          @earendil-works/pi-coding-agent@${{ matrix.pi }}
-      - run: npm run verify
+      # Installing outside the lockfile is the point of this job: it runs the suite against a pi version other than the pinned one.
+      # The version is a literal from the matrix above, passed through the environment rather than spliced into the script.
+      - run: >- # zizmor: ignore[adhoc-packages]
+          npm install --no-save --ignore-scripts --no-audit --no-fund
+          "@earendil-works/pi-coding-agent@${PI_VERSION}"
+          "@earendil-works/pi-ai@${PI_VERSION}"
+        env:
+          PI_VERSION: ${{ matrix.pi }}
+      # The tarball check does not depend on the pi version; everything else does.
+      - run: npm run -s check:all -- --skip=smoke:package

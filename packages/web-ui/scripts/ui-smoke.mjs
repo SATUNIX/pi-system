@@ -148,22 +148,27 @@ globalThis.window = {
 	confirm: () => true,
 	addEventListener: () => {},
 };
-globalThis.EventSource = class {
-	constructor(url) {
-		this.url = url;
-		this.listeners = {};
-		globalThis.__lastEventSource = this;
-	}
-	addEventListener(type, fn) {
-		(this.listeners[type] = this.listeners[type] || []).push(fn);
-	}
-	removeEventListener() {}
-	close() {}
-	/** Test helper: deliver a named SSE frame like a real EventSource would. */
-	emit(type, payload) {
-		for (const fn of this.listeners[type] || [])
-			fn({ data: JSON.stringify(payload) });
-	}
+// Browser globals the token flow touches. There is deliberately no EventSource: the client
+// streams events over fetch() so it can send an Authorization header (see public/js/sse.js).
+globalThis.sessionStorage = {
+	_data: {},
+	getItem(k) {
+		return this._data[k] ?? null;
+	},
+	setItem(k, v) {
+		this._data[k] = String(v);
+	},
+	removeItem(k) {
+		delete this._data[k];
+	},
+};
+globalThis.location = { hash: "", pathname: "/", search: "", reload() {} };
+globalThis.history = {
+	replaced: [],
+	replaceState(_state, _title, url) {
+		this.replaced.push(url);
+		globalThis.location.hash = "";
+	},
 };
 const CONFIG_STUB = {
 	app: {
@@ -194,7 +199,7 @@ const CONFIG_STUB = {
 
 function stubResponse(url) {
 	const body = url.includes("/api/health")
-		? { ok: true, version: "0.1.0", uptimeSec: 1 }
+		? { ok: true, version: "0.1.0", uptimeSec: 1, auth: globalThis.__healthAuth || "off" }
 		: url.includes("/api/models")
 			? {
 					providers: [{ name: "ollama", models: [{ id: "m" }] }],
@@ -216,7 +221,52 @@ function stubResponse(url) {
 	return { ok: true, status: 200, text: async () => JSON.stringify(body) };
 }
 
-globalThis.fetch = async (url) => stubResponse(String(url));
+globalThis.__fetchCalls = [];
+globalThis.fetch = async (url, options = {}) => {
+	const target = String(url);
+	globalThis.__fetchCalls.push({ url: target, options });
+	// Optional server-side token requirement, for the login-flow check below.
+	if (globalThis.__requireToken && !target.includes("/api/health")) {
+		const presented = options.headers && options.headers.Authorization;
+		if (presented !== `Bearer ${globalThis.__requireToken}`) {
+			return {
+				ok: false,
+				status: 401,
+				text: async () => JSON.stringify({ error: "access token required" }),
+			};
+		}
+	}
+	if (target.endsWith("/events")) {
+		// A real SSE response: a byte stream of `event:`/`data:` frames.
+		const encoder = new TextEncoder();
+		let controller;
+		const body = new ReadableStream({
+			start(c) {
+				controller = c;
+			},
+		});
+		if (options.signal)
+			options.signal.addEventListener("abort", () => {
+				try {
+					controller.error(new Error("aborted"));
+				} catch {
+					/* already closed */
+				}
+			});
+		globalThis.__lastEventSource = {
+			url: target,
+			options,
+			/** Test helper: deliver a named SSE frame like the server does. */
+			emit(type, payload) {
+				controller.enqueue(
+					encoder.encode(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`),
+				);
+			},
+		};
+		return { ok: true, status: 200, body };
+	}
+	return stubResponse(target);
+};
 globalThis.setInterval = () => 0;
 globalThis.clearInterval = () => {};
 // Keep setTimeout real so the throttled markdown flush actually runs (app.js schedules it with
@@ -435,6 +485,107 @@ console.log("pi-console ui smoke");
 	}
 }
 
+// Access token handling: fragment -> sessionStorage -> Authorization header, never a URL/cookie.
+{
+	const auth = await import(path.join(ROOT, "public", "js", "auth.js"));
+	const { api, setUnauthorizedHandler } = await import(
+		path.join(ROOT, "public", "js", "api.js")
+	);
+	const { SessionStream, parseFrame } = await import(
+		path.join(ROOT, "public", "js", "sse.js")
+	);
+	const TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef";
+
+	auth.clearToken();
+	globalThis.location.hash = `#token=${TOKEN}`;
+	globalThis.history.replaced.length = 0;
+	auth.consumeFragmentToken() === TOKEN
+		? ok("auth: token taken from the URL fragment")
+		: bad("auth: fragment token not consumed");
+	globalThis.history.replaced.length === 1 &&
+	globalThis.location.hash === "" &&
+	!String(globalThis.history.replaced[0]).includes(TOKEN)
+		? ok("auth: fragment stripped from the address bar")
+		: bad("auth: token left in the address bar");
+	globalThis.sessionStorage.getItem("pi-console.token") === TOKEN
+		? ok("auth: token kept in sessionStorage only")
+		: bad("auth: token not stored for the tab");
+	globalThis.localStorage.getItem("pi-console.token") === null
+		? ok("auth: token never written to localStorage")
+		: bad("auth: token persisted in localStorage");
+
+	globalThis.location.hash = "#token=short";
+	auth.clearToken();
+	auth.consumeFragmentToken() === null && auth.getToken() === null
+		? ok("auth: malformed fragment token rejected (and stripped)")
+		: bad("auth: malformed token accepted");
+	globalThis.location.hash = "#section-two";
+	globalThis.history.replaced.length = 0;
+	auth.consumeFragmentToken() === null && globalThis.history.replaced.length === 0
+		? ok("auth: unrelated fragments are left alone")
+		: bad("auth: unrelated fragment was rewritten");
+
+	auth.setToken(TOKEN);
+	globalThis.__fetchCalls.length = 0;
+	await api.sessions();
+	const get = globalThis.__fetchCalls.at(-1);
+	get.options.headers.Authorization === `Bearer ${TOKEN}`
+		? ok("api: GET carries the bearer token")
+		: bad("api: GET missing the bearer token");
+	!get.url.includes(TOKEN) && !get.url.includes("token=")
+		? ok("api: token never placed in a URL")
+		: bad("api: token leaked into a URL");
+	get.options.credentials === "omit"
+		? ok("api: no cookies are sent")
+		: bad("api: credentials not omitted");
+	await api.abort("s1");
+	const post = globalThis.__fetchCalls.at(-1);
+	post.options.headers["Content-Type"] === "application/json" &&
+	post.options.body === "{}"
+		? ok("api: bodiless POST still declares JSON")
+		: bad("api: bodiless POST missing the JSON content type");
+
+	let unauthorised = 0;
+	setUnauthorizedHandler(() => {
+		unauthorised++;
+	});
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = async () => ({
+		ok: false,
+		status: 401,
+		text: async () => JSON.stringify({ error: "access token required" }),
+	});
+	let status = null;
+	await api.sessions().catch((error) => {
+		status = error.status;
+	});
+	await api.authCheck().catch(() => {});
+	globalThis.fetch = realFetch;
+	status === 401 && unauthorised === 1
+		? ok("api: 401 raises the login prompt (authCheck stays quiet)")
+		: bad(`api: 401 handling wrong (status ${status}, prompts ${unauthorised})`);
+	setUnauthorizedHandler(() => {});
+
+	const stream = new SessionStream("sess-auth", { onEvent: () => {} });
+	stream.open();
+	globalThis.__lastEventSource.options.headers.Authorization === `Bearer ${TOKEN}` &&
+	!globalThis.__lastEventSource.url.includes(TOKEN)
+		? ok("sse: stream request authenticates with a header, not the URL")
+		: bad("sse: stream request not authenticated correctly");
+	stream.close();
+
+	const frame = parseFrame("event: lifecycle\ndata: {\"a\":1}\ndata: 2");
+	frame && frame.event === "lifecycle" && frame.data === '{"a":1}\n2'
+		? ok("sse: frame parser handles event/multi-line data")
+		: bad("sse: frame parser wrong");
+	parseFrame(": ping") === null
+		? ok("sse: comment frames ignored")
+		: bad("sse: comment frame not ignored");
+
+	auth.clearToken();
+	globalThis.location.hash = "";
+}
+
 // Streaming reveal: an observed reply must appear progressively, not all at once.
 {
 	const { ChatRenderer } = await import(path.join(ROOT, "public", "js", "render.js"));
@@ -475,6 +626,7 @@ console.log("pi-console ui smoke");
 }
 
 const modules = [
+	"auth.js",
 	"api.js",
 	"sse.js",
 	"render.js",
@@ -490,6 +642,69 @@ for (const file of modules) {
 	} catch (err) {
 		bad(`import ${file}: ${err.message}`);
 	}
+}
+
+// Login flow: with a token-protected server and no token held, app.js must show the unlock
+// dialog, refuse a malformed or wrong token, and carry on once the right one is accepted.
+try {
+	const TOKEN = "fedcba9876543210fedcba9876543210fedcba9876543210";
+	const dialog = registry.get("unlock-dialog");
+	const input = registry.get("unlock-input");
+	const form = registry.get("unlock-form");
+	const errorLine = registry.get("unlock-error");
+	const submit = () =>
+		Promise.all((form.listeners.submit || []).map((fn) => fn({ preventDefault() {} })));
+	const tick = (ms = 60) => new Promise((resolve) => realSetTimeout(resolve, ms));
+
+	// Let the first app.js instance (imported above, auth off) finish its own init() so its
+	// data loads cannot be mistaken for requests made by the instance under test.
+	await tick(400);
+	globalThis.__healthAuth = "token";
+	globalThis.__requireToken = TOKEN;
+	globalThis.sessionStorage._data = {};
+	globalThis.__fetchCalls.length = 0;
+	dialog.open = false;
+	const { pathToFileURL } = await import("node:url");
+	// A distinct module instance re-runs init() against the token-protected stub server.
+	import(`${pathToFileURL(path.join(ROOT, "public", "js", "app.js")).href}?locked=1`);
+	await tick();
+	dialog.open === true
+		? ok("login: unlock dialog shown when a token is required and none is held")
+		: bad("login: unlock dialog not shown");
+	globalThis.__fetchCalls.some((c) => /\/api\/sessions/.test(c.url))
+		? bad("login: data was requested before the token was entered")
+		: ok("login: nothing is fetched before the token is entered");
+
+	input.value = "nope";
+	await submit();
+	dialog.open === true && errorLine.hidden === false
+		? ok("login: malformed token refused")
+		: bad("login: malformed token accepted");
+
+	input.value = "0000000000000000000000000000000000000000000000";
+	await submit();
+	dialog.open === true && /not accepted/.test(errorLine.textContent)
+		? ok("login: wrong token refused by the server")
+		: bad(`login: wrong token handling (${errorLine.textContent})`);
+
+	input.value = TOKEN;
+	await submit();
+	await tick(150);
+	dialog.open === false
+		? ok("login: correct token closes the dialog")
+		: bad("login: dialog still open after the correct token");
+	globalThis.__fetchCalls.some(
+		(c) =>
+			/\/api\/sessions/.test(c.url) &&
+			c.options.headers.Authorization === `Bearer ${TOKEN}`,
+	)
+		? ok("login: initialisation resumes with the token")
+		: bad("login: app did not continue after unlock");
+} catch (err) {
+	bad(`login flow: ${err.stack || err.message}`);
+} finally {
+	globalThis.__healthAuth = undefined;
+	globalThis.__requireToken = undefined;
 }
 
 // Re-render panels against live-ish shapes to prove the render paths do not throw.
