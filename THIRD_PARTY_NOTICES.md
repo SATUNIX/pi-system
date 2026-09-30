@@ -100,6 +100,23 @@ SOFTWARE.
   - Tips widget during runs (`/tips on|off`), filtered to loaded commands.
   - Todo checklist widget from `TODO.md` (`/footer todos on|off`).
   - UI settings persist in `<agent dir>/pi-kit/ui.json`.
+- 2026-09-30 rewrite (public beta):
+  - One renderer built from prioritised segments (`render.ts`): light, default and heavy differ in
+    content, not just line count; narrow terminals drop the least important segment first, shorten
+    long ones, and never drop a boundary or failure warning for telemetry. Widths are terminal
+    columns (`width.ts`: wide characters, emoji clusters, combining marks, ANSI/OSC 8).
+  - Shows the effort tier (and a pending change), unattended state (what the firewall enforces, never
+    what the environment claims), compaction state and live/failed children, read from read-only
+    registries their owners publish on globalThis (`data.ts`); costs are labelled measured,
+    estimated or unknown (unknown is not zero); unknown context is `?`, not 0%.
+  - No subprocess and no disk read per render: the branch comes from `.git/HEAD` at session start
+    (or pi's footer data), session totals are incremental, todos are stat-cached, profile and firewall
+    are read once per session. Stale in-flight chips are hidden once idle; failures never are.
+  - Lifecycle: `session_shutdown` clears the ticker, widgets and hooks; a reload replaces, never adds.
+  - Commands: invalid `/footer` and `/tips` arguments no longer toggle or mutate anything (the old
+    fall-through toggled the bar); non-interactive sessions get text on stderr; `/footer status` is
+    the accessible detail view of everything the bar drops; `/footer ascii on|off`.
+  - The working line keeps run tokens and time; the footer no longer repeats them.
 
 ### `dirty-repo-guard`
 

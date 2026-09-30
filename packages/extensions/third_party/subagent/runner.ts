@@ -14,9 +14,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runChildProcess } from "./child-process.ts";
-import { boundMessage, classifyFailure } from "./result.ts";
+import { boundMessage, classifyFailure, isFailedResult } from "./result.ts";
 import { createRunLog, subagentStateDir } from "./logging.ts";
-import { registerLive, unregisterLive } from "./live.ts";
+import { noteFinished, registerLive, unregisterLive } from "./live.ts";
 import { isReadOnlyRole, isScoutRole, prepareChildLaunch } from "./launch.ts";
 import { skillPreamble } from "./skills.ts";
 import {
@@ -423,6 +423,7 @@ export async function runAgent(options: RunAgentOptions): Promise<SingleResult> 
     }
 
     result.attempts = attempts;
+    noteFinished(isFailedResult(result));
     const stop = result.stopReason ?? (result.exitCode === 0 ? "end" : "error");
     runLog.write(`# exit=${result.exitCode} stopReason=${stop} attempts=${attempts} turns=${result.usage.turns} model=${result.model ?? "?"} cost=${result.usage.cost}`);
     runLog.close(stop, { exitCode: result.exitCode, turns: result.usage.turns, model: result.model, cost: result.usage.cost, attempts });
