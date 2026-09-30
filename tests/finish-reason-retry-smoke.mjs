@@ -146,10 +146,19 @@ try {
 
   // 3. A provider pattern anchored to the message start (Cerebras "^413 (no body)") keeps working:
   //    the explanation goes behind it.
+  //    That pattern is pi-ai's, and newer pi-ai releases changed which bare 413 texts count as an
+  //    overflow: the extension must follow pi's classifier either way, so the expectation is derived
+  //    from it (rewrite exactly when pi calls the raw message an overflow, and then keep it one).
   {
-    const out = await frr.handlers.get("message_end")({ message: overflowMessage("413 status code (no body)") }, ctxFor());
-    assert.match(out.message.errorMessage, /^413 status code \(no body\) \[pi-kit context-exhausted\]/);
-    assert.equal(isContextOverflow(out.message, WINDOW), true);
+    const raw = overflowMessage("413 status code (no body)");
+    const piCallsItOverflow = isContextOverflow(raw, WINDOW);
+    const out = await frr.handlers.get("message_end")({ message: raw }, ctxFor());
+    if (piCallsItOverflow) {
+      assert.match(out.message.errorMessage, /^413 status code \(no body\) \[pi-kit context-exhausted\]/);
+      assert.equal(isContextOverflow(out.message, WINDOW), true);
+    } else {
+      assert.equal(out, undefined, "not an overflow to pi, so the message is left alone");
+    }
   }
 
   // 4. Non-overflow errors and rate limits are never touched.
