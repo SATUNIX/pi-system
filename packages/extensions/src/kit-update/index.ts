@@ -405,6 +405,8 @@ export interface UpdateReport {
     tags: Record<string, string> | null;
     /** The delivery this install should move to (a kit release changed it), or null. */
     migrateTo: "git" | "npm" | null;
+    /** A local checkout whose `origin` is a retired private source: it is never contacted, so it is never pulled. */
+    legacyOrigin?: boolean;
   };
   packages: PackageStatus[];
   /** True when at least one registry or git lookup failed (results may be incomplete). */
@@ -448,6 +450,7 @@ export async function checkForUpdates(cwd: string, fetchImpl: FetchLike, piVersi
   let note: string | null = null;
   let tags: Record<string, string> | null = kitTags;
   let commit: string | null = null;
+  let legacyOrigin = false;
   if (migrateTo) {
     available = true;
     target = `${migrateTo} delivery`;
@@ -499,7 +502,15 @@ export async function checkForUpdates(cwd: string, fetchImpl: FetchLike, piVersi
       const [head, branch] = await Promise.all([git(["-C", kit.root, "rev-parse", "HEAD"]), git(["-C", kit.root, "rev-parse", "--abbrev-ref", "HEAD"])]);
       commit = head?.trim() || null;
       const name = branch?.trim();
-      if (commit && name && name !== "HEAD") {
+      // A checkout whose origin is a retired private source is never contacted (no ls-remote, no pull): the host may not exist
+      // for this machine, and "up to date" from a failed contact would be false. The operator re-points it or reinstalls.
+      const originUrl = (await git(["-C", kit.root, "remote", "get-url", "origin"]))?.trim() ?? null;
+      // `git remote get-url` may print a URL or the scp form (git@host:owner/repo), which parseGitSource reads with its `git:` prefix.
+      legacyOrigin = Boolean(originUrl && isLegacyGitSource(/^[a-z][a-z+.-]*:\/\//i.test(originUrl) ? originUrl : `git:${originUrl}`, dist.legacySources));
+      if (legacyOrigin) {
+        offline = true; // nothing was looked up, so the report must not read as "up to date"
+        note = `this checkout's origin (${originUrl}) is a retired private source, so /update does not contact it. Install from ${PUBLIC_KIT_SOURCE.replace(/^git:/, "")} (pi install ${PUBLIC_KIT_SOURCE}) or point origin at the public repository; see docs/migration.md`;
+      } else if (commit && name && name !== "HEAD") {
         const remote = await git(["-C", kit.root, "ls-remote", "origin", `refs/heads/${name}`]);
         const upstream = remote ? branchHead(remote, name) : null;
         if (remote === null) offline = true;
@@ -527,7 +538,7 @@ export async function checkForUpdates(cwd: string, fetchImpl: FetchLike, piVersi
     return { source: e.source, name: npm.name, scope: e.scope, installed, kitPin, latest, action };
   });
 
-  return { cwd, checkedAt: new Date().toISOString(), pi, kit: { ...kit, commit, target, available, note, tags, migrateTo }, packages, offline };
+  return { cwd, checkedAt: new Date().toISOString(), pi, kit: { ...kit, commit, target, available, note, tags, migrateTo, ...(legacyOrigin ? { legacyOrigin } : {}) }, packages, offline };
 }
 
 /** Anything the user can act on (pinned-only notices do not count). */
@@ -543,7 +554,9 @@ export function summaryLine(report: UpdateReport): string {
   if (report.pi.available) parts.push(`pi ${report.pi.current} → ${report.pi.latest}`);
   const pkgs = report.packages.filter((p) => p.action === "reconcile" || p.action === "update");
   if (pkgs.length) parts.push(`${pkgs.length} linked package${pkgs.length === 1 ? "" : "s"}`);
-  return parts.length ? `Updates available: ${parts.join(", ")}. Run /update.` : "Everything is up to date.";
+  if (parts.length) return `Updates available: ${parts.join(", ")}. Run /update.`;
+  // A lookup that failed is not evidence that nothing is new.
+  return report.offline ? "Could not check everything (a lookup failed: offline, or no credentials for a remote), so this may not be up to date. /update status says which." : "Everything is up to date.";
 }
 
 export function formatReport(report: UpdateReport): string {
@@ -641,7 +654,9 @@ function effectiveScope(kit: KitInstall, marker: MarkerData): "project" | "globa
  * description when the update did not actually take effect (a package manager that exits 0
  * without moving anything must never be reported as an update). `null` means verified.
  */
-type Step = { label: string; command: string; args: string[]; cwd?: string; verify?: () => Promise<string | null> };
+/** What a step's `verify` says: null (the update took effect), a problem (it did not), or that it could not be checked. */
+type Verdict = string | null | { unverified: string };
+type Step = { label: string; command: string; args: string[]; cwd?: string; verify?: () => Promise<Verdict> };
 
 function tail(result: ExecResult): string {
   return (result.stderr || result.stdout || "").trim().split(/\r?\n/).slice(-12).join("\n");
@@ -715,14 +730,14 @@ function verifyPackageVersion(name: string, scope: "user" | "project", cwd: stri
 }
 
 /** After `pi update --self`: the pi on PATH must now report the new version (the running process still has the old one). */
-function verifyPiVersion(pi: ExtensionAPI, cwd: string, expected: string): () => Promise<string | null> {
+function verifyPiVersion(pi: ExtensionAPI, cwd: string, expected: string): () => Promise<Verdict> {
   return async () => {
     let out = "";
     try {
       const result = await pi.exec(piBinary(), ["--version"], { cwd, timeout: 30_000 });
       out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
     } catch {
-      return null; // cannot ask: not evidence either way
+      return { unverified: `could not run \`${piBinary()} --version\` to check that pi is now ${expected}` }; // not evidence either way, and not reported as verified
     }
     return out.includes(expected) ? null : `pi reports "${out.trim().split(/\r?\n/)[0] ?? ""}" after the update, expected ${expected}`;
   };
@@ -775,6 +790,8 @@ export function planUpdate(report: UpdateReport, what: "all" | "kit" | "pi" | "p
         steps.push({ label: `update pi-system to ${kit.target}`, command: pi, args: ["install", gitSourceWithRef(kit.source, `${prefix}${kit.target}`), ...scopeFlag], verify: kit.target ? verifyKitVersion(report.cwd, kit.target) : undefined });
       }
       kitChanged = true;
+    } else if (kit.kind === "local" && kit.legacyOrigin) {
+      notes.push(`pi-system: ${kit.note}`);
     } else if (kit.kind === "local" && kit.root && (kit.available || what === "kit")) {
       steps.push({ label: "pull the local checkout (fast-forward only)", command: "git", args: ["-C", kit.root, "pull", "--ff-only"] });
       kitChanged = true;
@@ -855,6 +872,8 @@ function planChannelSwitchSteps(report: UpdateReport, channel: string): { steps:
 export interface StepOutcome {
   ok: boolean;
   done: string[];
+  /** Steps that exited 0 but that nothing could confirm (no check exists, or the check could not run), with why. */
+  unverified?: Array<{ label: string; why: string }>;
   /** The step that failed, and why (non-zero exit, or exit 0 without the promised effect). */
   failed?: { label: string; reason: string };
 }
@@ -871,6 +890,7 @@ function say(ctx: ExtensionCommandContext, message: string, level: "info" | "war
  */
 export async function runPlan(pi: ExtensionAPI, cwd: string, steps: Step[], ui?: { setStatus(key: string, text: string | undefined): void }): Promise<StepOutcome> {
   const done: string[] = [];
+  const unverified: Array<{ label: string; why: string }> = [];
   for (const step of steps) {
     ui?.setStatus("kit-update", `${step.label}...`);
     let result: ExecResult;
@@ -884,21 +904,32 @@ export async function runPlan(pi: ExtensionAPI, cwd: string, steps: Step[], ui?:
       return { ok: false, done, failed: { label: step.label, reason: `exit ${result.code}${result.killed ? " (timed out or killed)" : ""}\n${tail(result)}`.trim() } };
     }
     if (step.verify) {
-      let problem: string | null = null;
+      let verdict: Verdict = null;
       try {
-        problem = await step.verify();
+        verdict = await step.verify();
       } catch (error) {
-        problem = `could not verify the result: ${error instanceof Error ? error.message : String(error)}`;
+        verdict = `could not verify the result: ${error instanceof Error ? error.message : String(error)}`;
       }
-      if (problem) {
+      if (typeof verdict === "string" && verdict) {
         ui?.setStatus("kit-update", undefined);
-        return { ok: false, done, failed: { label: step.label, reason: `the command exited 0 but the update did not take effect: ${problem}` } };
+        return { ok: false, done, failed: { label: step.label, reason: `the command exited 0 but the update did not take effect: ${verdict}` } };
       }
+      if (verdict && typeof verdict === "object") unverified.push({ label: step.label, why: verdict.unverified });
+    } else {
+      unverified.push({ label: step.label, why: "the command exited 0; nothing independent confirms it" });
     }
     done.push(step.label);
   }
   ui?.setStatus("kit-update", undefined);
-  return { ok: true, done };
+  return { ok: true, done, ...(unverified.length ? { unverified } : {}) };
+}
+
+/** The success message: "verified" only for what was confirmed, and what was not is named. */
+export function successMessage(outcome: StepOutcome): string {
+  const unverified = new Map((outcome.unverified ?? []).map((u) => [u.label, u.why]));
+  if (unverified.size === 0) return `Updated (verified): ${outcome.done.join("; ")}.`;
+  const parts = outcome.done.map((label) => (unverified.has(label) ? `${label} (NOT verified: ${unverified.get(label)})` : `${label} (verified)`));
+  return `Updated: ${parts.join("; ")}.`;
 }
 
 async function runSteps(pi: ExtensionAPI, ctx: ExtensionCommandContext, steps: Step[]): Promise<StepOutcome> {
@@ -979,7 +1010,7 @@ export default function (pi: ExtensionAPI) {
         const other = (report.kit.kind === "npm" || report.kit.kind === "git") && report.kit.channel === "next" ? "latest" : "next";
         options.push({ label: `Switch pi-system channel to ${other}${other === "next" ? " (tracks main)" : " (releases)"}`, value: `channel ${other}` });
         options.push({ label: "Show details", value: "status" });
-        const choice = await c.ui.select(hasUpdates(report) ? summaryLine(report) : "Everything is up to date.", options.map((o) => o.label));
+        const choice = await c.ui.select(summaryLine(report), options.map((o) => o.label));
         if (choice === undefined) return;
         arg = options.find((o) => o.label === choice)?.value ?? "status";
         if (arg === "status") {
@@ -1021,7 +1052,7 @@ export default function (pi: ExtensionAPI) {
       } catch {
         /* best-effort */
       }
-      say(c, [`Updated (verified): ${outcome.done.join("; ")}.`, ...plan.notes, piUpdated ? "Restart pi to run the new pi version." : "", reloadNeeded ? "Reloading..." : ""].filter(Boolean).join("\n"), "info");
+      say(c, [successMessage(outcome), ...plan.notes, piUpdated ? "Restart pi to run the new pi version." : "", reloadNeeded ? "Reloading..." : ""].filter(Boolean).join("\n"), "info");
       if (reloadNeeded) {
         await c.waitForIdle?.();
         await c.reload();

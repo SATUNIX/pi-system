@@ -18,12 +18,16 @@ is and is not covered, and `docs/migration.md` if you installed from the earlier
 ### Added
 
 - **Public delivery.** The kit installs from `git:github.com/SATUNIX/pi-system` (release tags for
-  `latest`, `main` for `next`). Installs registered from the retired private GitLab sources are
-  detected and migrated by `/update` and by the installer: the retired host is never contacted,
-  the channel, profile and hand edits are kept, and the old registration is removed.
+  `latest`, `main` for `next`). Installs registered from the retired private GitLab sources move
+  when you install the public kit and run its installer (`docs/migration.md`): the retired host is
+  never contacted, the channel, profile and hand edits are kept, and the old registration is
+  removed. This release's `/update` also recognises a retired registration or a local checkout with
+  a retired `origin` and never contacts that host; an old checkout that has not been brought forward
+  runs the old code and cannot migrate itself.
 - **Verified updates.** `/update` re-reads the installed state after each step and reports a step
-  that ran but left the old state behind as failed, stopping the run without reloading. Progress
-  and failures go to standard error when there is no terminal UI.
+  that ran but left the old state behind as failed, stopping the run without reloading. A step
+  nothing could confirm is reported as not verified, and a failed lookup is never reported as
+  "up to date". Progress and failures go to standard error when there is no terminal UI.
 - **Effort control.** Five tiers (E1 Minimal to E5 Exhaustive; default E3) chosen with `/effort`,
   applied from the next message, shown in the status bar, and independent of the model, thinking
   level, profile and permissions. Delegation limits (concurrent, total, scouts) are enforced by a

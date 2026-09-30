@@ -120,7 +120,8 @@ delivery (`@satunix/pi-system` dist-tags) is built but the package is not publis
 
 ## Coming from the private GitLab source
 
-An install registered from the earlier private GitLab source is detected by `/update`, which
-never contacts that host: it reports the retired source and `/update kit` moves the install to
-the public repository. Your profile and hand edits are kept. See [Migration](migration.md) for the
-full account, including what to do by hand if pi is closed.
+An install registered from the earlier private GitLab source runs that checkout's old code, which
+cannot move itself. Install the public kit and run its installer ([Migration](migration.md), Route 1);
+from then on `/update` follows the public repository. Where a retired registration or a local
+checkout with a retired `origin` is seen by this release's `/update`, it reports it and never
+contacts that host (`/update kit` moves a registration; a checkout is left for you to re-point).

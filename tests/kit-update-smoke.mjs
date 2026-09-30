@@ -18,7 +18,7 @@ import { fakePi, loadModule, rmWorkspace, setEnv } from "../packages/core/eval/h
 import { snapshotVersion } from "../packages/core/snapshot-version.mjs";
 
 const mod = await loadModule("extensions/kit-update/index.ts");
-const { default: kitUpdate, compareVersions, parseNpmSource, parseGitSource, gitSourceWithRef, releaseTags, latestRelease, detectKitInstall, checkForUpdates, hasUpdates, summaryLine, formatReport, planUpdate, planChannelSwitch, shouldCheckNow } = mod;
+const { default: kitUpdate, compareVersions, parseNpmSource, parseGitSource, gitSourceWithRef, releaseTags, latestRelease, detectKitInstall, checkForUpdates, hasUpdates, summaryLine, formatReport, planUpdate, planChannelSwitch, shouldCheckNow, runPlan, successMessage } = mod;
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -84,10 +84,11 @@ function makeGitWorld({ kitSource = `${GIT_SOURCE}@v0.2.1-beta.0`, kitVersion = 
 }
 
 // Fake git: `ls-remote` answers with the given tags and main commit, `rev-parse HEAD` with head.
-function fakeGit({ tags = [], main = SHA_MAIN, head = SHA_OLD, reachable = true, branch = "main", upstream = null, contains = false } = {}) {
+function fakeGit({ tags = [], main = SHA_MAIN, head = SHA_OLD, reachable = true, branch = "main", upstream = null, contains = false, origin = null } = {}) {
   const calls = [];
   const git = async (args) => {
     calls.push(args.join(" "));
+    if (args.includes("get-url")) return origin ? `${origin}\n` : null;
     if (args.includes("ls-remote")) {
       if (!reachable) return null;
       if (args.includes("origin")) return upstream ? `${upstream}\trefs/heads/${branch}\n` : "";
@@ -669,6 +670,72 @@ const tests = {
       assert.equal(planUpdate(behind, "all").steps[0].args.join(" "), `-C ${w.kitRoot} pull --ff-only`);
       const ahead = await checkForUpdates(w.cwd, fakeRegistry(TAGS).fetchImpl, "0.87.1", fakeGit({ head: SHA_OLD, upstream: SHA_MAIN, contains: true }).git);
       assert.equal(ahead.kit.available, false, "local commits ahead of upstream are not an update");
+    } finally {
+      w.cleanup();
+    }
+  },
+
+  "a local checkout whose origin is a retired private source is never contacted, pulled or called up to date": async () => {
+    const w = makeWorld({ kitSource: "../kit" });
+    try {
+      writeJson(path.join(w.agent, "settings.json"), { packages: [{ source: w.kitRoot }] });
+      for (const origin of ["https://gitlab.home.internal/lab/pi-system.git", "git@gitlab.home.internal:lab/pi-system.git", "ssh://git@gitlab.home.internal/root/pi-system"]) {
+        const g = fakeGit({ head: SHA_OLD, upstream: SHA_MAIN, contains: false, origin });
+        const report = await checkForUpdates(w.cwd, fakeRegistry(TAGS).fetchImpl, "0.87.1", g.git);
+        assert.equal(report.kit.kind, "local");
+        assert.equal(report.kit.legacyOrigin, true, origin);
+        assert.equal(g.calls.some((c) => c.includes("ls-remote")), false, `${origin}: the retired remote is never contacted`);
+        assert.match(report.kit.note, /retired private source, so \/update does not contact it/);
+        assert.equal(report.kit.available, false);
+        assert.equal(report.offline, true, "nothing was looked up, so the report must not read as current");
+        assert.doesNotMatch(summaryLine(report), /Everything is up to date/);
+        for (const what of ["kit", "all"]) {
+          const plan = planUpdate(report, what);
+          assert.equal(plan.steps.some((s) => s.args.includes("pull")), false, `${what}: no git pull against the retired origin`);
+          if (what === "kit") assert.match(plan.notes.join("\n"), /retired private source/);
+        }
+      }
+      // A public origin is looked up as before.
+      const pub = fakeGit({ head: SHA_OLD, upstream: SHA_MAIN, contains: false, origin: "https://github.com/SATUNIX/pi-system.git" });
+      const report = await checkForUpdates(w.cwd, fakeRegistry(TAGS).fetchImpl, "0.87.1", pub.git);
+      assert.equal(report.kit.legacyOrigin, undefined);
+      assert.equal(pub.calls.some((c) => c.includes("ls-remote")), true);
+      assert.equal(report.kit.available, true);
+    } finally {
+      w.cleanup();
+    }
+  },
+
+  "a failed lookup is never reported as 'up to date', and only what was confirmed is reported as verified": async () => {
+    const w = makeWorld();
+    try {
+      const offline = await checkForUpdates(w.cwd, async () => { throw new Error("ENOTFOUND"); }, "0.85.1");
+      assert.equal(offline.offline, true);
+      assert.doesNotMatch(summaryLine(offline), /Everything is up to date/);
+      assert.match(summaryLine(offline), /Could not check everything/);
+      // Reachable and current: the plain statement still applies.
+      const current = await checkForUpdates(w.cwd, fakeRegistry({ ...TAGS, "@satunix/pi-system": { latest: "0.2.1-beta.0" } }).fetchImpl, "0.87.1");
+      if (!current.offline && !hasUpdates(current)) assert.equal(summaryLine(current), "Everything is up to date.");
+      // Reporting after a run: a step whose check could not run, or that has none, is not "verified".
+      const exec = async () => ({ stdout: "", stderr: "", code: 0, killed: false });
+      const steps = [
+        { label: "confirmed", command: "x", args: [], verify: async () => null },
+        { label: "could not be checked", command: "x", args: [], verify: async () => ({ unverified: "could not run `pi --version`" }) },
+        { label: "unchecked", command: "x", args: [] },
+      ];
+      const outcome = await runPlan({ exec }, w.cwd, steps);
+      assert.equal(outcome.ok, true);
+      assert.deepEqual(outcome.unverified.map((u) => u.label), ["could not be checked", "unchecked"]);
+      const message = successMessage(outcome);
+      assert.match(message, /confirmed \(verified\)/);
+      assert.match(message, /could not be checked \(NOT verified: could not run `pi --version`\)/);
+      assert.match(message, /unchecked \(NOT verified: the command exited 0; nothing independent confirms it\)/);
+      assert.doesNotMatch(message, /^Updated \(verified\)/);
+      assert.equal(successMessage(await runPlan({ exec }, w.cwd, [steps[0]])), "Updated (verified): confirmed.", "everything confirmed keeps the plain wording");
+      // A verification that fails still fails the run.
+      const failed = await runPlan({ exec }, w.cwd, [{ label: "wrong", command: "x", args: [], verify: async () => "pi is still 0.85.1" }]);
+      assert.equal(failed.ok, false);
+      assert.match(failed.failed.reason, /did not take effect: pi is still 0.85.1/);
     } finally {
       w.cleanup();
     }

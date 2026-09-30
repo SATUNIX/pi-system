@@ -36,8 +36,9 @@ The first time pi starts with the kit it applies the `balanced` profile and asks
 Sign in to a model provider with `/login` if pi reports no models. Details, other channels and
 troubleshooting: [Getting started](docs/getting-started.md), [Installation](docs/INSTALL.md).
 
-Upgrading from a private-GitLab install? See [Migration](docs/migration.md); your customisations
-are kept and the retired source is never contacted.
+Upgrading from a private-GitLab install? See [Migration](docs/migration.md): install the public kit
+and run its installer, which keeps your profile and hand edits and never contacts the retired
+source. (An old checkout cannot migrate itself.)
 
 ## Use
 

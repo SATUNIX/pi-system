@@ -8,47 +8,56 @@ Those are **retired sources**. They are listed in `packages/core/distribution.js
 `git.legacySources`, and an install still registered from one is migrated to
 `github.com/SATUNIX/pi-system`.
 
-### What happens
+### How an existing install moves
 
-`/update` recognises a retired registration and:
+An install registered from the retired source keeps running the code in **that checkout**, and that
+code predates public delivery: it only knows its old remote and cannot move itself. So the move
+starts from the public kit. Neither route contacts the retired host.
 
-- **never contacts the retired host**: it does not run `git ls-remote` against it, so a machine
-  outside that network does not hang or report a false "up to date";
-- reports the situation (`pi-system is registered from a retired private source ... /update kit
-  moves it`) and, once you confirm, **moves the install to the public repository**;
-- keeps the **channel** it was on (`next` stays `next`; a release or a pin becomes `latest`,
-  because a private tag does not exist publicly);
-- keeps your **profile** and saves any **hand edits** you made to the kit's settings entry
-  (extensions or skills added or removed) into `<agent dir>/pi-kit/overrides.json` first, so they
-  are applied again after the move. Nothing you customised is overwritten;
-- removes the retired registration once the public one is in place, so the kit is not loaded
-  twice, and **verifies** the result: if the install is still registered from the retired source
-  afterwards, the update is reported as failed rather than done.
-
-A `PI_SYSTEM_GIT_SOURCE` that still names a retired source (the earlier SSH instructions told you to
-export one) is **ignored with a warning**. Unset it. To use SSH with the public repository, set
-`PI_SYSTEM_GIT_SOURCE=git:git@github.com:SATUNIX/pi-system`.
-
-The installer does the same thing when you run it from the retired copy pi kept:
+**Route 1: install the public kit, then run its installer (works from any install).**
 
 ```sh
-node ~/.pi/agent/git/gitlab.home.internal/lab/pi-system/packages/core/install.mjs --profile <your profile> --yes --settings-only
+pi install git:github.com/SATUNIX/pi-system          # follows main until the first release tag exists
+node ~/.pi/agent/git/github.com/SATUNIX/pi-system/packages/core/install.mjs \
+  --profile <your profile> --yes --settings-only --capture-overrides
 ```
 
-It registers the public source and never reconnects to the private remote.
+(Once a release is tagged, `pi install git:github.com/SATUNIX/pi-system@v0.2.4-beta.0` pins it.) The
+installer sees the retired registration and:
+
+- **registers the public source and removes the retired one**, so the kit is not loaded twice
+  (`pi list` shows what is registered), and **verifies** the result;
+- keeps the **channel** the install was on (`next` stays `next`; a release or a pin becomes
+  `latest`, because a private tag does not exist publicly);
+- keeps your **profile**, and with `--capture-overrides` saves hand edits you made to the kit's
+  settings entry (extensions or skills added or removed) into
+  `<agent dir>/pi-kit/overrides.json` first, so they are applied again after the move. Overrides
+  that already exist are left as they are.
+
+**Route 2: from inside pi, once the retired checkout holds this release's code.** If you brought
+this release into that checkout yourself (for example into a private mirror), `/update` recognises
+the retired registration, reports it, and `/update kit` performs the same move after you confirm. It
+never runs `git ls-remote` against the retired host. A local checkout whose `origin` is a retired
+source is likewise never contacted or pulled: `/update status` says so and points here.
+
+**What does not work:** running `/update` or the installer from a retired checkout that has *not*
+been brought forward. That is the old code.
+
+A `PI_SYSTEM_GIT_SOURCE` that still names a retired source (the earlier SSH instructions told you to
+export one) is **ignored with a warning** by this release's code. Unset it. To use SSH with the
+public repository, set `PI_SYSTEM_GIT_SOURCE=git:git@github.com:SATUNIX/pi-system`.
+
+Pinned by `tests/kit-update-smoke.mjs` (detection, no contact with the retired host, no pull) and
+`tests/distribution-smoke.mjs` (the installer's source selection, channel and hand-edit capture).
+The move has been exercised against local fixtures and a stand-in `pi`, not against the real public
+repository, because no release tag exists yet.
 
 ### Before the first public release is tagged
 
 `latest` resolves to the newest `vX.Y.Z` tag on the public repository. Until the first tag exists
 there is nothing for `latest` to resolve to, and the installer stops with a message saying so
-instead of guessing. Migrate onto `main` in the meantime:
-
-```sh
-pi install git:github.com/SATUNIX/pi-system                    # channel next
-node ~/.pi/agent/git/github.com/SATUNIX/pi-system/packages/core/install.mjs --profile <your profile> --yes --settings-only
-```
-
-Then `/update channel latest` once a release exists.
+instead of guessing: Route 1 above installs the unpinned source, which follows `main` (channel
+`next`). Run `/update channel latest` once a release exists.
 
 ### If something is left behind
 

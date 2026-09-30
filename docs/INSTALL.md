@@ -113,7 +113,8 @@ node packages/core/install.mjs --only secret-guard,memory-local,verify-gate --ye
 
 ## Coming from the private GitLab source
 
-Installs made from the earlier private GitLab source are migrated automatically and safely; see
+Installs made from the earlier private GitLab source move by installing the public kit and running
+its installer, which keeps your profile and hand edits and never contacts the old host; see
 [Migration](migration.md).
 
 ## After install

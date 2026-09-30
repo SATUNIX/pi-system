@@ -27,6 +27,7 @@
  *                        switches keep them. Alone: capture and exit.
  */
 import { execSync, spawnSync } from "node:child_process";
+import { displayCommand, runPi } from "./lib/pi-cli.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveProfile } from "./lib/resolve.mjs";
@@ -253,9 +254,10 @@ const kit = mode === "local"
     : gitKitSource();
 const kitSource = kit.source;
 
-function run(cmd) {
-  console.log(`  > ${cmd}`);
-  if (!dryRun) execSync(cmd, { stdio: "inherit" });
+// pi is run with an argument vector (lib/pi-cli.mjs): a source string is data, never shell text.
+function runPiCommand(args) {
+  console.log(`  > ${displayCommand(args)}`);
+  if (!dryRun) runPi(piBin, args);
 }
 
 function resolveCommand(name) {
@@ -268,10 +270,6 @@ function resolveCommand(name) {
     }
   }
   return null;
-}
-
-function shellQuote(value) {
-  return `"${value.replace(/"/g, '\\"')}"`;
 }
 
 // --- Load profile from profiles/<name>.json ---
@@ -430,7 +428,7 @@ function check(cmd, name, required = true) {
 // git is needed to register a checkout or clone a git source.
 if (mode !== "npm") check("git --version", "git");
 check("pi --version", "pi");
-const piBin = shellQuote(resolveCommand("pi") || "pi");
+const piBin = resolveCommand("pi") || "pi";
 
 console.log(`\n[install] pi-system`);
 console.log(`  profile:      ${all ? "all" : onlyNames ? "--only" : profile}`);
@@ -472,12 +470,12 @@ const isRegistered = (source) => {
 };
 
 // 2. Register the kit
-const scopeFlag = scope === "project" ? " -l" : "";
+const scopeArgs = scope === "project" ? ["-l"] : [];
 if (settingsOnly && isRegistered(kitSource)) {
   console.log("\n[install] Kit already registered; updating its settings entry only.");
 } else {
   console.log("\n[install] Registering kit with pi...");
-  run(`${piBin} install "${kitSource}"${scopeFlag}`);
+  runPiCommand(["install", kitSource, ...scopeArgs]);
 }
 
 // 2b. Narrow the registered package to the profile/--only selection (F-01 fix).
@@ -506,7 +504,7 @@ if (!dryRun) {
   // settings entry is still dropped below and the orphaned clone is harmless.
   if (legacyMigration) {
     try {
-      execSync(`${piBin} remove "${legacyMigration.from}"${scopeFlag}`, { stdio: "pipe" });
+      runPi(piBin, ["remove", legacyMigration.from, ...scopeArgs], { stdio: "pipe" });
       console.log(`[install] Removed the retired registration ${legacyMigration.from}.`);
     } catch {
       console.warn(`[install] Could not run \`pi remove ${legacyMigration.from}\`; dropping its settings entry instead.`);
@@ -554,7 +552,7 @@ if (!noExternals) {
     if (missing.length > 0) {
       console.log(`\n[install] Installing ${missing.length} companion external(s)...`);
       for (const c of missing) {
-        run(`${piBin} install "${c.source}"${scopeFlag}`);
+        runPiCommand(["install", c.source, ...scopeArgs]);
       }
     } else if (companions.length > 0) {
       console.log(`\n[install] ${companions.length} companion external(s) already registered.`);

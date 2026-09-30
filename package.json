@@ -190,6 +190,7 @@
     "smoke:tool-capture": "node tests/tool-capture-smoke.mjs",
     "smoke:kit-update": "node tests/kit-update-smoke.mjs",
     "smoke:distribution": "node tests/distribution-smoke.mjs",
+    "smoke:pi-cli": "node tests/pi-cli-smoke.mjs",
     "smoke:trigger-compact-threshold": "node tests/trigger-compact-threshold-smoke.mjs",
     "smoke:verification-lifecycle": "node tests/verification-lifecycle-smoke.mjs",
     "smoke:verifier-board-trust": "node tests/verifier-board-trust-smoke.mjs",
