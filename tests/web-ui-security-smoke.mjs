@@ -351,11 +351,13 @@ try {
 
   // ------------------------------------------------ 6. bodies -----------------------------
   await check("request bodies are size-bounded (declared and chunked) and parsed as one JSON object", async () => {
-    const big = "x".repeat(1_000_001);
-    const declared = await auth("/api/agents", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ name: "big", body: big }) });
+    // The declared-length path refuses before consuming a body. Sending a megabyte
+    // after that refusal races the server's connection close (EPIPE), so test the
+    // header preflight directly. The separate chunked request proves actual-byte limits.
+    const declared = await auth("/api/agents", { method: "POST", headers: { ...JSON_HEADERS, "Content-Length": "1000001" } });
     assert.equal(declared.status, 413);
-    const half = Buffer.from(`{"name":"big2","body":"${"y".repeat(600_000)}`);
-    const chunked = await auth("/api/agents", { method: "POST", headers: JSON_HEADERS, chunks: [half, half, Buffer.from('"}')] });
+    const big = Buffer.from(JSON.stringify({ name: "big2", body: "y".repeat(1_000_001) }));
+    const chunked = await auth("/api/agents", { method: "POST", headers: JSON_HEADERS, chunks: [big.subarray(0, 500_000), big.subarray(500_000)] });
     assert.equal(chunked.status, 413);
     assert.equal(fs.existsSync(path.join(sandbox.userAgents, "big.md")), false);
     assert.equal(fs.existsSync(path.join(sandbox.userAgents, "big2.md")), false);

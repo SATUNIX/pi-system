@@ -127,7 +127,11 @@ const AUTHORITY_RE = /^(\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::([0
 export function normalizeAuthority(value) {
 	if (typeof value !== "string") return null;
 	const v = value.trim().toLowerCase();
-	return AUTHORITY_RE.test(v) ? v : null;
+	const match = AUTHORITY_RE.exec(v);
+	if (!match) return null;
+	if (match[1].startsWith("[") && net.isIP(match[1].slice(1, -1)) !== 6) return null;
+	if (match[2] !== undefined && (Number(match[2]) < 1 || Number(match[2]) > 65535)) return null;
+	return v;
 }
 
 function parseAllowedHosts(raw) {
@@ -136,7 +140,7 @@ function parseAllowedHosts(raw) {
 		const item = piece.trim().toLowerCase();
 		if (!item) continue;
 		const match = AUTHORITY_RE.exec(item);
-		if (!match) {
+		if (!match || normalizeAuthority(item) === null) {
 			throw new PolicyError(
 				`PI_CONSOLE_ALLOWED_HOSTS entry "${item.slice(0, 80)}" is not a bare host or host:port (no scheme, path or wildcard).`,
 			);

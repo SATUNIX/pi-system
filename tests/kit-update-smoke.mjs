@@ -18,7 +18,7 @@ import { fakePi, loadModule, rmWorkspace, setEnv } from "../packages/core/eval/h
 import { snapshotVersion } from "../packages/core/snapshot-version.mjs";
 
 const mod = await loadModule("extensions/kit-update/index.ts");
-const { default: kitUpdate, compareVersions, parseNpmSource, parseGitSource, gitSourceWithRef, releaseTags, latestRelease, detectKitInstall, checkForUpdates, hasUpdates, summaryLine, formatReport, planUpdate, planChannelSwitch, shouldCheckNow, runPlan, successMessage } = mod;
+const { detectStaleRoleCopies, default: kitUpdate, compareVersions, parseNpmSource, parseGitSource, gitSourceWithRef, releaseTags, latestRelease, detectKitInstall, checkForUpdates, hasUpdates, summaryLine, formatReport, planUpdate, planChannelSwitch, shouldCheckNow, runPlan, successMessage } = mod;
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -34,6 +34,12 @@ function makeWorld({ kitSource = "npm:@satunix/pi-system", kitVersion = "0.2.1-b
   fs.mkdirSync(path.join(kitRoot, "packages", "core"), { recursive: true });
   fs.writeFileSync(path.join(kitRoot, "packages", "core", "install.mjs"), "// stub\n");
   writeJson(path.join(kitRoot, "packages", "core", "sources.json"), { external: [{ name: "pi-lens", source: "npm:pi-lens@3.9.0" }] });
+  const agentsDir = path.join(kitRoot, "packages", "kit", "agents");
+  fs.mkdirSync(agentsDir, { recursive: true });
+  const SHIPPED_SCOUT = "---\nname: scout\n---\nshipped body\n";
+  const SHIPPED_REVIEWER = "---\nname: reviewer\n---\nshipped body\n";
+  fs.writeFileSync(path.join(agentsDir, "scout.md"), SHIPPED_SCOUT);
+  fs.writeFileSync(path.join(agentsDir, "reviewer.md"), SHIPPED_REVIEWER);
   for (const [name, version] of Object.entries(installed)) writeJson(path.join(agent, "npm", "node_modules", ...name.split("/"), "package.json"), { name, version });
   writeJson(path.join(agent, "settings.json"), { packages: [{ source: kitSource, extensions: ["packages/extensions/third_party/todo/index.ts"] }, ...packages] });
   if (marker) writeJson(path.join(agent, ".pi-kit.json"), marker);
@@ -189,6 +195,46 @@ const tests = {
     }
   },
 
+  "reports stale user role copies that shadow shipped kit roles": async () => {
+    const w = makeWorld();
+    try {
+      // No user agents dir yet: nothing to report, and a missing dir must not throw.
+      assert.deepEqual(detectStaleRoleCopies(w.agent, w.kitRoot), []);
+
+      // A differing copy of a shipped role is stale.
+      fs.mkdirSync(path.join(w.agent, "agents"), { recursive: true });
+      const scoutCopy = path.join(w.agent, "agents", "scout.md");
+      fs.writeFileSync(scoutCopy, "---\nname: scout\n---\nmy edited body\n");
+      assert.deepEqual(detectStaleRoleCopies(w.agent, w.kitRoot), [{ name: "scout", path: scoutCopy }]);
+
+      // A byte-equal copy of another shipped role is harmless and stays unflagged.
+      fs.writeFileSync(
+        path.join(w.agent, "agents", "reviewer.md"),
+        fs.readFileSync(path.join(w.kitRoot, "packages", "kit", "agents", "reviewer.md"), "utf8"),
+      );
+      assert.deepEqual(detectStaleRoleCopies(w.agent, w.kitRoot), [{ name: "scout", path: scoutCopy }]);
+
+      // A user role whose name is not a kit role is ignored.
+      fs.writeFileSync(path.join(w.agent, "agents", "my-custom.md"), "---\nname: my-custom\n---\nbody\n");
+      assert.deepEqual(detectStaleRoleCopies(w.agent, w.kitRoot), [{ name: "scout", path: scoutCopy }]);
+
+      // Detection is report-only: nothing is deleted.
+      assert.ok(fs.existsSync(scoutCopy));
+      assert.ok(fs.existsSync(path.join(w.agent, "agents", "reviewer.md")));
+      assert.ok(fs.existsSync(path.join(w.agent, "agents", "my-custom.md")));
+
+      // The check surfaces the stale copy in its report and formatted output.
+      const report = await checkForUpdates(w.cwd, fakeRegistry(TAGS).fetchImpl, "0.87.1");
+      assert.deepEqual(report.staleRoles, [{ name: "scout", path: scoutCopy }]);
+      const text = formatReport(report);
+      assert.match(text, /scout/);
+      assert.match(text, /agents/);
+      assert.match(text, new RegExp(scoutCopy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    } finally {
+      w.cleanup();
+    }
+  },
+
   "the next channel compares against the next dist-tag": async () => {
     const w = makeWorld({ kitSource: "npm:@satunix/pi-system@next" });
     try {
@@ -331,9 +377,9 @@ const tests = {
   },
 
   "an install registered from the retired private source migrates to the public one without contacting it": async () => {
-    const legacy = "git:gitlab.home.internal/lab/pi-system";
+    const legacy = "git:legacy.example.invalid/lab/pi-system";
     const w = makeGitWorld({ kitSource: `${legacy}@v0.2.1-beta.0`, marker: { profile: "balanced", scope: "global", channel: "0.2.1-beta.0", kitSource: `${legacy}@v0.2.1-beta.0` } });
-    const restoreEnv = setEnv("PI_SYSTEM_GIT_SOURCE", "git:git@gitlab.home.internal:lab/pi-system");
+    const restoreEnv = setEnv("PI_SYSTEM_GIT_SOURCE", "git:git@legacy.example.invalid:lab/pi-system");
     try {
       const { git, calls } = fakeGit({ tags: ["0.2.4-beta.0"] });
       const report = await checkForUpdates(w.cwd, fakeRegistry(TAGS).fetchImpl, "0.87.1", git);
@@ -341,14 +387,14 @@ const tests = {
       assert.equal(report.kit.available, true);
       assert.deepEqual(calls.filter((c) => c.includes("ls-remote")), [], "the retired remote is never contacted");
       assert.match(report.kit.note, /retired private source/);
-      assert.match(report.kit.note, /PI_SYSTEM_GIT_SOURCE=git:git@gitlab.home.internal:lab\/pi-system names the retired source and is ignored/);
+      assert.match(report.kit.note, /PI_SYSTEM_GIT_SOURCE=git:git@legacy.example.invalid:lab\/pi-system names the retired source and is ignored/);
       assert.match(summaryLine(report), /retired private source/);
       assert.match(formatReport(report), /retired private source/);
       const plan = planUpdate(report, "kit");
       assert.equal(plan.steps.length, 1);
       const args = plan.steps[0].args.join(" ");
       assert.match(args, /install\.mjs --mode git --channel latest --profile balanced --yes$/, args);
-      assert.ok(!/gitlab/.test(args), "the plan never names the private host");
+      assert.ok(!args.includes("legacy.example.invalid"), "the plan never names the retired host");
       // A user following main stays on main.
       writeJson(path.join(w.agent, ".pi-kit.json"), { profile: "balanced", scope: "global", channel: "next", kitSource: legacy });
       writeJson(path.join(w.agent, "settings.json"), { packages: [{ source: legacy, extensions: [] }] });
@@ -361,12 +407,12 @@ const tests = {
   },
 
   "a stale PI_SYSTEM_GIT_SOURCE naming the retired source is ignored, other overrides are kept": () => {
-    const restore = setEnv("PI_SYSTEM_GIT_SOURCE", "git:git@gitlab.home.internal:lab/pi-system");
+    const restore = setEnv("PI_SYSTEM_GIT_SOURCE", "git:git@legacy.example.invalid:lab/pi-system");
     try {
       const d = mod.readDistribution(null);
       assert.equal(d.gitSource, null, "no source is invented from the retired override");
-      assert.equal(d.ignoredEnvSource, "git:git@gitlab.home.internal:lab/pi-system");
-      assert.ok(mod.isLegacyGitSource("https://gitlab.home.internal/root/pi-system.git"));
+      assert.equal(d.ignoredEnvSource, "git:git@legacy.example.invalid:lab/pi-system");
+      assert.ok(mod.isLegacyGitSource("https://legacy.example.invalid/root/pi-system.git"));
       assert.ok(!mod.isLegacyGitSource("git:github.com/SATUNIX/pi-system"));
       assert.ok(!mod.isLegacyGitSource("git:github.com/example/pi-system"));
       process.env.PI_SYSTEM_GIT_SOURCE = "git:github.com/example/pi-system";
@@ -679,7 +725,7 @@ const tests = {
     const w = makeWorld({ kitSource: "../kit" });
     try {
       writeJson(path.join(w.agent, "settings.json"), { packages: [{ source: w.kitRoot }] });
-      for (const origin of ["https://gitlab.home.internal/lab/pi-system.git", "git@gitlab.home.internal:lab/pi-system.git", "ssh://git@gitlab.home.internal/root/pi-system"]) {
+      for (const origin of ["https://legacy.example.invalid/lab/pi-system.git", "git@legacy.example.invalid:lab/pi-system.git", "ssh://git@legacy.example.invalid/root/pi-system"]) {
         const g = fakeGit({ head: SHA_OLD, upstream: SHA_MAIN, contains: false, origin });
         const report = await checkForUpdates(w.cwd, fakeRegistry(TAGS).fetchImpl, "0.87.1", g.git);
         assert.equal(report.kit.kind, "local");

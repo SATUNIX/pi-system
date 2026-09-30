@@ -173,7 +173,7 @@ export function setEnv(name, value) {
 export function isolateKitEnv() {
   const saved = new Map();
   for (const key of Object.keys(process.env)) {
-    if (key === "PI_CODING_AGENT_DIR" || key.startsWith("PI_KIT_")) {
+    if (key === "PI_CODING_AGENT_DIR" || key.startsWith("PI_KIT_") || key.startsWith("PI_SUBAGENT_") || key.startsWith("PI_SUBAGENTS_")) {
       saved.set(key, process.env[key]);
       delete process.env[key];
     }

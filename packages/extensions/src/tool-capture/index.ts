@@ -138,7 +138,7 @@ function sessionIdOf(ctx: any): string {
 
 function rootSessionOf(own: string): string {
   const inherited = process.env.PI_KIT_FIREWALL_ROOT_SESSION?.trim();
-  return inherited && process.env.PI_KIT_INTERNAL_CHILD === "1" ? inherited : own;
+  return inherited && (process.env.PI_KIT_INTERNAL_CHILD === "1" || process.env.PI_SUBAGENT_CHILD === "1") ? inherited : own;
 }
 
 // One store per process, shared across extension reloads so the exit handler closes the current one.
@@ -195,7 +195,7 @@ export default function (pi: ExtensionAPI) {
     return {
       session,
       rootSession: rootSessionOf(session),
-      child: process.env.PI_KIT_INTERNAL_CHILD === "1" || undefined,
+      child: process.env.PI_KIT_INTERNAL_CHILD === "1" || process.env.PI_SUBAGENT_CHILD === "1" || undefined,
       agent: ctx?.agent?.name || ctx?.agentName || undefined,
       cwd: typeof ctx?.cwd === "string" ? ctx.cwd : process.cwd(),
     };

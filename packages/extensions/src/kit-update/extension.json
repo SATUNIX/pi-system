@@ -4,21 +4,59 @@
   "summary": "Update checker and /update command: notifies (at most daily, in the background) when pi, the pi-system kit on its latest/next channel (from its git repository or npm), or a linked package can be updated, then applies it with pi's package manager and re-applies the active profile.",
   "category": "ui",
   "entry": "index.ts",
-  "hooks": ["session_start"],
-  "registers": { "tools": [], "commands": ["update"] },
-  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "hooks": [
+    "session_start"
+  ],
+  "registers": {
+    "tools": [],
+    "commands": [
+      "update"
+    ]
+  },
+  "profiles": [
+    "quick",
+    "balanced",
+    "long-horizon",
+    "autonomous",
+    "self-improving",
+    "pentest",
+    "lite"
+  ],
   "enabledByDefault": true,
-  "platforms": ["windows", "linux", "darwin"],
+  "platforms": [
+    "windows",
+    "linux",
+    "darwin"
+  ],
   "runtime": {
-    "nodeBuiltins": ["child_process", "fs", "os", "path", "url"],
+    "nodeBuiltins": [
+      "child_process",
+      "fs",
+      "node:crypto",
+      "os",
+      "path",
+      "url"
+    ],
     "npm": [],
-    "piPeers": ["@earendil-works/pi-coding-agent"],
+    "piPeers": [
+      "@earendil-works/pi-coding-agent"
+    ],
     "services": [],
     "models": []
   },
   "pulls": [],
-  "env": ["PI_KIT_UPDATE_CHECK", "PI_KIT_UPDATE_CHECK_HOURS", "PI_KIT_DELIVERY", "PI_SYSTEM_GIT_SOURCE", "PI_KIT_NPM_REGISTRY", "PI_KIT_ROOT", "PI_OFFLINE"],
-  "provenance": { "origin": "custom" },
+  "env": [
+    "PI_KIT_UPDATE_CHECK",
+    "PI_KIT_UPDATE_CHECK_HOURS",
+    "PI_KIT_DELIVERY",
+    "PI_SYSTEM_GIT_SOURCE",
+    "PI_KIT_NPM_REGISTRY",
+    "PI_KIT_ROOT",
+    "PI_OFFLINE"
+  ],
+  "provenance": {
+    "origin": "custom"
+  },
   "homeRepo": null,
   "status": "beta"
 }

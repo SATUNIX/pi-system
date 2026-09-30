@@ -70,3 +70,8 @@ npm run catalog
 
 `docs/EXTENSIONS.md`, `docs/skills-catalogue.md`, and `docs/capability-matrix.md` are generated;
 do not hand-edit them.
+
+Private GitLab is the development source of truth; GitHub is the public release projection.
+Public contributions are reviewed and imported into a GitLab MR before the next release.
+See [repository topology](docs/repository-topology.md). Do not maintain independent changes on
+both main branches.
