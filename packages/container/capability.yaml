@@ -2,7 +2,6 @@ id: pi-system
 type: workload
 name: Pi System
 description: Deployable pi coding agent with governed pentest profile via pi-kit.
-owner: Platform Engineering
 lifecycle: alpha
 source:
   repo: pi-system

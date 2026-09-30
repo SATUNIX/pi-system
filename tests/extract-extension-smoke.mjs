@@ -53,7 +53,7 @@ try {
   assert.equal(pkg.name, "@gitops/pi-ext-fakeext");
 
   const meta = JSON.parse(fs.readFileSync(path.join(staged, "extension.json"), "utf8"));
-  assert.equal(meta.homeRepo, "git:gitea.local/gitops/pi-ext-fakeext");
+  assert.equal(meta.homeRepo, "git:github.com/SATUNIX/pi-ext-fakeext", "the placeholder home is the kit's own host and owner, never a private host");
 
   // N1: a malformed source manifest must fail before any staging dir is created.
   const captured = [];

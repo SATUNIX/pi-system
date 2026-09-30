@@ -81,7 +81,8 @@ as expected).
 
 ---
 
-Worked example: the July 2026 pass that added `pi-lens` (real-time diagnostics), `pi-lean-ctx`
-(tool-output compression), the vendored `caveman` (conversational-output compression, scoped off for
-report/doc writing), `pi-impact-analyzer`, and `pi-readseek`. See `docs/roadmap.md` and
-`packages/core/sources.json`.
+Worked example: a pass that added `pi-lens` (real-time diagnostics), the vendored `caveman`
+(conversational-output compression, scoped off for report/doc writing) and `pi-readseek`. A later
+pass evaluated `pi-lean-ctx`, `pi-impact-analyzer` and newer versions of the others against their
+tarballs and in a real pi terminal, and found that two should not be default (see
+[Supply chain](supply-chain.md)). The reviews are recorded in `packages/core/sources.json`.

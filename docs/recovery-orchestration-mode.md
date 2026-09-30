@@ -1,14 +1,16 @@
 # Recovery Orchestration Mode
 
-> **Status: implemented in 0.6.0 (Epic 5) as the `recovery-orchestrator` extension** (design
-> option A from §8). `progress-guard` detects loops/stalls/oscillation and, after
-> `PI_KIT_GUARD_ESCALATE` nudges on the same signature, writes `.pi/recovery/escalation.json`;
-> `recovery-orchestrator` then enters this deep mode once per signature: it writes a recovery
-> report scaffold and steers the §2 flow via a `context-sieve` contribution (never a system
-> prompt). It is non-destructive (plans + steers; the repair is a delegated `implementer`
-> after a checkpoint) and bounded to `PI_KIT_RECOVERY_MAX_ATTEMPTS` per signature. Manual
-> trigger: `/recover`. Covered by the `npm run eval` recovery fixtures. This document remains
-> the specification of the method the extension drives.
+> The `recovery-orchestrator` extension implements this mode (design option A from §8).
+> `progress-guard` detects loops, stalls and oscillation and, after `PI_KIT_GUARD_ESCALATE` nudges
+> on the same signature, writes `.pi/recovery/escalation.json`; `recovery-orchestrator` then
+> enters this deep mode once per signature: it writes a recovery report scaffold and steers the
+> §2 flow via a `context-sieve` contribution (never a system prompt). It is non-destructive
+> (plans and steers; the repair is a delegated `implementer` after a checkpoint) and bounded to
+> `PI_KIT_RECOVERY_MAX_ATTEMPTS` per signature. Manual trigger: `/recover`. While recovery is
+> active it opens the separate recovery budget in the [effort ledger](effort.md#how-delegation-is-budgeted)
+> (two read-only scouts), so a session at the lowest effort can still get help when stuck. The
+> `npm run eval` recovery fixtures cover it. This document is the specification of the method the
+> extension drives.
 
 ## 1. Problem
 

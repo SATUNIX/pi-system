@@ -138,16 +138,9 @@ Still recommended:
 - Track image digests in release metadata when Pi System produces immutable release artifacts.
 - Add governance unit/type tests with mocked Pi `tool_call` events against the pinned upstream `ExtensionAPI`.
 
-## Research Consolidation
+## Design Basis
 
-This golden path incorporates the saved research notes in `capability/docs/research/`:
-
-- `MCP_GOVERNANCE_IMPROVEMENTS.md`
-- `LOCAL_MODEL_WORKFLOW_IMPROVEMENTS.md`
-- `RUNTIME_RELIABILITY_IMPROVEMENTS.md`
-- `UPSTREAM_PI_INTEGRATION_IMPROVEMENTS.md`
-
-The research confirms the current architectural direction:
+The wrapper is shaped by these observations about upstream Pi and MCP:
 
 - Upstream Pi is intentionally a minimal terminal harness with default direct tools, project-local extensions, prompt templates, skills, compaction, sessions, and package loading. This wrapper should continue to adapt Pi through `.pi/`, scripts, local MCP servers, and documented extension APIs instead of patching Pi internals.
 - Pi does not provide built-in MCP, permission popups, plan mode, or subagents. The wrapper should keep those as local policy, workflow, skill, and optional orchestration concerns.

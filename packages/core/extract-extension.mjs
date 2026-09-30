@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WORKSPACE_ROOT, FIRST_PARTY_DIR } from "./lib/paths.mjs";
+import { parseGitSource, readDistribution } from "./lib/distribution.mjs";
 
 const ROOT = WORKSPACE_ROOT;
 
@@ -95,7 +96,11 @@ export function extractExtension(name, { firstPartyDir = FIRST_PARTY_DIR, dstBas
   // (never re-parse the copied manifest unguarded).
   const metaPath = path.join(dst, "extensions", name, "extension.json");
   if (sourceMeta !== null) {
-    sourceMeta.homeRepo = `git:gitea.local/gitops/pi-ext-${name}`;
+    // A placeholder home for the split-out repository: the kit's own host and owner, which the
+    // operator changes if the extension is published elsewhere.
+    const repo = parseGitSource(readDistribution().git.source)?.repo ?? "https://github.com/OWNER/pi-system";
+    const home = repo.replace(/^https?:\/\//, "").replace(/\/[^/]+$/, "");
+    sourceMeta.homeRepo = `git:${home}/pi-ext-${name}`;
     fs.writeFileSync(metaPath, `${JSON.stringify(sourceMeta, null, 2)}\n`);
   }
 
@@ -108,7 +113,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (!result.ok) process.exit(result.exitCode);
   console.log(`\nNext steps:`);
   console.log(`  1. cd ${result.dst} && git init && git add . && git commit -m "init: extract ${process.argv[2]} from pi-kit"`);
-  console.log(`  2. Push to gitea as pi-ext-${process.argv[2]}`);
+  console.log(`  2. Push it to a git host as pi-ext-${process.argv[2]} (update homeRepo in its extension.json to match)`);
   console.log(`  3. In pi-kit, add to packages/core/sources.json (reference or bundle mode)`);
   console.log(`  4. Remove extensions/${process.argv[2]}/ from this repo`);
   console.log(`  5. Profiles need no change — they still reference the name "${process.argv[2]}"`);

@@ -95,7 +95,7 @@ Kit documentation:
 - [`docs/building-extensions.md`](../../docs/building-extensions.md)
 - [`docs/roadmap.md`](../../docs/roadmap.md)
 
-Deploy-specific notes live in `capability/docs/ROADMAP.md`.
+Security reporting and repository-wide rules are in the repository root's `SECURITY.md` and `CONTRIBUTING.md`.
 
 ## Engagement setup
 

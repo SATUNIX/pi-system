@@ -106,7 +106,7 @@ SID=""
 echo "[10] live sync (tail a session file written by another process)"
 # Deterministic: craft a session file the way an external pi process would, then confirm the
 # events endpoint follows it (this is what makes a CLI session live in the UI).
-ENC="--home-agrace--"
+ENC="--home-operator--"
 TAIL_ID="smoke-tail-$(date +%s)"
 mkdir -p "${TMP_SESSIONS}/${ENC}"
 TAIL_FILE="${TMP_SESSIONS}/${ENC}/2026-01-01T00-00-00-000Z_${TAIL_ID}.jsonl"

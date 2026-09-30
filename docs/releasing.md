@@ -1,116 +1,128 @@
 # Releasing
 
-pi-system is delivered from its git repository on the private GitLab,
-`gitlab.home.internal/lab/pi-system`. pi installs it directly from there with the user's own
-git credentials, so there is no package registry in between:
+pi-system is delivered from its public git repository, `github.com/SATUNIX/pi-system`. pi
+installs it straight from there, so **a pushed `vX.Y.Z` tag is the release**: there is no package
+registry in between.
 
 | Channel | What it is | How users get it |
 |---|---|---|
-| `next` | Every commit on `main` | Pushing to `main` is enough |
+| `next` | Every commit on `main` | Merging to `main` is enough |
 | `latest` | The newest `vX.Y.Z` tag (the newest stable one once a stable release exists; betas until then) | Push a tag |
 | `X.Y.Z` | One tag, pinned | Push a tag |
 
-The delivery is one setting, `delivery` in `packages/core/distribution.json` (`git` today). The
-installer, `/profile` and `/update` read it, so switching to npm later is a change to that file
-plus the npm setup below, not a code change.
+The delivery is one setting, `delivery` in `packages/core/distribution.json` (`git`). The
+installer, `/profile` and `/update` read it.
+
+Releasing is **manual and operator-run**. Nothing in this repository tags, publishes or creates a
+release on its own, and the release workflow defaults to a dry run.
 
 ## Cutting a release
 
 ```sh
-# 1. On main, with a clean tree: add a "## [0.2.1-beta.1]" section to CHANGELOG.md and commit it.
+# 1. On main, with a clean tree: add a "## [0.2.4-beta.1]" section to CHANGELOG.md and commit it.
 # 2. Run the full gate, bump every package.json and the lockfile, commit, tag (local only):
-npm run release -- 0.2.1-beta.1
+npm run release -- 0.2.4-beta.1
 # 3. Review the commit and tag, then push both:
 git push origin main --follow-tags
 ```
 
-`release.mjs` refuses to run on a dirty tree, without a CHANGELOG section, or when the version
-does not move forward (prerelease-aware: `0.2.1-beta.0 < 0.2.1-beta.1 < 0.2.1`). It never
-pushes. `npm run release -- 0.2.1-beta.1 --dry-run` runs every gate without changing anything.
+`release.mjs` refuses to run on a dirty tree, without a CHANGELOG section, or when the version does
+not move forward (prerelease-aware: `0.2.4-beta.0 < 0.2.4-beta.1 < 0.2.4`). It never pushes.
+`npm run release -- 0.2.4-beta.1 --dry-run` runs every gate without changing anything.
+`--bump-only` syncs the version fields and lockfile without gates, commit or tag, which is how a
+release branch is prepared.
 
-**The first release** is the version already in `package.json` (`0.2.1-beta.0`). With no `v*`
-tags yet, `npm run release -- 0.2.1-beta.0` tags it without a bump.
+**The first release** is the version already in `package.json` (`0.2.4-beta.0`). With no `v*`
+tags yet, `npm run release -- 0.2.4-beta.0` finds every version field already at that version and
+only gates and tags it.
 
-When the tag reaches GitLab, the pipeline (`.gitlab-ci.yml`):
+Users on `latest` see a new release the next time `/update` checks (at most a day later, or
+straight away with `/update`). A tag is the release even if a later workflow fails: `/update`
+reads tags. If a tag is wrong, delete it (`git push origin :refs/tags/vX.Y.Z` and
+`git tag -d vX.Y.Z`), fix the problem and release again.
 
-1. runs the full check suite and every security scan for the tagged commit;
-2. checks that the tag matches `package.json` and that its commit is on `main`;
-3. writes the release notes (the CHANGELOG section plus install lines, from
-   `packages/core/release-notes.mjs`) and creates a GitLab Release for the tag through the
-   Releases API (`packages/core/gitlab-release.mjs`).
+## The release workflow
 
-Every other pipeline runs the same path without writing (`release-preflight`), so a broken
-release step shows up on a merge request, not on the tag.
+`.github/workflows/release.yml` adds two **optional** steps on top of a tag. It runs only when an
+operator starts it from the Actions tab (`workflow_dispatch`); it never runs on a push, a tag or a
+pull request.
 
-Users on `latest` see the new release the next time `/update` checks (at most a day later, or
-straight away with `/update`).
+| Job | Runs | Permissions | Side effects |
+|---|---|---|---|
+| `gate` | always | `contents: read` | none: the full CI gate for the same commit |
+| `plan` | always | `contents: read` | **none**: plans the version and dist-tag, checks the tarball, runs `npm publish --dry-run`, previews the release notes in the run summary |
+| `github-release` | only with `dry-run` unticked, from a `v*` tag | `contents: write` | creates the GitHub Release with the CHANGELOG notes |
+| `npm-publish` | only with `dry-run` unticked **and** `publish-npm` ticked, from a `v*` tag | `id-token: write`, the `npm` environment | publishes `@satunix/pi-system` to npm |
 
-A tag is the release even if the pipeline fails: `/update` reads tags, not GitLab Releases. If
-the pipeline fails for a tag, delete the tag (`git push origin :refs/tags/vX.Y.Z` and
-`git tag -d vX.Y.Z`), fix the problem, and release again.
+`dry-run` defaults to **ticked**. The two jobs with side effects are guarded by an explicit
+`inputs.dry-run == false` comparison, so any other event type, or an empty input, also means "no
+side effects". `tests/release-workflow-smoke.mjs` checks this structure and is run by `check:all`,
+and it fails against a workflow that publishes on a dry run.
 
-## Repository settings (GitLab)
+```mermaid
+flowchart LR
+    start([Operator starts the workflow]) --> gate[gate: the full CI checks]
+    gate --> plan[plan: read-only dry run]
+    plan --> q{dry-run unticked<br/>and a v* tag?}
+    q -->|no| done([Nothing published or created])
+    q -->|yes| rel[github-release: creates the Release]
+    q -->|yes, and publish-npm ticked| npm[npm-publish: npm environment]
+```
 
-- **Protect `main`**: Settings → Repository → Protected branches. Allowed to merge: Maintainers.
-  Allowed to push: no one (or Maintainers, if you commit directly).
-- **Protect tags `v*`**: Settings → Repository → Protected tags. Allowed to create: Maintainers.
-- **Pipelines must succeed** before merging: Settings → Merge requests → Merge checks.
-- **Runner**: the security jobs run container images (gitleaks, semgrep), so the runner needs
-  a Docker executor that can pull from `ghcr.io` and Docker Hub.
-- **Private certificate authority**: the release jobs call back to GitLab from inside their
-  container (`git fetch`, the Releases API), which does not trust a private CA by itself.
-  GitLab hands the runner's CA to jobs as `CI_SERVER_TLS_CA_FILE` when the runner has
-  `tls-ca-file` set in its `config.toml` (or the CA in its `certs/` directory). If
-  `release-preflight` fails with a certificate error, do that, or add a CI/CD variable
-  `GITLAB_CA_FILE` of type File holding the CA (Settings → CI/CD → Variables).
+Recommended order for a release:
 
-## Giving someone access
+1. Merge the release commit to `main`; wait for CI.
+2. `npm run release -- <version>` locally, push the tag (above).
+3. Run the `release` workflow from the tag with the defaults (dry run) and read the `plan`
+   summary: tarball contents, `npm publish --dry-run` output, release notes.
+4. Run it again from the tag with **dry-run unticked** to create the GitHub Release. Leave
+   `publish-npm` unticked unless npm publication has been set up (below).
 
-Everyone who installs the kit needs read access to the repository: the Reporter role on the
-project (or its group), plus an HTTPS token with `read_repository` or an SSH key. See
-[Installation](INSTALL.md#access-to-the-repository). A deploy token (Settings → Repository →
-Deploy tokens, scope `read_repository`) works for a shared machine or a container.
+## Repository settings (GitHub)
+
+These are operator actions; the repository does not change its own settings.
+
+- **Protect `main`**: require pull requests, the `ci` checks and the `security` checks; block
+  force pushes.
+- **Protect tags `v*`**: restrict who can create them.
+- **Code scanning and secret scanning**: enable them; `security.yml` uploads SARIF and runs
+  gitleaks.
+- **Actions**: allow only the pinned actions in use; workflow tokens default to read-only.
 
 ## What a release contains
 
-The whole repository at the tag. pi runs `npm install --omit=dev` in its copy, which links the
-workspace packages and installs their few runtime dependencies from the public npm registry.
-Companion packages (`pi-lens`, `pi-readseek`, ...) are separate pi packages from npm, registered
-by the installer at the kit's reviewed pins.
+The whole repository at the tag. pi runs `npm install --omit=dev` in its copy; the kit has no
+runtime dependencies, so nothing is fetched from the npm registry. Companion packages (`pi-lens`,
+`pi-readseek`) are separate pi packages from npm, registered by the installer at the kit's
+reviewed pins in `packages/core/sources.json`.
 
-## Switching to npm delivery
+`npm run smoke:package` (part of `check:all`) packs the repository exactly as `npm publish`
+would, unpacks it and proves the copy works alone, and `smoke:clean-install` installs that copy
+for every profile and starts the real pi with it.
 
-Everything for npm is built and tested but paused: `.github/workflows/release.yml` publishes
-`next` from `main` and releases from tags, with npm trusted publishing (OIDC, no stored token)
-and provenance. To switch:
+## npm publication (optional)
 
-1. **npm**: an account with two-factor authentication, and the `satunix` organisation (it owns
+npm delivery is built and tested but **not enabled, and the package is not published**. Git
+delivery is the supported path. To enable npm as well, an operator needs to:
+
+1. Have an npm account with two-factor authentication and the `satunix` organisation (it owns
    the `@satunix` scope).
-2. **GitHub**: the public repository `SATUNIX/pi-system`. npm provenance only verifies public
-   GitHub (or GitLab.com) repositories, not a private GitLab. Point `repository`, `homepage` and
-   `bugs` in `package.json` at it; the package check (`npm run smoke:package`) enforces this
-   once the delivery is `npm`. Add a GitHub environment named `npm`.
-3. **Delivery**: set `"delivery": "npm"` in `packages/core/distribution.json`, and restore the
-   `push` trigger in `.github/workflows/release.yml`.
-4. **First publish**: npm only lets you attach a trusted publisher to a package that exists, so
-   publish the first version by hand (`npm login`, then `npm publish --access public`).
-5. **Trusted publishing**: on npmjs.com, package settings → Trusted Publisher → GitHub Actions:
-   organisation `SATUNIX`, repository `pi-system`, workflow `release.yml`, environment `npm`.
-   Then set publishing access to "Require two-factor authentication and disallow tokens".
+2. Add a GitHub environment named `npm`.
+3. Publish the first version by hand (`npm login`, then `npm publish --access public`), because
+   npm only lets you attach a trusted publisher to a package that exists.
+4. On npmjs.com, package settings, Trusted Publisher, GitHub Actions: organisation `SATUNIX`,
+   repository `pi-system`, workflow `release.yml`, environment `npm`. Then set publishing access
+   to "Require two-factor authentication and disallow tokens".
+5. Set `"delivery": "npm"` in `packages/core/distribution.json` **only if** npm should replace
+   git as the default; git delivery keeps working without it.
 
-The npm channels are dist-tags: `next` on every `main` commit (versions like
-`0.2.1-beta.0.next.<UTC time>.g<sha>`), `latest` for releases, `beta` for prereleases once a
-stable release exists, and `release-X.Y` for maintenance releases
-(`packages/core/publish-plan.mjs`).
-
-Existing installs move over by themselves: once they update to a release whose
-`distribution.json` says `npm`, `/update kit` offers to move the install to npm, keeping its
-channel and profile.
+The npm channels are dist-tags: `latest` for releases, `beta` for prereleases once a stable release
+exists, and `release-X.Y` for maintenance releases (`packages/core/publish-plan.mjs`).
 
 ## Local checks
 
 ```sh
-npm run check:all            # everything CI runs, including the delivery and update tests
+npm run check:all            # everything CI runs, including the delivery, update and install tests
 npm run security:lockfile    # lockfile integrity
-node packages/core/release-notes.mjs 0.2.1-beta.0   # preview the notes for a release
+node packages/core/release-notes.mjs 0.2.4-beta.0   # preview the notes for a release
 ```

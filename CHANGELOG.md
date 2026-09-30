@@ -4,8 +4,7 @@ All notable changes to `@satunix/pi-system` are documented here. The format is b
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Versions before `0.2.1-beta.0` were internal and are archived in
-`docs/archive/CHANGELOG-internal.md`; their numbers do not correspond to npm releases.
+Versions before `0.2.1-beta.0` were internal; their numbers do not correspond to public releases.
 
 ## [Unreleased]
 
@@ -13,62 +12,115 @@ _Nothing yet._
 
 ## [0.2.4-beta.0]
 
+The first public beta. Delivered from `github.com/SATUNIX/pi-system`; see `docs/beta.md` for what
+is and is not covered, and `docs/migration.md` if you installed from the earlier private source.
+
 ### Added
 
-- `packages/autonomy` (private, not published): a supervisor for unattended improvement runs
-  of this repository. It runs cycles of the kit's own agent (long-horizon profile, no judge,
-  approvals auto-granted) inside a hard container boundary. The only ways out are an
-  inference relay (fixed upstream, model allowlist, metered budget) and a local bare repo
-  that the host takes in fast-forward only. Each cycle gets a post-cycle gate and a tag, and a
-  fixed-choice manager model handles stuck cycles. A cycle that completes, passes the gate and
-  passes an independent merge review is fast-forwarded into one shared `experimental/main`
-  branch, which every later cycle and run starts from. Nothing is force-pushed. Cycles work
-  in fix mode while there is something to fix, and in improve mode (capability, performance,
-  reliability of existing systems) only when there isn't; each improvement is followed by a
-  consolidation pass. A run whose cycles repeatedly find nothing to do stops as
-  `backlog_exhausted`. See `docs/autonomy.md`.
+- **Public delivery.** The kit installs from `git:github.com/SATUNIX/pi-system` (release tags for
+  `latest`, `main` for `next`). Installs registered from the retired private GitLab sources are
+  detected and migrated by `/update` and by the installer: the retired host is never contacted,
+  the channel, profile and hand edits are kept, and the old registration is removed.
+- **Verified updates.** `/update` re-reads the installed state after each step and reports a step
+  that ran but left the old state behind as failed, stopping the run without reloading. Progress
+  and failures go to standard error when there is no terminal UI.
+- **Effort control.** Five tiers (E1 Minimal to E5 Exhaustive; default E3) chosen with `/effort`,
+  applied from the next message, shown in the status bar, and independent of the model, thinking
+  level, profile and permissions. Delegation limits (concurrent, total, scouts) are enforced by a
+  shared ledger at every depth, with a separate recovery budget. See `docs/effort.md`.
+- **One governed delegation engine.** `delegation-guard` is the single child-launch contract used
+  by the `subagent` tool, workflows, the completion reviewer, the Conductor and recovery: every
+  child loads its parent's protections, verifies them itself and fails closed (exit 78), at any
+  depth, and is budgeted by the effort ledger.
+- **Scoped approvals.** Remembered approvals are bound to the exact action, workspace, directory
+  and session, expire, and are stored in one file that `/firewall list` and
+  `/firewall revoke` inspect and change. Refusals carry exactly one label. Judge blocks that are
+  not high-confidence go to the operator. All approval waits are bounded.
+- **Unattended mode** for autonomous workers: activates only from a supervisor-built environment
+  and a read-only contract, never from inside a session.
+- **Web console authentication.** A per-start token, Host and Origin checks, JSON-only writes and
+  an RPC allow-list; loopback by default. See `docs/web-console.md`.
+- **Transactional `/profile`.** A switch snapshots settings, runs the installer, judges the result
+  by what is on disk and rolls back on any failure. `/profile status` and `/compaction status`
+  show the effective state.
+- **Status bar.** One renderer with `light`, `default` and `heavy` layouts, prioritised segments,
+  terminal-width-safe fitting, effort, unattended and compaction state, and cost provenance
+  (measured, estimated or unknown).
+- **General autonomous runs.** `packages/autonomy` generalises the self-improvement supervisor
+  into a run engine with a versioned run contract, a lifecycle state machine, templates, scoped
+  unattended authorisation with containment, constrained egress, bounded recovery and budgets. See
+  `docs/autonomy.md`.
+- `docs/concepts.md`, `docs/effort.md`, `docs/migration.md`, `docs/troubleshooting.md`,
+  `docs/web-console.md`, `docs/beta.md` and `docs/private-system-lessons.md`; Mermaid diagrams in
+  place of PlantUML, checked by `npm run docs:mermaid`.
+- CI: a test-wiring check (`check:all` fails on a test no script runs or that asserts nothing), a
+  clean-install test that installs the packed tarball for every profile and starts the real pi, a
+  release workflow that is manual and dry-run by default with a static test that it cannot publish
+  on a dry run, and a pi-compat matrix at the supported floor and the newest release looked at.
 
 ### Changed
 
-- The kit is delivered from `gitlab.home.internal/lab/pi-system` (`packages/core/distribution.json`);
-  `root/pi-system` is archived. See `docs/updates.md` to move an existing install.
-- Context contributions are scoped per session: producers write to
-  `.pi/ctx-contributions/sessions/<session-id>/` (the flat directory stays as the fallback when
-  pi exposes no session id), so concurrent sessions sharing a directory no longer overwrite each
-  other. context-sieve skips files older than the process start instead of snapshotting them.
-- Completion gates (verifier-board, orchestrator, conductor) require at least one passing
-  trusted source (`verify`, `review` or `validator:<id>`); self-recorded passes alone no longer
-  count as done.
+- **Requirements:** Node.js 22.19 or newer (pi's own minimum) and pi 0.85.1 or newer (the floor
+  moved from 0.76.0). The suite is pinned to and tested against pi 0.87.1.
+- Approvals learned in one workspace no longer run unasked in another; session allows expire after
+  24 hours and learned ones after 30 days; an unanswered approval card is refused as uncertain
+  after 15 minutes.
+- `/footer <unknown>` is rejected instead of toggling the bar; `/footer` on its own still toggles.
+- `trigger-compact` no longer compacts in the middle of a run, stands down when pi's own trigger is
+  earlier, and never runs in child sessions; `context-sieve` budgets scale with the real context
+  window; a full window with compaction off is explained rather than retried.
+- Firewall, profile and overrides configuration that is unsafe (an unknown mode or policy, an
+  unparseable `firewall.json`, an override that removes a mandatory protection) fails before
+  anything is written instead of being silently replaced.
+- `pi-lean-ctx` is pinned at 3.10.5 and is in no profile (opt-in); its review now states that it
+  registers shell and edit tools outside the firewall's shell and secret classification.
+- `dream.mjs` no longer writes trace-derived notes into `AGENTS.md`.
+- Completion gates (verifier-board, orchestrator, conductor) require at least one passing trusted
+  source (`verify`, `review` or `validator:<id>`); self-recorded passes alone do not count.
 - A project install keeps its state marker in `<project>/.pi/.pi-kit.json`, and `/profile`,
-  `/update`, uninstall and the web UI read it before the global one. Uninstall removes the
-  companion packages the install recorded.
-- `PI_KIT_SPEC_PLAN_STRICT=0` (or `false`, `off`, `no`) now disables spec-plan; `1` still blocks.
-- `npm run verify` lints nested `.ts` files in extensions and checks `docs/EXTENSIONS.md` for drift.
+  `/update`, uninstall and the web UI read it before the global one.
+- Context contributions are scoped per session.
+- `PI_KIT_SUBAGENT_ISOLATE=0` no longer disables child isolation.
+
+### Removed
+
+- The private GitLab pipeline and release script; the `roles/` contracts and `packages/role-runner`
+  (they target a private platform); `pi-impact-analyzer` and the unused `pi-subagents` reference;
+  the historical design, review and campaign documents. Git history keeps them; see
+  `docs/private-system-lessons.md`.
+- Machine paths, private host names and account names from tracked files.
 
 ### Fixed
 
-- Readers of persisted state (settings, sources, manifests, firewall sessions and grants, task
-  graph, workflow runs, memory stores, ledgers, web UI files) ignore malformed or wrong-shaped
-  data instead of crashing the host.
-- Approval brokers (tool-firewall, pentest-governance, human-console) always settle, remove their
-  pending and resolved files, and quarantine malformed requests (capped at 50).
-- `extract-extension` rejects unsafe names and copies subdirectories; branch-lab accepts real git
-  refs such as `origin/main` as the base branch; `check:all` runs on Windows.
+- Readers of persisted state ignore malformed or wrong-shaped data instead of crashing the host.
+- Approval brokers always settle, remove their pending and resolved files, and quarantine malformed
+  requests.
+- A killed or timed-out profile switch no longer counts as success (`pi.exec` resolves a
+  signal-killed child as code 0).
+- `echo path | xargs touch` and similar wrappers are no longer routine actions.
+- The web console shuts down cleanly on SIGTERM with an open event stream.
 - `/console stop` stops a hung web UI and never signals a pid that is not the console.
+- `THIRD_PARTY_NOTICES.md` reproduces the upstream licence with its holder and year, and states the
+  licence position of the caveman concept source.
 
 ### Security
 
+- Web console: authentication, Host, Origin and content-type checks, an RPC allow-list, a
+  Content-Security-Policy. See `docs/web-console.md`.
+- Approvals cannot be broader than the operator's choice; malformed approval files fail closed.
+- Every child agent is at least as protected as its parent, at every depth; a missing protection
+  stops it.
 - pentest-governance blocks an action whose audit record cannot be written.
 
 ## [0.2.1-beta.0]
 
-First versioned release, delivered from the private GitLab (`gitlab.home.internal/root/pi-system`).
+First versioned release, delivered from a private GitLab project (since retired).
 
 ### Added
 
 - One package, one install: `node packages/core/install.mjs --channel latest --profile <name>`
   from any clone registers the newest release with pi; or `pi install
-  git:gitlab.home.internal/root/pi-system@v<version>` (the first interactive start then applies
+  git:<the private source>@v<version>` (the first interactive start then applies
   the `balanced` profile; `PI_KIT_AUTO_PROFILE=<name>|0` changes or turns this off).
 - Release channels: `latest` (the newest `vX.Y.Z` tag), `next` (every commit on `main`) and
   pinned versions. `install.mjs --channel <latest|next|X.Y.Z>` picks one.
@@ -84,7 +136,7 @@ First versioned release, delivered from the private GitLab (`gitlab.home.interna
   `skills.only` / `prompts.only` allowlists (new profile fields).
 - GitLab release stage: a pushed `vX.Y.Z` tag that passes every check and scan, matches
   `package.json` and is on `main` gets a GitLab Release with notes from this changelog
-  (`packages/core/release-notes.mjs`, `packages/core/gitlab-release.mjs`). A private CA is
+  (`packages/core/release-notes.mjs`). A private CA is
   supported, and every other pipeline runs the release path read-only (`release-preflight`).
 - Security scanning in the GitLab pipeline: gitleaks over full history, Semgrep, `npm audit`,
   `npm audit signatures`, lockfile integrity, and GitLab's SAST and Secret Detection. The same

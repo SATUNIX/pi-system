@@ -21,4 +21,9 @@ No env vars of its own. It also protects the files the firewall trusts: `PI_KIT_
 
 ## Profiles
 
-Included in: `quick`, `balanced`, `long-horizon`, `autonomous`, `self-improving`
+Shipped but **not** in any profile: its manifest is `experimental` and `enabledByDefault: false`.
+Add it deliberately (`node packages/core/install.mjs --profile <name> --only ...`, or a
+`/profile` override) when you want a name-based backstop for writes to `.env`, keys and similar
+files. The tool firewall's own classifier already refuses or asks about the same actions in every
+profile; this extension is the stricter, pattern-based second layer. When it is loaded, child
+sessions started by delegation load it too.

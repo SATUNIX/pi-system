@@ -1,0 +1,29 @@
+# Lessons from the private system
+
+Pi System began as a private system: a private GitLab project, a homelab deployment and a set of
+internal design and review documents. The public beta keeps what generalises and leaves the
+rest behind. This page records each decision so it is not re-litigated, and so an operator who
+knew the private system can see where each piece went. The complete history is in git; nothing
+below was lost, only left out of the release.
+
+Dispositions: **adopted** (in the beta), **adapted** (kept in a changed form), **not adopted** (left
+out, with the reason), **removed** (deleted from the tracked tree).
+
+| Component or lesson | Disposition | Where it is now | Why |
+|---|---|---|---|
+| A private GitLab source with a private CA, SSH-only instructions and a private release pipeline | **Adapted** | The kit installs from `github.com/SATUNIX/pi-system`; installs from the retired sources migrate ([Migration](migration.md)); releases are operator-run ([Releasing](releasing.md)) | A public beta cannot depend on a host nobody outside can reach. Migration never reconnects to the old remote and never overwrites customisations. |
+| GitLab CI (`.gitlab-ci.yml`) and the GitLab Release script | **Removed** | GitHub Actions: `ci.yml`, `security.yml`, and a manual dry-run-first `release.yml` ([CI security](ci-security.md)) | GitHub ignores the GitLab pipeline, and the release script called an API this repository no longer uses. |
+| The `roles/` operate-mode contracts and the `packages/role-runner` runner | **Not adopted** (removed) | Nowhere | They encode one homelab platform (its secrets broker, model gateway, service accounts and cluster roles). Only the untrusted-data marking idea in the runner is generic, and the kit's own context handling already covers it; porting it would be new work with its own review. |
+| Two rounds of independent adversarial review of the predecessor | **Adopted** (the outcome) and **removed** (the records) | The bypasses they found are fixed and pinned by regression tests ([Security model](security.md)) | The records contain machine paths and refer to commits that are not in the public history. |
+| The agent-improvement loop (`/pi-improve` cycles, a Codex submission workflow through a private git host) | **Adapted** | The generic autonomous run engine, with a self-improvement template ([Autonomous runs](autonomy.md)) | The private workflow depended on a specific host and account setup. What generalises is unattended runs inside a hard boundary with scoped authorisation, budgets and bounded recovery. |
+| Fleet documents for the container package (security baseline, contributor identities, changelog, session handoffs) | **Removed** | `packages/container/README.md` and `AGENTS.md`; the root `SECURITY.md` is the policy | They named private accounts, hosts and runners. |
+| Design proposals: the Conductor gateway approval, hard recovery, a status indicator, the original autonomy-gate spec, npm distribution | **Not adopted** as documents | The implemented parts are described by the current pages ([Autonomy gate](autonomy-gate.md), [Agent orchestration](agent-orchestration.md), [Recovery orchestration mode](recovery-orchestration-mode.md)) | The unbuilt ones (for example a gateway MCP server that does not exist) describe behaviour nobody can verify. Open ideas are in [Future work](future-work.md). |
+| Research syntheses and the first-person "north star" | **Adapted** | The tiers, layers and design rules in [Concepts](concepts.md) | The literature notes are not behaviour. The rules that shape the extensions are kept, in third person and without the plan. |
+| The external `pi-subagents` power-up | **Not adopted** (reference removed) | One vendored, governed delegation engine ([Agent orchestration](agent-orchestration.md)) | Two engines register the same `subagent` tool and would each need the same governance; the current release also needs a newer pi. |
+| `pi-impact-analyzer` | **Not adopted** (removed) | Nowhere | Its passive hooks read event fields pi does not send (a `path` on tool results, string message content), so only its manual tool works; `pi-lens` already reports impact diagnostics. |
+| `pi-lean-ctx` in every full profile | **Adapted** to opt-in | [Supply chain](supply-chain.md) | It adds shell and edit tools outside the firewall's shell and secret classification, and needs a separately installed native CLI. |
+| `pi-lens` 4.x, `pi-readseek` 0.10.x, `pi-mcp-adapter` 3.x, TypeScript 7 | **Not adopted** for the beta | [Supply chain](supply-chain.md) records what was checked | Major-version changes whose behaviour could not be exercised without a provider; each needs its own review. |
+| A dream-mode pass that appended trace-derived notes to `AGENTS.md` | **Adapted** | It now writes only `.pi/memory/dream-notes.md` | `AGENTS.md` is loaded into the model's context and committed, and the notes carried a developer's machine paths. |
+| Approvals remembered by action alone, across every workspace | **Adapted** | Scoped, expiring, listable and revocable approvals ([Security model](security.md#approvals)) | A precedent in one repository must not authorise the same command in another. |
+| `secret-guard` as a default layer | **Not adopted** as default | Shipped, opt-in | The firewall already classifies credential files; whether the stricter pattern layer should be default needs data on its false positives. |
+| Machine paths, private hostnames, account names, addresses and e-mail addresses in tracked files | **Removed** | Nowhere | They do not belong in a public repository. The final scan is part of the release checklist. |

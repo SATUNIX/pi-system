@@ -120,7 +120,7 @@ function render() {
     "> Do not hand-edit; run `npm run catalog` after adding or recategorising a skill.",
     "",
     ...visibilitySentences(skills),
-    "[the skills plan](skills-and-efficiency-improvement-plan.md) for the format and rationale.",
+    "[Writing skills](WRITING_EXTENSIONS.md#writing-skills) for the format and rationale.",
     "",
   ];
 

@@ -57,7 +57,7 @@ The three triangles in the top bar toggle the sessions panel, the inspector and 
 
 ## Requirements
 
-- Node.js ≥ 20
+- Node.js ≥ 22.19 (pi's own minimum)
 - The `pi` CLI on `PATH`
 - A configured provider/model in `<pi home>/models.json`
   (defaults to `~/.pi/agent`, overridable with `PI_CODING_AGENT_DIR`)

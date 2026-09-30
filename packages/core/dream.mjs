@@ -3,8 +3,10 @@
  * Dream mode (Epic 6 Sprint 6.3) — OFFLINE, deterministic implementation.
  *
  * The roadmap's "Future Direction / Dream mode" is a scheduled print-mode (`pi -p`) run that
- * reviews prior session activity and improves the kit's *internal* state (AGENTS.md, memory,
- * GOAL.yaml-style files) — never the operator-facing surface. Because this kit is hardened
+ * reviews prior session activity and improves the kit's *internal* state (memory,
+ * GOAL.yaml-style files) — never the operator-facing surface. It does NOT write AGENTS.md: that
+ * file is loaded into the model's context and committed, and trace-derived notes carry the
+ * machine-local paths of whoever ran the session. Because this kit is hardened
  * offline (no live model, no `pi -p`), this script is the deterministic stand-in: it mines
  * the trace-ledger and updates ONLY allowlisted internal paths, then self-verifies that it
  * touched nothing else. A real scheduled run would invoke `pi -p` with
@@ -14,7 +16,7 @@
  *   node packages/core/dream.mjs [--cwd <dir>] [--dry-run]
  *
  * Allowlist (the ONLY paths dream mode may modify):
- *   AGENTS.md , .pi/memory/** , GOAL.yaml , .pi/self-improvement/**
+ *   .pi/memory/** , GOAL.yaml , .pi/self-improvement/**
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -25,8 +27,7 @@ const get = (flag, def = null) => (args.indexOf(flag) >= 0 ? args[args.indexOf(f
 const dryRun = args.includes("--dry-run");
 const CWD = path.resolve(get("--cwd", process.cwd()));
 
-const ALLOWLIST = ["AGENTS.md", path.join(".pi", "memory"), "GOAL.yaml", path.join(".pi", "self-improvement")];
-const NOTES_HEADER = "## Learned notes (dream mode)";
+const ALLOWLIST = [path.join(".pi", "memory"), "GOAL.yaml", path.join(".pi", "self-improvement")];
 const READ_HINT = /^(read|grep|glob|ls|find|cat|search|rg)/i;
 
 function isAllowlisted(rel) {
@@ -90,20 +91,7 @@ if (notes.length === 0) {
   process.exit(0);
 }
 
-// 1. Append learned notes to AGENTS.md (allowlisted).
-let agents = "";
-try {
-  agents = fs.readFileSync(path.join(CWD, "AGENTS.md"), "utf8");
-} catch {
-  agents = "# AGENTS.md\n";
-}
-// Only notes not already recorded: every run used to re-insert the same lines under the header,
-// so AGENTS.md grew without bound.
-const fresh = notes.filter((n) => !agents.includes(`- ${n}`));
-const block = `\n${NOTES_HEADER}\n${fresh.map((n) => `- ${n}`).join("\n")}\n`;
-if (fresh.length) guardedWrite("AGENTS.md", agents.includes(NOTES_HEADER) ? agents.replace(NOTES_HEADER, `${NOTES_HEADER}\n${fresh.map((n) => `- ${n}`).join("\n")}`) : agents.replace(/\s*$/, "") + "\n" + block);
-
-// 2. Record a memory note (allowlisted).
+// Record a memory note (allowlisted, untracked: `.pi/` is gitignored).
 guardedWrite(
   path.join(".pi", "memory", "dream-notes.md"),
   [`# Dream-mode memory notes`, "", `Updated from ${entries.length} trace entries.`, "", ...notes.map((n) => `- ${n}`), ""].join("\n"),

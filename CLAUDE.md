@@ -1,60 +1,68 @@
-# CLAUDE.md — working conventions for developing this repo with Claude Code
+# CLAUDE.md: working conventions for developing this repository
 
-This file records development conventions for agents working *on* `pi-system`. It is
-distinct from `AGENTS.md`, which is what the *shipped pi agent itself* reads about
-installing and using the kit.
+This file is for people and agents working **on** `pi-system`. It is distinct from `AGENTS.md`,
+which is what the *shipped pi agent itself* reads about installing and using the kit. Put
+guidance for the shipped agent in `AGENTS.md`, guidance for contributors here, and anything a
+user needs in `docs/`.
 
 ## Repo conventions
 
 - Run `npm run verify` and `npm run test:security` before considering any change to
-  `packages/core/`, `packages/extensions/` or `packages/kit/` done. For documentation
-  changes, also run `python -m mkdocs build --strict`: the `docs-build` CI job is strict, and
-  a link to a path outside `docs_dir` (for example `../packages/...`) aborts the build. Keep
-  such references as code spans, not markdown links.
-- Follow the existing commit-message convention (see recent `git log`):
-  finding / root-cause / fix / verification in the body, not just a one-liner.
-- Treat any roadmap or audit doc's summary as a hypothesis to verify against the actual code,
-  not as ground truth — this repo has direct precedent for stale audit docs (see the status
-  banner in `docs/improvement-roadmap.md`).
+  `packages/core/`, `packages/extensions/` or `packages/kit/` done. `npm run check:all` is the
+  single definition of "all the checks" and is what CI runs.
+- Run tests through their npm scripts (`npm run smoke:<name>`), not `node tests/x.mjs`: the scripts
+  put `node_modules/.bin` (and so `pi`) on `PATH`. Smoke tests must be hermetic: call
+  `isolateKitEnv()` from `packages/core/eval/harness.mjs` before loading the extension under test.
+- A new test file must be named by a `smoke:*` or `test:*` script. `check:all` fails on a test no
+  script runs (`packages/core/lib/wiring.mjs`).
+- Follow the existing commit-message convention (see recent `git log`): finding, root cause, fix
+  and verification in the body, not just a one-liner.
+- Treat any roadmap, audit or review summary as a hypothesis to verify against the code, not as
+  ground truth. Stale audit documents are how this repository accumulated wrong claims.
 - Keep patches scoped. Do not run a repo-wide formatter, and do not "tidy" files you were not
   asked to change: whitespace churn over unrelated files makes the real diff unreviewable.
 - Never commit on another agent's behalf, and never push to a protected branch.
+- **Releasing is an operator action.** An agent may prepare a release branch and a draft pull
+  request. It must not create or push a tag, publish a package, image or release, merge a pull
+  request, or change repository or account settings. See `docs/releasing.md`.
+- Never touch the operator's real pi installation or credentials when testing: use temporary
+  `HOME` and `PI_CODING_AGENT_DIR` directories, as `tests/clean-install-smoke.mjs` does.
 
-## Agent improvement loop (`/pi-improve`)
+## Documentation rules
 
-This repo hosts the live-testing/improvement cycle system documented in full at
-`docs/agent-improvement/README.md` — read that document, not this section, for the actual
-process, schema, and phase definitions. The coordinator and phase skills that drive it are
-versioned in this doc tree under `docs/agent-improvement/codex-skills/`, and the Codex
-submission workflow is described in `docs/agent-improvement/autonomous-workflow.md`.
+Documentation here describes **what the code does now**. These rules keep it that way:
 
-Personal, cross-repo Claude tooling that used to live at `~/.claude/skills/pi-improve*/` and
-`~/.claude/agents/pi-improve-*.md` is **not** tracked here — `.claude/` is gitignored in this
-repo.
+1. **Current behaviour only.** No status banners, dated "as of" claims, sprint or work-unit ids, or
+   plans in a page that describes behaviour. Plans belong in `docs/roadmap.md` and
+   `docs/future-work.md`; history belongs in git and `CHANGELOG.md`.
+2. **One home per fact.** Link to it instead of restating it. Generated pages
+   (`docs/EXTENSIONS.md`, `docs/skills-catalogue.md`, `docs/capability-matrix.md`,
+   `THIRD_PARTY_NOTICES.md`) are never hand-edited: run `npm run catalog` and
+   `node packages/core/gen-notices.mjs`.
+3. **A claim about behaviour names the test that pins it**, or says plainly that nothing does.
+4. **Diagrams are Mermaid** in fenced blocks, and `npm run docs:mermaid` must pass.
+5. **No private hosts, addresses, accounts, e-mail addresses or machine paths**, and no
+   secret-like strings other than the synthetic fixtures the tests already use.
+6. **Links stay inside `docs/`.** A link to a path outside `docs_dir` (for example
+   `../packages/...`) aborts `python -m mkdocs build --strict`, which CI runs; keep such
+   references as code spans.
+7. **Australian English**: behaviour, colour, organisation, licence (noun), customise, artefact.
+8. Say what is **not** covered. A limitation belongs in the page that describes the feature, and
+   the release-wide ones in `docs/beta.md`.
 
-### Compact preservation
+For documentation changes also run `python -m mkdocs build --strict` and `npm run docs:check`.
 
-If a `/compact` happens while `docs/agent-improvement/cycles/*/cycle-state.json` shows an
-in-progress cycle, the compacted summary must preserve:
+## Dependencies
 
-- The current cycle ID and its `focus`.
-- Current branch/worktree, in every repo the cycle touches.
-- Current phase and next phase.
-- Baseline commit and latest commit, per repo.
-- The cycle directory path and which artefacts already exist in it.
-- `validatedFindingIds` and `approvedImprovementIds`.
-- `modifiedFiles` and `testCommands` from the manifest.
-- Any unresolved `blockers`.
+- `devDependencies` pin the pi version the whole suite is tested against; `peerDependencies`
+  state the floor. CI's `pi-compat` matrix runs the suite at the floor and at the newest release
+  looked at. Widening either is a reviewed change with evidence, not a Dependabot bump.
+- Companion packages in `packages/core/sources.json` are pinned exactly and reviewed. Verify a
+  candidate against its tarball (and, if it loads into pi, in a real TUI with a scratch agent
+  directory) before adopting it, and record the review in `sources.json`.
 
-Treat `cycle-state.json` and the committed artefacts under
-`docs/agent-improvement/cycles/<cycle-id>/` as authoritative — discard raw logs, repeated
-reasoning, superseded hypotheses, and rejected findings from the conversation; they are either
-already in a committed artefact or were correctly triaged out and do not need to survive
-compaction.
+## Autonomous runs
 
-A `SessionStart` hook (personal and gitignored, e.g. `.claude/settings.local.json`)
-re-injects a short factual summary of any in-progress cycle at the start of a fresh session,
-reading only `cycle-state.json` — never an LLM-reinterpreted summary of prior conversation.
-This is the primary recovery path after a cycle spans multiple sessions; the `PreCompact` hook
-is a same-session reminder for the less common case of compacting mid-cycle within one long
-coordinator session.
+`packages/autonomy` runs the kit's own agent unattended inside a container boundary. Its design
+and operator steps are in `docs/autonomy.md`; changes to the boundary, the run contract or the
+approval rules need their tests updated in the same change.

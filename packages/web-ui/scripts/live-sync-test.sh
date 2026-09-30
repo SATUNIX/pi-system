@@ -12,7 +12,7 @@ BASE="localhost:${PORT}"
 TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
 AUTH=(-H "Authorization: Bearer ${TOKEN}")
 TMP="$(mktemp -d)"
-ENC="--home-agrace--"
+ENC="--home-operator--"
 SID="live-sync-test"
 FILE="${TMP}/${ENC}/2026-01-01T00-00-00-000Z_${SID}.jsonl"
 

@@ -6,15 +6,16 @@
 - `packages/extensions/src/<name>/` — first-party extensions you author here.
 - `packages/extensions/third_party/<name>/` — adapted upstream extensions, each with a `SOURCE.md`.
 - `packages/kit/` — skills, prompts, profiles, themes, agents, workflows.
-- `packages/web-ui/`, `packages/container/` — console and deployment.
-- `tests/`, `docs/`, `examples/` — suite, documentation, examples.
+- `packages/web-ui/` — the web console. `packages/autonomy/` — the autonomous run engine.
+  `packages/container/` — the container deployment.
+- `tests/`, `docs/` — the suite and the documentation.
 
 ## Branch strategy
 
 - `main` — `npm run check:all` green. Every commit on `main` is the `next` channel.
-- `experimental/<name>` — a full agent loadout under trial, pinnable from a project's `.pi` settings.
-- Releases are tags `vX.Y.Z` (or `vX.Y.Z-beta.N`) cut with `npm run release -- <version>`; a
-  pushed tag becomes the `latest` channel and a GitLab Release. See `docs/releasing.md`.
+- Feature branches and draft pull requests carry unreleased work; nothing is released from them.
+- Releases are tags `vX.Y.Z` (or `vX.Y.Z-beta.N`) cut by an operator with
+  `npm run release -- <version>`; a pushed tag becomes the `latest` channel. See `docs/releasing.md`.
 
 ## Checks
 
@@ -41,7 +42,8 @@ changed. Documentation changes additionally want
 2. Entry point: `index.ts` at the folder root.
 3. Metadata: `extension.json` sibling, validated against `packages/core/schema/extension.schema.json`.
 4. **Self-containment (hard rule):** import only `node:*` built-ins and the `typebox` peer. No
-   sibling imports, no `packages/core/lib` imports. `npm run verify` enforces this mechanically.
+   sibling imports, no `packages/core/lib` imports. Cross-extension contracts go through a
+   registry on `globalThis` (`Symbol.for("pi-kit.*")`). `npm run verify` enforces this mechanically.
 5. `README.md` per extension explaining what it does and what it needs.
 
 ## Avenues

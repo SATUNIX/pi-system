@@ -7,7 +7,7 @@ Skills are on-demand runbooks. The 4 skills without `disable-model-invocation: t
 their one-line description in context; the other 31 are surfaced on demand by
 `skill_search` and trigger hints, and any `SKILL.md` body loads when the task matches
 (or via `/skill:<name>`). See
-[the skills plan](skills-and-efficiency-improvement-plan.md) for the format and rationale.
+[Writing skills](WRITING_EXTENSIONS.md#writing-skills) for the format and rationale.
 
 ## Coding & general workflow
 - **codebase-navigation** — Orient in a repository and find/read code with the fewest tool calls.

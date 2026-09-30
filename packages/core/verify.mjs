@@ -507,11 +507,11 @@ if (fs.existsSync(sourcesPath)) {
           fail(`skill ${name}/SKILL.md has unrecognized category "${categoryMatch[1]}" — must be one of: ${[...KNOWN_SKILL_CATEGORIES].join(", ")}`);
         }
         // Trigger-shape lint: descriptions must be "what + when" (kit standard, see
-        // docs/skills-and-efficiency-improvement-plan.md §A1), not a bare purpose
+        // docs/WRITING_EXTENSIONS.md "Writing skills"), not a bare purpose
         // statement — otherwise the model has nothing to match against for discovery.
         const descriptionMatch = fm.match(/\n?description:\s*(.+)/);
         if (descriptionMatch && !/\buse\b/i.test(descriptionMatch[1])) {
-          fail(`skill ${name}/SKILL.md description lacks a "Use ..." trigger clause (kit standard: "what + when", see docs/skills-and-efficiency-improvement-plan.md §A1)`);
+          fail(`skill ${name}/SKILL.md description lacks a "Use ..." trigger clause (kit standard: "what + when", see docs/WRITING_EXTENSIONS.md "Writing skills")`);
         }
       }
     }

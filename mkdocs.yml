@@ -8,20 +8,23 @@ nav:
   - Start Here: index.md
   - Guides:
       - Getting Started: getting-started.md
+      - Concepts: concepts.md
+      - Profiles: profiles.md
+      - Effort: effort.md
+      - Updates: updates.md
+      - Migration: migration.md
+      - Troubleshooting: troubleshooting.md
       - Security Model: security.md
       - Autonomy Gate: autonomy-gate.md
       - Tool I/O Capture: tool-capture.md
-      - Profiles: profiles.md
-      - Releasing: releasing.md
-      - CI Security: ci-security.md
-      - Unattended Improvement Runs: autonomy.md
-      - Updates: updates.md
+      - Web Console: web-console.md
+      - Autonomous Runs: autonomy.md
       - Status Bar and Costs: status-bar-and-costs.md
       - Efficiency and Loops: efficiency-and-loops.md
-      - Building Extensions: building-extensions.md
       - Agent Orchestration: agent-orchestration.md
       - Workflows: workflows.md
       - Memory Vault: memory.md
+      - Building Extensions: building-extensions.md
       - Capability Research Workflow: capability-research-workflow.md
   - Architecture:
       - Overview: architecture/index.md
@@ -31,24 +34,14 @@ nav:
       - Memory, Compaction and Context: architecture/memory-compaction-context.md
       - Workflows and Skills: architecture/workflows-and-skills.md
       - Profiles and Install: architecture/profiles-and-install.md
-  - Design & Roadmap:
+  - Project:
+      - Beta Status: beta.md
       - Roadmap: roadmap.md
-      - Improvement Roadmap: improvement-roadmap.md
       - Future Work: future-work.md
-      - Legacy Repo Deletion Readiness: legacy-repo-deletion-readiness.md
+      - Lessons from the Private System: private-system-lessons.md
       - Recovery Orchestration Mode (design): recovery-orchestration-mode.md
-      - Skills & Efficiency Plan: skills-and-efficiency-improvement-plan.md
-      - Proposals:
-          - Conductor Proposal: proposals/root-orchestrator-conductor.md
-          - "Phase 6 Approval": proposals/conductor-phase6-gateway-approval.md
-          - Auto Mode & Human Console: proposals/auto-mode-and-human-console.md
-          - npm Distribution: proposals/npm-distribution.md
-      - Research:
-          - Durable Memory & Workflow: research/durable-memory-and-workflow.md
-          - Harness Engineering: research/harness-engineering-long-horizon.md
-          - Local-First Pi Harness: research/local-first-pi-harness.md
-          - Verification Harnesses: research/verification-driven-harnesses.md
-          - Subagent Delegation Review: research/subagent-delegation-review.md
+      - Releasing: releasing.md
+      - CI Security: ci-security.md
   - Reference:
       - Capability Matrix: capability-matrix.md
       - Supply Chain: supply-chain.md
@@ -60,6 +53,3 @@ nav:
       - Modularity: MODULARITY.md
       - Writing Extensions: WRITING_EXTENSIONS.md
       - LM Studio: LMSTUDIO.md
-      - North Star: NORTH_STAR.md
-      - Supersession Record: SUPERSESSION.md
-      - Historical Repo Plan (superseded): PI_KIT_REPO_PLAN.md
