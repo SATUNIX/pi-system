@@ -134,7 +134,7 @@ export function enabledKitExtensions(cwd: string): Set<string> | null {
 
 // --- the launch contract ----------------------------------------------------------------------
 
-export type LaunchKind = "discretionary" | "recovery" | "mandatory";
+export type LaunchKind = "discretionary" | "recovery" | "mandatory" | "user";
 
 export interface ChildRequest {
   /** The child's working directory (settings are read from here for project scope). */
@@ -173,6 +173,8 @@ export type Prepared =
   | { ok: false; code: string; reason: string };
 
 interface EffortRegistry {
+  /** Present when the effort extension is new enough to know about recovery. */
+  recoveryEligible?(role: string, readOnly?: boolean): boolean;
   reserve(input: { kind: LaunchKind; role: string; scout?: boolean; readOnly?: boolean; requestedTier?: string }):
     | { ok: true; id: string | null; childTier: string; env: Record<string, string>; attach(pid: number | undefined): void; settle(outcome: string): void }
     | { ok: false; code: string; reason: string };
@@ -232,9 +234,17 @@ export function prepareChild(request: ChildRequest): Prepared {
     if (p) optional.set(name, p); // an unknown optional extension is skipped: it is not a protection
   }
 
-  const reservation = effort
-    ? effort.reserve({ kind: request.kind, role: request.role, scout: request.scout, readOnly: request.readOnly, requestedTier: request.requestedTier })
+  // While the trusted recovery extension has recovery active, a read-only recovery role (a scout) is
+  // charged to the separate recovery budget first, so a session at the lowest effort can still get
+  // help when stuck and recovery never eats the discretionary budget. Once that budget is used up
+  // the launch falls back to the ordinary budget, which the tier then allows or refuses.
+  const reserveAs = (kind: LaunchKind) => effort!.reserve({ kind, role: request.role, scout: request.scout, readOnly: request.readOnly, requestedTier: request.requestedTier });
+  let reservation = effort
+    ? request.kind === "discretionary" && effort.recoveryEligible?.(request.role, request.readOnly)
+      ? reserveAs("recovery")
+      : reserveAs(request.kind)
     : ({ ok: true as const, id: null, childTier: "standard", env: {}, attach() {}, settle() {} });
+  if (!reservation.ok && effort && request.kind === "discretionary" && reservation.code === "recovery-budget") reservation = reserveAs("discretionary");
   if (!reservation.ok) return refuse(reservation.code, reservation.reason);
 
   // Order matters, as it does in a profile: this guard first (its blocking hook must run before

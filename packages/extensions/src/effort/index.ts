@@ -72,6 +72,12 @@ export interface EffortRegistry {
   reserve(input: ReserveInput): Reservation;
   /** Only the trusted recovery extension calls this; the model cannot open the recovery budget. */
   setRecoveryActive(active: boolean, reason?: string): void;
+  /**
+   * True while recovery is active and `role` is one of the read-only roles the recovery budget may
+   * start. A launcher that would reserve a discretionary slot for such a role reserves a recovery
+   * slot first, so recovery help does not spend (and is not blocked by) the discretionary budget.
+   */
+  recoveryEligible(role: string, readOnly?: boolean): boolean;
   onChange(listener: () => void): () => void;
 }
 
@@ -363,6 +369,9 @@ export default function (pi: ExtensionAPI) {
       recoveryOn = activeNow;
       if (ledgerFile) ledger.setRecoveryActive(ledgerFile, activeNow);
       syncDelegationTools();
+    },
+    recoveryEligible(role: string, readOnly?: boolean): boolean {
+      return Boolean(policy && recoveryOn && readOnly !== false && policy.recovery.roles.includes(role));
     },
     reserve(input: ReserveInput): Reservation {
       if (!policy || !active) {

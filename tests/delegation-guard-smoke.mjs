@@ -129,6 +129,46 @@ const tests = {
     } finally { e.done(); w.cleanup(); }
   },
 
+  "while recovery is active a scout launch is charged to the recovery budget, so recovery works at E1 and never spends the discretionary one": async () => {
+    const w = world({ registered: ["delegation-guard", "effort"] });
+    const e = await withEffort("minimal"); // E1: no discretionary delegation at all
+    try {
+      const scout = { cwd: process.cwd(), kind: "discretionary", role: "scout", scout: true, readOnly: true };
+      assert.equal(prepareChild(scout).code, "tier", "without recovery, a scout at E1 is refused");
+      e.registry.setRecoveryActive(true, "progress-guard escalation");
+      const first = prepareChild(scout);
+      assert.equal(first.ok, true, first.reason);
+      const notScout = prepareChild({ cwd: process.cwd(), kind: "discretionary", role: "implementer", readOnly: false });
+      assert.equal(notScout.ok, false, "recovery is only for the read-only scout role");
+      assert.equal(notScout.code, "tier");
+      assert.equal(prepareChild(scout).code, "tier", "one recovery child at a time; the fallback to the discretionary budget is then refused by the tier");
+      first.slot.settle("ok");
+      const second = prepareChild(scout);
+      assert.equal(second.ok, true, second.reason);
+      second.slot.settle("ok");
+      assert.equal(prepareChild(scout).code, "tier", "the recovery budget is two invocations, then the tier decides");
+      const snap = e.registry.snapshot();
+      assert.equal(snap.usage.recoveryUsed, 2);
+      assert.equal(snap.usage.total, 0, "recovery never draws on the discretionary budget");
+    } finally { e.done(); w.cleanup(); }
+  },
+
+  "a recovery scout at a tier that allows delegation falls back to the discretionary budget once the recovery budget is spent": async () => {
+    const w = world({ registered: ["delegation-guard", "effort"] });
+    const e = await withEffort("thorough"); // 8 discretionary children, 2 scouts
+    try {
+      e.registry.setRecoveryActive(true);
+      const scout = { cwd: process.cwd(), kind: "discretionary", role: "scout", scout: true, readOnly: true };
+      for (let i = 0; i < 2; i++) { const p = prepareChild(scout); assert.equal(p.ok, true, p.reason); p.slot.settle("ok"); }
+      assert.equal(e.registry.snapshot().usage.recoveryUsed, 2);
+      assert.equal(e.registry.snapshot().usage.total, 0);
+      const third = prepareChild(scout);
+      assert.equal(third.ok, true, third.reason);
+      assert.equal(e.registry.snapshot().usage.total, 1, "the third scout is an ordinary child");
+      third.slot.settle("ok");
+    } finally { e.done(); w.cleanup(); }
+  },
+
   "without the effort extension a discretionary launch is refused (fail closed) but mandatory verification is not": async () => {
     const w = world({ registered: ["delegation-guard"] });
     try {
