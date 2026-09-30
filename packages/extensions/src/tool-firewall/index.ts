@@ -22,12 +22,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyToolCall, describeFamilies, effectiveTier, familiesFromSignature, maxTier, signatureOf, summarize, type Assessment, type ClassifyEnv, type Finding, type Tier } from "./classify.ts";
-import { configPath, feedbackPath, homeDir, knownHostsMeta, legacyAutoModePath, readConfig, resolveMode, resolvePolicy, tmpRoots, workspaceRoot, writeConfig, type FirewallConfig } from "./config.ts";
+import { agentDir, configPath, feedbackPath, homeDir, knownHostsMeta, legacyAutoModePath, readConfig, resolveMode, resolvePolicy, tmpRoots, workspaceRoot, writeConfig, type FirewallConfig } from "./config.ts";
 import { appendFeedback, exactStatus, forget, learnable, listLearned, operatorApproved, precedentsFor, redact, scopeRecords, readFeedback, statusFor, type FeedbackRecord } from "./feedback.ts";
 import { appendJudgement, computeStats, distillInBackground, profileFor, readProfile, resetProfile, statsLine, distill } from "./profile.ts";
 import { isUncertainBlock, runJudge, type Completer, type Verdict } from "./judge.ts";
 import { loadSession, recordAction, rootSessionId, saveSession, trajectoryFindings, type SessionGrant, type SessionState } from "./trajectory.ts";
 import { addApproval, approvalsPath, describeScope, findExact, floorFor, readApprovals, reportProblems, revokeApprovals, sessionApprovals, similarApprovals, LEARNED_APPROVAL_TTL_MS, SESSION_APPROVAL_TTL_MS, type Approval, type ApprovalsView } from "./approvals.ts";
+import { createUnattended, unattendedDenial, type UnattendedState } from "./unattended.ts";
 import { buildCard, buildDetail, CARD_MAX_LINES, CHOICE_ALLOW_ONCE, CHOICE_DENY_TELL, choicesFor, isSessionChoice } from "./card.ts";
 
 type Decision = "allow" | "ask" | "deny";
@@ -481,6 +482,19 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
   let lastRequest = "";
   let lastDetail = "";
   let queue: Promise<unknown> = Promise.resolve();
+  // Unattended mode is decided once, here, from the environment the supervisor built and the read-only
+  // contract it names: nothing that happens later (a config file, /auto, a tool call, a changed variable)
+  // can switch it on, and a changed contract switches it off (unattended.ts).
+  const unattended = createUnattended({ workspace: workspaceRoot(process.cwd()), cwd: process.cwd(), agentDir: agentDir(), policy: resolvePolicy(readConfig()).policy });
+  {
+    const st = unattended.state();
+    try {
+      if (st.requested && !st.active) process.stderr.write(`tool-firewall: WARNING — unattended mode was requested (PI_KIT_UNATTENDED) but is NOT active: ${st.warnings[0]}. Failing closed: the normal interactive/headless approval rules apply, so anything above the routine tier needs an operator.\n`);
+      else if (st.active) process.stderr.write(`tool-firewall: UNATTENDED mode (${st.boundary} boundary, contract sha256:${st.digest?.slice(0, 12)}${st.autoApprove ? ", auto-approve" : ", no auto-approve"}): no prompts and no judge inside the zone; hard denies and anything outside the zone fail closed.\n`);
+    } catch {
+      /* stderr unavailable */
+    }
+  }
 
   const sessionFor = (ctx: any): SessionState => {
     const id = sessionIdOf(ctx);
@@ -567,6 +581,11 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
         ctx.ui?.notify?.(`tool-firewall: WARNING — ${lastPolicyWarnings.length} custom rule(s) in the policy were skipped (not enforced): ${lastPolicyWarnings.join("; ")}`, "warning");
       }
       noteApprovalProblems(readApprovals(), ctx);
+      unattended.current(pol, { cwd: ctx?.cwd || process.cwd(), workspace: workspaceRoot(ctx?.cwd || process.cwd()) }); // a contract inside this workspace turns it off
+      const st = unattended.state();
+      if (st.requested && !st.active) ctx.ui?.notify?.(`tool-firewall: WARNING — unattended mode was requested but is NOT active (${st.warnings[0]}). Failing closed: normal approval rules apply.`, "warning");
+      else if (st.active) ctx.ui?.notify?.(`tool-firewall: ${st.label} — contract sha256:${st.digest?.slice(0, 12)}; no prompts, no judge; hard denies and outside-the-zone actions fail closed`, "warning");
+      unattended.publish();
     } catch (error) {
       cachedPolicy = BUILTIN_FALLBACK;
       audit({ event: "policy_load_error", error: String(error) });
@@ -600,7 +619,11 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
     const auto = mode === "auto";
     const s = sessionFor(ctx);
     const workspace = workspaceRoot(cwd);
-    const env: ClassifyEnv = { cwd, workspace, home: homeDir(), tmpRoots: tmpRoots(), knownHosts: trustedHosts(cfg, ctx), policy: policyName };
+    // Unattended: the state to decide by (null unless the supervisor's env + contract entered it and it still holds).
+    const u: UnattendedState | null = unattended.current(policyName, { cwd, workspace });
+    const contractEnv = process.env.PI_KIT_UNATTENDED_CONTRACT?.trim();
+    const boundaryPaths = [...new Set([contractEnv, u?.contractPath].filter((x): x is string => !!x))];
+    const env: ClassifyEnv = { cwd, workspace, home: homeDir(), tmpRoots: tmpRoots(), knownHosts: trustedHosts(cfg, ctx), policy: policyName, ...(boundaryPaths.length ? { boundaryPaths } : {}) };
 
     let a: Assessment;
     try {
@@ -621,12 +644,14 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
     a.summary = summary;
     const sig = signatureOf(a, trustAuto);
     const command = commandTextFrom(input);
-    const base = { toolName, toolCallId: typeof event?.toolCallId === "string" ? event.toolCallId : undefined, actionHash: hash, tier, mode, policy: policyName, workspace, effects: a.effects, reasons: a.findings.filter((f) => f.tier !== "low").map((f) => f.code), signature: sig, command: command !== null ? redact(command).slice(0, 2000) : undefined };
+    const uDenial = u ? unattendedDenial(a, u, workspace) : null;
+    const uOutcome: "allow" | "deny" | null = !u ? null : tier === "critical" || uDenial ? "deny" : tier === "low" || u.autoApprove ? "allow" : "deny";
+    const base = { toolName, toolCallId: typeof event?.toolCallId === "string" ? event.toolCallId : undefined, actionHash: hash, tier, mode: u ? "unattended" : mode, ...(u ? { unattended: { boundary: u.boundary, contract: u.digest?.slice(0, 12), autoApprove: u.autoApprove } } : {}), policy: policyName, workspace, effects: a.effects, reasons: a.findings.filter((f) => f.tier !== "low").map((f) => f.code), signature: sig, command: command !== null ? redact(command).slice(0, 2000) : undefined };
     // Immediate decisions (low → allow, critical → deny) are one tool_seen record carrying the
     // decider; anything that waits on a grant, precedent, judge or human gets tool_seen (ask)
     // followed by tool_approved / tool_blocked. Routine calls stay one line.
-    const immediate = tier === "low" || tier === "critical";
-    const seen = { event: "tool_seen", ...base, decision: tier === "low" ? "allow" : tier === "critical" ? "deny" : "ask", risk_class: tier, reason: summary };
+    const immediate = tier === "low" || tier === "critical" || uOutcome !== null;
+    const seen = { event: "tool_seen", ...base, decision: uOutcome ?? (tier === "low" ? "allow" : tier === "critical" ? "deny" : "ask"), risk_class: tier, reason: summary };
     if (!immediate) audit(seen);
 
     const finish = (outcome: "allow" | "deny", decider: string, extra: Record<string, unknown> = {}) => {
@@ -651,6 +676,31 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
       const reason = `tool-firewall: denied ${toolName} [${TAG.hard_deny}] — ${summary}. This action is never allowed automatically, whatever an approval or the auto-mode judge says; if it is truly needed, ask the user to run it themselves.`;
       if (ctx?.hasUI) ctx.ui?.notify?.(`tool-firewall: denied ${toolName} (${summary}) — ${TAG.hard_deny}`, "warning");
       return blocked(reason, "policy", "hard_deny");
+    }
+    if (u) {
+      // Inside the zone the container is the boundary: no prompt, no judge. Hard classes and anything that
+      // needs authority outside the zone are refused, with a message the agent can relay.
+      const contract = `egress: ${u.egress.join(", ") || "none"}; git remotes: ${u.remotes.join(", ") || "none"}`;
+      if (uDenial?.kind === "hard") {
+        if (ctx?.hasUI) ctx.ui?.notify?.(`tool-firewall: denied ${toolName} (${uDenial.what}) — ${TAG.hard_deny}, unattended run`, "warning");
+        return blocked(`tool-firewall: denied ${toolName} [${TAG.hard_deny}: unattended run] — ${uDenial.what}. Destructive, security-control, credential-exfiltration and boundary actions are never allowed in an unattended run, and there is no operator to approve them. Nothing ran. Do not retry it: leave it out, carry on with work inside the container and list it in your report for the operator.`, "unattended", "hard_deny", { unattendedDenial: uDenial.code });
+      }
+      if (uDenial?.kind === "operator") {
+        return blocked(`tool-firewall: denied ${toolName} [${TAG.uncertain}: no operator in this unattended run] — ${uDenial.what}. The policy says a person must decide this (an ask rule, or a tool the policy does not name), and an unattended run has nobody to ask. Nothing ran. Choose another approach, or say in your report that the operator must do this step.`, "unattended", "uncertain", { unattendedDenial: uDenial.code });
+      }
+      if (uDenial) {
+        if (ctx?.hasUI) ctx.ui?.notify?.(`tool-firewall: denied ${toolName} (${uDenial.what}) — outside the unattended zone`, "warning");
+        return blocked(`tool-firewall: denied ${toolName} [${TAG.hard_deny}: outside the unattended zone] — this command ${uDenial.what}. An unattended run cannot ask anyone, and its contract does not authorise it (${contract}). Nothing ran. Do not retry it: work inside the zone, and say in your report which destination or command needs the operator.`, "unattended", "hard_deny", { unattendedDenial: uDenial.code });
+      }
+      if (tier === "low") {
+        finish("allow", "analyser");
+        return undefined;
+      }
+      if (u.autoApprove) {
+        finish("allow", "unattended", { boundary: u.boundary });
+        return undefined;
+      }
+      return blocked(`tool-firewall: denied ${toolName} [${TAG.uncertain}: no operator in this unattended run] — ${summary}. The contract authorises unattended operation but not auto-approval, so this needs an operator, and nobody can be asked. Nothing ran. Choose a lower-impact approach, or say in your report that the operator must do this step.`, "unattended", "uncertain");
     }
     if (tier === "low") {
       finish("allow", "analyser");
@@ -908,6 +958,13 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
     return lines.join("\n");
   };
 
+  const unattendedLine = (): string => {
+    const st = unattended.state();
+    if (st.active) return `  unattended: ACTIVE — ${st.boundary} boundary, contract sha256:${st.digest?.slice(0, 12)}, boundaryDigest ${st.boundaryDigest?.slice(0, 16)}, auto-approve ${st.autoApprove ? "yes" : "NO"}; egress: ${st.egress.join(", ") || "none"}; git remotes: ${st.remotes.join(", ") || "none"}; no prompts and no judge inside the zone, hard denies and outside-the-zone actions fail closed${st.warnings.length ? `; note: ${st.warnings.join("; ")}` : ""}`;
+    if (st.requested) return `  unattended: NOT ACTIVE although requested — ${st.warnings.join("; ")} (fail closed: the normal interactive/headless rules apply)`;
+    return "  unattended: off (only the supervisor can turn it on, with PI_KIT_UNATTENDED=1 and a read-only contract; nothing inside a session can)";
+  };
+
   const firewallStatus = (ctx: any): string => {
     const policy = getPolicy();
     const cfg = readConfig();
@@ -922,8 +979,11 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
     const learned = listLearned(Date.now(), here).filter((l) => l.status === "learned").length;
     const kh = knownHostsMeta(cfg);
     const warningSuffix = lastPolicyWarnings.length > 0 ? ` skipped-rules=${lastPolicyWarnings.length}(!)` : "";
+    const zone = unattended.state();
     const decides =
-      p.policy === "pentest"
+      zone.active && p.policy === "coding"
+        ? `UNATTENDED zone (${zone.boundary}): ${zone.autoApprove ? "low, medium and high run with no prompt and no judge" : "only low runs; everything above fails closed (no operator, no auto-approve)"}; critical, hard-denied classes and anything outside the zone are refused (the mode above is not consulted)`
+        : p.policy === "pentest"
         ? "pentest policy: medium and high ask the operator each time (denied headless); no session allows, no learning"
         : m.mode === "auto"
           ? "auto: low runs; medium is judged (a high-confidence block is final, an unsure one asks you); high runs only on an exact approval, else judge-if-similar, else asks you; critical is denied"
@@ -935,6 +995,7 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
       `  outcomes: HARD DENY (policy says never; no approval or judge overrides) · UNCERTAIN (judge/classifier unsure, unavailable or timed out: asks you, or fails closed when nobody can be asked) · OPERATOR DECISION (you allowed or denied; remembered only within the scope the card names)`,
       `  rules: ${cachedPolicyLabel} default-unknown=${policy.defaults.unknown} tool-rules=${Object.keys(policy.tools).length} operator-rules=${policy.command_rules.deny.length}/${policy.command_rules.ask.length} pentest-rules=${policy.pentest.deny.length}/${policy.pentest.ask.length}${warningSuffix}`,
       `  judge model: ${judgeModelName(ctx, cfg) ?? "unset"} · learning ${cfg.learn ? "on" : "off"} (${learned} learned here) · known hosts: ${[...kh.hosts].join(", ") || "none"}`,
+      unattendedLine(),
       `  approvals: ${view.approvals.length} remembered (${view.approvals.filter((a) => a.context === "session").length} session, ${view.approvals.filter((a) => a.context === "persistent").length} persistent)${problems.length ? `, ${problems.length} malformed ignored (/firewall list)` : ""} — ${view.file}`,
       `  session: ${s.stats.actions} actions, ${s.stats.human} asked you, ${s.stats.judged} judged (${s.stats.judgeBlocks} blocked)${s.credentialReads.length ? `, secret reads: ${s.credentialReads.map((c) => c.what).slice(-3).join(", ")}` : ""}${s.untrusted ? ", web/untrusted content seen" : ""}`,
       `  audit=${auditPath()} config=${configPath()}`,

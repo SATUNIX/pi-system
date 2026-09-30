@@ -70,7 +70,11 @@ function getProtectedPaths(cwd: string): string[] {
   const base = env ? [...defaults, ...env.split(";").map(p => p.trim()).filter(Boolean)] : defaults;
   const configuredConsole = process.env.PI_KIT_HUMAN_CONSOLE_DIR?.trim();
   const dynamic = configuredConsole ? [normalizeSlashes(path.resolve(cwd, normalizeSlashes(configuredConsole)))] : [];
-  return [...base, ...firewallStatePaths(), ".pi/human-console/", ".pi/human-console-audit.jsonl", ...dynamic];
+  // The unattended-run contract (PI_KIT_UNATTENDED_CONTRACT) is the supervisor's, not the agent's: protected
+  // whether or not the firewall accepted it.
+  const contract = process.env.PI_KIT_UNATTENDED_CONTRACT?.trim();
+  const contractPaths = contract ? [normalizeSlashes(path.resolve(cwd, normalizeSlashes(contract)))] : [];
+  return [...base, ...firewallStatePaths(), ".pi/human-console/", ".pi/human-console-audit.jsonl", ...dynamic, ...contractPaths];
 }
 
 // Optional ALLOWLIST mode (Epic 6 Sprint 6.3, dream mode): when PI_KIT_WRITE_ALLOWLIST is
