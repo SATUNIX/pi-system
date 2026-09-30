@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "run": "improve-20260930",
+  "template": "self-improve",
+  "objective": { "title": "Improve the repository in reviewed cycles" },
+  "inputs": {
+    "repository": { "path": "/path/to/your/repository", "ref": "main" },
+    "references": {}
+  },
+  "acceptance": {
+    "checks": [{ "id": "gate", "run": ["/opt/autonomy/gate.sh"], "timeoutMinutes": 60, "required": true }],
+    "review": true
+  },
+  "permissions": { "unattended": { "authorised": true, "autoApprove": true } },
+  "model": { "provider": "openrouter", "worker": "deepseek/deepseek-v4.1-flash", "manager": "deepseek/deepseek-v4.1-flash" },
+  "effort": "standard",
+  "budget": { "totalUsd": 100, "perStepUsd": 5, "maxSteps": 50, "maxMinutes": 14400 },
+  "promotion": {
+    "policy": "local-branch",
+    "destinations": [{ "kind": "local-branch", "repo": "/path/to/your/repository", "branch": "pi-autonomy/integration" }]
+  },
+  "templateOptions": {
+    "integration": { "branch": "pi-autonomy/integration", "review": true },
+    "limits": { "softMinutes": 180, "hardMinutes": 300, "idleMinutes": 20, "noCommitMinutes": 90, "nothingFoundToStop": 3 }
+  }
+}

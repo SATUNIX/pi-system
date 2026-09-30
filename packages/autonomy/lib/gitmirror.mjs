@@ -2,7 +2,7 @@
 // git inside a repository the agent can write to: a planted hook or config key there
 // (core.hooksPath, core.fsmonitor, a credential helper) would execute on the host with the
 // operator's credentials. The agent's refs reach the host only as a bundle written by a
-// network-less container (supervisor.mjs), which is plain data to `git fetch`.
+// network-less container (lib/runtime.mjs), which is plain data to `git fetch`.
 //
 // mirror.git holds:
 //   refs/heads/<integration>   experimental/main: merged cycles, published, fast-forward only
@@ -44,15 +44,35 @@ export function initMirror(gitDir) {
   return g;
 }
 
-/** Fetch the base branch from the operator's remote; returns its sha. */
+/**
+ * Where the integration branch is synchronised and published: cfg.integrationRemote when the
+ * config has one (null means nowhere: the branch stays in the run's own mirror), else the v0
+ * cfg.gitRemote. There is no default remote.
+ */
+export const integrationRemote = (cfg) => (cfg.integrationRemote !== undefined ? cfg.integrationRemote : cfg.gitRemote ?? null);
+
+/**
+ * Fetch the base (a branch, a tag or HEAD) from where the work starts: cfg.baseSource (a local
+ * repository path or a URL), else the v0 cfg.gitRemote. Returns its sha. Only committed history
+ * is fetched, never a working tree.
+ */
 export function fetchBase(g, cfg) {
-  g(["fetch", "--quiet", "--no-tags", cfg.gitRemote, `+refs/heads/${cfg.baseRef}:refs/base/${cfg.baseRef}`]);
-  return g(["rev-parse", `refs/base/${cfg.baseRef}`]);
+  const source = cfg.baseSource ?? cfg.gitRemote;
+  if (!source) throw new Error("no base repository to fetch from");
+  const dest = `refs/base/${cfg.baseRef}`;
+  const candidates = cfg.baseRef === "HEAD" ? ["HEAD"] : [`refs/heads/${cfg.baseRef}`, `refs/tags/${cfg.baseRef}`];
+  let lastError = null;
+  for (const src of candidates) {
+    try { g(["fetch", "--quiet", "--no-tags", source, `+${src}:${dest}`]); return g(["rev-parse", dest]); } catch (e) { lastError = e; }
+  }
+  throw new Error(`cannot fetch ${cfg.baseRef} from ${source}: ${lastError?.message ?? "unknown"}`);
 }
 
-/** A run id is used once: its exp/<run>/ tags must not exist on the remote yet. */
+/** A run id is used once: its run tags must not exist on the remote yet. */
 export function remoteHasRunTags(g, cfg) {
-  return Boolean(g(["ls-remote", "--tags", cfg.gitRemote, `refs/tags/${cfg.tagPrefix}*`]));
+  const remote = integrationRemote(cfg);
+  if (!remote) return false;
+  return Boolean(g(["ls-remote", "--tags", remote, `refs/tags/${cfg.tagPrefix}*`]));
 }
 
 const isAncestor = (g, a, b) => g(["merge-base", "--is-ancestor", a, b], { allowFail: true }) !== null;
@@ -66,8 +86,10 @@ const identity = (cfg) => ["-c", `user.name=${cfg.gitIdentity.name}`, "-c", `use
 export function syncIntegration(g, cfg) {
   const ref = `refs/heads/${cfg.integrationBranch}`;
   const local = g(["rev-parse", "--verify", "--quiet", ref], { allowFail: true }) || null;
-  if (!g(["ls-remote", "--heads", cfg.gitRemote, ref])) return { state: local ? "ahead" : "absent", head: local };
-  g(["fetch", "--quiet", "--no-tags", cfg.gitRemote, `+${ref}:refs/integration/remote`]);
+  const remoteUrl = integrationRemote(cfg);
+  if (!remoteUrl) return { state: local ? "same" : "absent", head: local }; // nothing to synchronise with
+  if (!g(["ls-remote", "--heads", remoteUrl, ref])) return { state: local ? "ahead" : "absent", head: local };
+  g(["fetch", "--quiet", "--no-tags", remoteUrl, `+${ref}:refs/integration/remote`]);
   const remote = g(["rev-parse", "refs/integration/remote"]);
   if (!local || (local !== remote && isAncestor(g, local, remote))) {
     g(["update-ref", ref, remote, local ?? ""]);
@@ -180,9 +202,10 @@ export function refsState(g, cfg) {
 /** Push the integration branch and run tags to the operator's remote, fast-forward only. */
 export function publish(g, cfg, lastPushed) {
   const state = refsState(g, cfg);
-  if (state === lastPushed) return { pushed: false, state };
+  const remoteUrl = integrationRemote(cfg);
+  if (!remoteUrl || state === lastPushed) return { pushed: false, state };
   const specs = publishRefspecs(state, cfg);
-  if (specs.length) g(["push", "--quiet", "--porcelain", cfg.gitRemote, ...specs]);
+  if (specs.length) g(["push", "--quiet", "--porcelain", remoteUrl, ...specs]);
   return { pushed: true, state };
 }
 

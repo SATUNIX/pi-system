@@ -29,7 +29,17 @@ export function modelEntries(list, ids) {
   }).filter(Boolean);
 }
 
-/** The agent's models.json: the openrouter provider pointed at the relay, with the run's models. */
-export function agentModelsJson(entries) {
-  return { providers: { openrouter: { baseUrl: "http://inference:8081/v1", apiKey: "relay", ...(entries.length ? { models: entries } : {}) } } };
+/**
+ * The agent's models.json: the provider pointed at the relay, with the run's models. OpenRouter is
+ * pi's built-in provider (overridden to point at the relay); any other OpenAI-compatible provider
+ * is a custom provider called `relay`. The key is always the placeholder the relay replaces.
+ */
+export function agentModelsJson(entries, provider = "openrouter") {
+  if (provider === "openrouter") return { providers: { openrouter: { baseUrl: "http://inference:8081/v1", apiKey: "relay", ...(entries.length ? { models: entries } : {}) } } };
+  return { providers: { relay: { baseUrl: "http://inference:8081/v1", api: "openai-completions", apiKey: "relay", models: entries.length ? entries : [] } } };
+}
+
+/** Model entries for a provider that publishes no model list: only the ids (pi fills defaults), priced from the contract. */
+export function plainModelEntries(ids, pricing = {}) {
+  return ids.map((id) => ({ id, ...(pricing[id] ? { cost: { input: pricing[id].inputPerMTok, output: pricing[id].outputPerMTok, cacheRead: 0, cacheWrite: 0 } } : {}) }));
 }

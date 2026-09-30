@@ -1,13 +1,73 @@
 {
-  "run": "perpetual-20260925",
-  "cycles": 50,
-  "model": "deepseek/deepseek-v4.1-flash",
-  "managerModel": "deepseek/deepseek-v4.1-flash",
-  "gitRemote": "https://gitlab.home.internal/lab/pi-system.git",
-  "baseRef": "main",
-  "image": "pi-autonomy:local",
-  "engine": "podman",
-  "budget": { "perCycleUsd": 5, "perCycleHardUsd": 10, "totalUsd": 100 },
-  "limits": { "softMinutes": 180, "hardMinutes": 300, "idleMinutes": 20, "noCommitMinutes": 90 },
-  "references": { "agentic-repo-kit": "/home/you/Development/agentic-repo-kit" }
+  "schemaVersion": 1,
+  "run": "improve-20260930",
+  "template": "self-improve",
+  "objective": {
+    "title": "Improve the repository in reviewed cycles"
+  },
+  "inputs": {
+    "repository": {
+      "path": "/path/to/your/repository",
+      "ref": "main"
+    },
+    "references": {}
+  },
+  "acceptance": {
+    "checks": [
+      {
+        "id": "gate",
+        "run": [
+          "/opt/autonomy/gate.sh"
+        ],
+        "timeoutMinutes": 60,
+        "required": true,
+        "description": "the gate script baked into the default image (this kit's own offline checks); replace it with your repository's checks"
+      }
+    ],
+    "review": true
+  },
+  "permissions": {
+    "unattended": {
+      "authorised": true,
+      "autoApprove": true
+    }
+  },
+  "model": {
+    "provider": "openrouter",
+    "worker": "deepseek/deepseek-v4.1-flash",
+    "manager": "deepseek/deepseek-v4.1-flash"
+  },
+  "effort": "standard",
+  "budget": {
+    "totalUsd": 100,
+    "perStepUsd": 5,
+    "maxSteps": 50,
+    "maxMinutes": 14400
+  },
+  "promotion": {
+    "policy": "local-branch",
+    "destinations": [
+      {
+        "kind": "local-branch",
+        "repo": "/path/to/your/repository",
+        "branch": "pi-autonomy/integration"
+      }
+    ]
+  },
+  "runtime": {
+    "engine": "podman",
+    "image": "pi-autonomy:local"
+  },
+  "templateOptions": {
+    "integration": {
+      "branch": "pi-autonomy/integration",
+      "review": true
+    },
+    "limits": {
+      "softMinutes": 180,
+      "hardMinutes": 300,
+      "idleMinutes": 20,
+      "noCommitMinutes": 90
+    }
+  }
 }

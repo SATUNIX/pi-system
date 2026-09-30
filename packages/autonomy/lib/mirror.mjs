@@ -12,7 +12,7 @@ export function publishRefspecs(forEachRef, cfg) {
   for (const line of String(forEachRef).split("\n")) {
     const ref = line.trim().split(/\s+/)[1];
     if (!ref) continue;
-    if (ref === branch || (ref.startsWith(tagPrefix) && isSafeRefTail(ref.slice(tagPrefix.length)))) specs.push(`${ref}:${ref}`);
+    if (ref === branch || (cfg.publishTags !== false && ref.startsWith(tagPrefix) && isSafeRefTail(ref.slice(tagPrefix.length)))) specs.push(`${ref}:${ref}`);
   }
   return specs;
 }

@@ -92,13 +92,17 @@ export async function decide(bundle, complete) {
   return parseDecision(text);
 }
 
-/** An OpenRouter chat-completions `complete` for the host (the manager runs outside the container). */
-export function openRouterComplete({ apiKey, model, upstream, fetchImpl = fetch, timeoutMs = 120_000, onUsage = () => {} }) {
+/**
+ * A chat-completions `complete` for the host (the manager and the reviews run outside the container).
+ * Named for OpenRouter, which reports cost with `usage: {include: true}`; with usageInclude false it
+ * sends a plain OpenAI-compatible request and the caller prices the tokens (onUsage gets the usage object).
+ */
+export function openRouterComplete({ apiKey, model, upstream, fetchImpl = fetch, timeoutMs = 120_000, onUsage = () => {}, usageInclude = true }) {
   return async (system, user) => {
     const res = await fetchImpl(`${upstream.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ model, temperature: 0, usage: { include: true }, messages: [{ role: "system", content: system }, { role: "user", content: user }] }),
+      body: JSON.stringify({ model, temperature: 0, ...(usageInclude ? { usage: { include: true } } : {}), messages: [{ role: "system", content: system }, { role: "user", content: user }] }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await res.text();
