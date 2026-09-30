@@ -39,6 +39,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert, makeChecker, testEffort } from "./autonomy-helpers.mjs";
+import { loadModule } from "../packages/core/eval/harness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = path.join(HERE, "..", "packages", "autonomy");
@@ -277,12 +278,17 @@ try {
     assert.equal(fs.existsSync(p.contract) && (fs.statSync(p.contract).mode & 0o222), 0, "the contract file is not writable");
   });
 
-  await check("inside a worker: non-root, no capabilities, no-new-privileges, read-only root, no engine socket, and no way out of the internal network", () => {
+  await check("inside a worker: non-root, no capabilities, no-new-privileges, read-only root, no engine socket, and no way out of the internal network", async () => {
     // The fake upstream listens on every host interface: it is the canary a worker must not be able to reach.
     const hostTargets = zoneAddrs.map((ip) => `${ip}:${upstreamPort}`);
     const f = facts(shape, "props", { NAMES: "inference,egress-proxy,web", HOST_TARGETS: hostTargets.join(",") });
     assert.equal(f.uid, Number(dk.userSpec(cfg).split(":")[0]));
     assert.notEqual(f.uid, 0);
+    // The worker's firewall enters unattended mode only when the contract sits on a read-only mount in the kernel's own table.
+    // Parse this real container's table with the firewall's real parser: /run is read-only, the worker's own space is not.
+    const { mountHolding } = await loadModule("extensions/tool-firewall/unattended.ts");
+    assert.equal(mountHolding("/run/contract.json", f.mountinfo)?.ro, true, `/run/contract.json is on a read-only mount in the real engine's table: ${JSON.stringify(mountHolding("/run/contract.json", f.mountinfo))}`);
+    for (const rw of ["/work/file", "/state/file", "/tmp/file"]) assert.equal(mountHolding(rw, f.mountinfo)?.ro, false, `${rw} is on a writable mount, so a contract written there would be refused`);
     for (const k of ["capEff", "capPrm", "capBnd", "capInh"]) assert.match(f[k], zeros, `${k} is empty`);
     assert.equal(f.noNewPrivs, "1");
     for (const file of ["/usr/x", "/etc/x", "/x", "/run/x"]) assert.equal(f.writable[file], false, `${file} is not writable`);

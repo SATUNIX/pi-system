@@ -31,6 +31,7 @@ if (env.MODE === "props") {
     capEff: status.CapEff, capPrm: status.CapPrm, capBnd: status.CapBnd, capInh: status.CapInh, noNewPrivs: status.NoNewPrivs,
     writable: Object.fromEntries(["/usr/x", "/etc/x", "/x", "/run/x", "/tmp/x", "/work/x", "/state/x"].map((f) => [f, canWrite(f)])),
     sockets: ["/var/run/docker.sock", "/run/docker.sock", "/run/podman/podman.sock"].filter((p) => fs.existsSync(p)),
+    mountinfo: fs.readFileSync("/proc/self/mountinfo", "utf8"), // the kernel's own mount table, for the firewall's provenance parser
     homes: fs.existsSync("/home") ? fs.readdirSync("/home") : [],
     procNet: fs.readFileSync("/proc/net/route", "utf8").trim().split("\n").slice(1).map((l) => l.split("\t")).map(([iface, dest]) => ({ iface, dest })),
     dnsPublic: await attempt(() => dns.lookup("example.com")),
