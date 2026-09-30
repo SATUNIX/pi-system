@@ -15,7 +15,7 @@
     "context-sieve", "guidelines", "spec-plan", "verify-gate",
     "autonomous-loop", "custom-compaction", "session-helpers", "kit-update", "effort", "delegation-guard", "compress", "save", "custom-footer", "web-console",
     "handoff", "trace-ledger", "tool-capture", "progress-guard",
-    "caveman", "pi-lean-ctx", "pi-lens",
+    "caveman", "pi-lens",
     "subagent", "orchestrator", "goal-core"
   ]
 }

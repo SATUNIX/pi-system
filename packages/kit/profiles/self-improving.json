@@ -19,7 +19,7 @@
     "verifier-board", "provider-router",
     "memory-mem0", "dual-review", "dirty-repo-guard", "plan-mode",
     "skill-forge", "self-improvement",
-    "caveman", "pi-lean-ctx", "pi-lens", "pi-impact-analyzer", "pi-readseek",
+    "caveman", "pi-lens", "pi-readseek",
     "orchestrator"
   ]
 }

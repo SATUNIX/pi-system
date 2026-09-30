@@ -8,12 +8,12 @@
 | Profile | Task class | Tiers | Extensions |
 |---|---|---|---|
 | `lite` | Low-context / small local models | T0–T1 | 21 |
-| `quick` | Quick fix | T0–T1 | 25 |
-| `balanced` | Daily coding | T0–T2 | 34 |
-| `long-horizon` | Multi-hour / multi-day | T0–T3 | 41 |
-| `autonomous` | Set-and-walk-away | T0–T3 | 41 |
-| `self-improving` | Full / self-improving (experimental) | T0–T4 | 48 |
-| `pentest` | Security engagement (strict) | T0–T3+ | 43 |
+| `quick` | Quick fix | T0–T1 | 24 |
+| `balanced` | Daily coding | T0–T2 | 33 |
+| `long-horizon` | Multi-hour / multi-day | T0–T3 | 39 |
+| `autonomous` | Set-and-walk-away | T0–T3 | 39 |
+| `self-improving` | Full / self-improving (experimental) | T0–T4 | 46 |
+| `pentest` | Security engagement (strict) | T0–T3+ | 41 |
 
 ## Extension × profile
 
@@ -30,8 +30,6 @@
 | `trace-ledger` | execution | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `verifier-board` | execution | beta | ✓ | · | · | ✓ | ✓ | ✓ | ✓ |
 | `verify-gate` | execution | beta | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `pi-impact-analyzer` | external | external | · | · | · | ✓ | ✓ | ✓ | ✓ |
-| `pi-lean-ctx` | external | external | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `pi-lens` | external | external | · | · | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `pi-readseek` | external | external | ✓ | · | · | ✓ | ✓ | ✓ | ✓ |
 | `context-sieve` | memory | beta | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ |

@@ -12,7 +12,7 @@
   "include": [
     "protected-paths", "tool-firewall", "human-console", "git-checkpoint", "auto-commit-on-exit",
     "todo", "notify", "finish-reason-retry", "session-helpers", "kit-update", "effort", "delegation-guard", "compress", "save", "custom-footer", "trace-ledger", "tool-capture", "progress-guard", "memory-vault", "skill-router",
-    "caveman", "pi-lean-ctx",
+    "caveman",
     "subagent", "orchestrator", "goal-core"
   ]
 }
