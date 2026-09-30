@@ -291,6 +291,27 @@ const tests = {
   },
 };
 
+// --- child sessions ---------------------------------------------------------------------------------
+// A subagent child is `pi --mode json -p --no-session --no-extensions -e <allowlist>`. It reads the same
+// global settings (PI_CODING_AGENT_DIR is inherited) and its own cwd's project settings, so pi's native
+// compaction is exactly as effective there as in the parent - including being OFF when the parent is off.
+// The kit's fixed trigger is NOT in the allowlist (and would abort a one-shot run if it were), so children
+// rely on pi's own in-run compaction; finish-reason-retry IS in it, which is what explains an exhausted window.
+tests["subagent children: compaction is pi's native one, and finish-reason-retry (not trigger-compact) is loaded"] = async () => {
+  const isolation = await loadModule("vendor/subagent/isolation.ts");
+  assert.ok(isolation.DEFAULT_CHILD_EXTENSIONS.includes("finish-reason-retry"));
+  for (const name of ["trigger-compact", "custom-compaction", "context-sieve", "compress", "session-helpers"]) {
+    assert.ok(!isolation.DEFAULT_CHILD_EXTENSIONS.includes(name), `${name} is not loaded in a child`);
+  }
+  const s = scene({ global: { compaction: { enabled: false } } });
+  try {
+    // The child computes its state from the same files: off in the parent means off in the child.
+    const st = computeCompactionState({ cwd: s.cwd, contextWindow: 128_000 });
+    assert.equal(st.enabled, false);
+    assert.match(st.reason, /Subagents and other child sessions inherit this/);
+  } finally { s.done(); }
+};
+
 // --- per-profile: install with the real installer, then compute the effective state -----------------
 function installProfile(profile) {
   const dir = tmp("pi-kit-cstate-install-");
