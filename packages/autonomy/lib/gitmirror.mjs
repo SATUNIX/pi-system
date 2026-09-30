@@ -2,7 +2,7 @@
 // git inside a repository the agent can write to: a planted hook or config key there
 // (core.hooksPath, core.fsmonitor, a credential helper) would execute on the host with the
 // operator's credentials. The agent's refs reach the host only as a bundle written by a
-// network-less container (supervisor.mjs), which is plain data to `git fetch`.
+// network-less container (lib/runtime.mjs), which is plain data to `git fetch`.
 //
 // mirror.git holds:
 //   refs/heads/<integration>   experimental/main: merged cycles, published, fast-forward only

@@ -20,6 +20,9 @@ export class RunStore {
 
   exists() { return fs.existsSync(this.p.state); }
 
+  /** state.json without the schemaVersion check, for telling a v0 directory from a current one. */
+  readStateRaw() { return readJson(this.p.state, null); }
+
   readState() {
     const s = readJson(this.p.state, null);
     if (s && s.schemaVersion !== STATE_SCHEMA_VERSION) throw new Error(`state.json of run ${this.run} has schemaVersion ${s.schemaVersion}; this supervisor reads ${STATE_SCHEMA_VERSION}`);
@@ -82,6 +85,7 @@ export function listRuns(home = stateHome()) {
   try { names = fs.readdirSync(home); } catch { return []; }
   return names.flatMap((run) => {
     const s = readJson(runPaths(run, home).state, null);
-    return s ? [{ run, template: s.template, status: s.status, updatedAt: s.updatedAt, outcome: s.outcome }] : [];
+    // A directory written by the previous (v0) supervisor has no schemaVersion; it is listed, but it cannot be driven.
+    return s ? [{ run, template: s.template ?? "self-improve", status: s.status, updatedAt: s.updatedAt ?? s.startedAt, outcome: s.outcome, ...(s.schemaVersion === undefined ? { legacy: true } : {}) }] : [];
   }).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 }

@@ -1,6 +1,6 @@
 // One cycle's control loop. Everything that touches Docker, git, the clock or the manager model
 // comes in through `rt` (the runtime), so the loop is tested offline with a fake runtime
-// (tests/autonomy-smoke.mjs) and driven for real by supervisor.mjs.
+// (tests/autonomy-smoke.mjs) and driven for real by lib/engine.mjs through the self-improve template.
 //
 // rt: {
 //   now(), sleep(ms), tickMs,
