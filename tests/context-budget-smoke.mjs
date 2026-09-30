@@ -204,7 +204,62 @@ async function testOversizedContributionFileSkippedBeforeParse() {
   }
 }
 
+// The budgets are sized against the model's real context window (ctx.model.contextWindow): a fixed
+// 4096 + 1200 tokens is most of an 8k window (the lite profile targets small local models). An
+// unknown window (no model / contextWindow <= 0) keeps the configured numbers and is recorded as
+// null, never as 0.
+async function testBudgetsScaleWithContextWindow() {
+  const ws = tmpWorkspace("pi-kit-ctxbudget-window-");
+  const restoreEnv = setEnv("PI_KIT_CTX_BUDGET_TOKENS", undefined);
+  const restoreMsg = setEnv("PI_KIT_CTX_MESSAGE_BUDGET_TOKENS", undefined);
+  try {
+    const pi = await loadSieve(ws);
+    writeContrib(ws, "big", 5, 999999, "z".repeat(60000)); // 15k tokens if unbudgeted
+    const read = () => JSON.parse(fs.readFileSync(path.join(ws, ".pi", "ctx-contributions", "sieve-budget.json"), "utf8"));
+    await pi.handlers.get("before_agent_start")({ systemPrompt: "base" }, { model: { contextWindow: 8192 } });
+    let b = read();
+    assert.equal(b.budget, 819, "default system budget is 10% of an 8k window, not 4096");
+    assert.equal(b.contextWindow, 8192);
+    assert.equal(b.windowClamped, true);
+    assert.ok(b.totalTokens <= 819, `injected ${b.totalTokens} tokens into an 8k window`);
+    await pi.handlers.get("before_agent_start")({ systemPrompt: "base" }, { model: { contextWindow: 200_000 } });
+    b = read();
+    assert.equal(b.budget, 4096, "a large window keeps the built-in default");
+    assert.equal(b.windowClamped, false);
+    for (const model of [undefined, { contextWindow: 0 }, { contextWindow: undefined }, { contextWindow: "n/a" }]) {
+      await pi.handlers.get("before_agent_start")({ systemPrompt: "base" }, { model });
+      b = read();
+      assert.equal(b.budget, 4096, `unknown window (${JSON.stringify(model)}) keeps the configured budget`);
+      assert.equal(b.contextWindow, null, "unknown is recorded as null, never 0");
+    }
+    // An explicit operator budget is honoured, but never allowed past half the window.
+    const restoreBudget = setEnv("PI_KIT_CTX_BUDGET_TOKENS", "30000");
+    try {
+      await pi.handlers.get("before_agent_start")({ systemPrompt: "base" }, { model: { contextWindow: 200_000 } });
+      assert.equal(read().budget, 30000, "explicit and inside half the window: honoured");
+      await pi.handlers.get("before_agent_start")({ systemPrompt: "base" }, { model: { contextWindow: 32_000 } });
+      b = read();
+      assert.equal(b.budget, 16000, "explicit but over half of a 32k window: held at half");
+      assert.equal(b.windowClamped, true);
+    } finally { restoreBudget(); }
+  } finally { restoreEnv(); restoreMsg(); rmWorkspace(ws); }
+}
+
+async function testBudgetForPureFunction() {
+  const { budgetFor, knownContextWindow } = sieveModule;
+  assert.deepEqual(budgetFor(undefined, 4096, 0.1, null), { tokens: 4096, clamped: false });
+  assert.deepEqual(budgetFor(undefined, 4096, 0.1, 16_384), { tokens: 1638, clamped: true });
+  assert.deepEqual(budgetFor(undefined, 1200, 0.03, 1_000_000), { tokens: 1200, clamped: false });
+  assert.equal(budgetFor(undefined, 4096, 0.1, 100).tokens, 50, "floor of 64 never exceeds half of a tiny window");
+  assert.equal(knownContextWindow({ model: { contextWindow: 128000 } }), 128000);
+  for (const bad of [undefined, null, {}, { model: {} }, { model: { contextWindow: 0 } }, { model: { contextWindow: -5 } }, { model: { contextWindow: NaN } }]) {
+    assert.equal(knownContextWindow(bad), null);
+  }
+}
+
 const tests = [
+  ["budgets scale with the model's real context window; unknown stays unknown", testBudgetsScaleWithContextWindow],
+  ["budgetFor / knownContextWindow arithmetic", testBudgetForPureFunction],
   ["an invalid budget env value falls back to a real default, not NaN", testInvalidBudgetEnvFallsBackToDefault],
   ["a contribution's own declared budgetTokens is enforced", testPerContributionBudgetEnforced],
   ["a mostly-fitting contribution is truncated, not dropped wholesale", testTruncationInsteadOfWholesaleDrop],

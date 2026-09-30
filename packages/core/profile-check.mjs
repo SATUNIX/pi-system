@@ -86,6 +86,38 @@ function checkStubsAndOrdering(includes, label, isExperimental) {
   }
 }
 
+// Every profile must keep the protections on, name only firewall values this kit knows, and carry the
+// session-helpers extension: it owns /profile (transactional switch), /compaction and the once-per-session
+// warning when auto-compaction is off or cannot work, so a profile without it has no way to see or fix
+// either. Also prints how the profile manages compaction, so `npm run profile:check` documents the
+// per-profile difference instead of leaving it implicit.
+// (secret-guard is quarantined - it ships in no profile - so it is not required here.)
+const REQUIRED_EVERYWHERE = ["tool-firewall", "protected-paths", "session-helpers"];
+const FIREWALL_POLICIES = ["coding", "pentest"];
+const FIREWALL_MODES = ["auto", "manual"];
+function checkSafetyAndCompaction(def, includes, label) {
+  for (const name of REQUIRED_EVERYWHERE) {
+    if (!includes.includes(name)) fail(`${label}: '${name}' is missing (every profile must carry it)`);
+  }
+  const fw = def.firewall;
+  if (fw !== undefined) {
+    if (fw === null || typeof fw !== "object" || Array.isArray(fw)) fail(`${label}: "firewall" must be an object`);
+    else {
+      if (fw.policy !== undefined && !FIREWALL_POLICIES.includes(fw.policy)) fail(`${label}: unknown firewall policy ${JSON.stringify(fw.policy)} (known: ${FIREWALL_POLICIES.join(", ")})`);
+      if (fw.mode !== undefined && !FIREWALL_MODES.includes(fw.mode)) fail(`${label}: unknown firewall mode ${JSON.stringify(fw.mode)} (known: ${FIREWALL_MODES.join(", ")})`);
+    }
+  }
+  if (def.skills?.only !== undefined && def.skills?.exclude !== undefined) fail(`${label}: skills.only and skills.exclude are both set; only one may apply`);
+  const managers = [];
+  if (includes.includes("trigger-compact")) managers.push("trigger-compact (fixed 100k trigger, below pi's own when the window is larger)");
+  if (includes.includes("custom-compaction")) managers.push("custom-compaction (no-op shim: warns only when PI_KIT_COMPACT_TEMPLATE is set)");
+  if (includes.includes("compress")) managers.push("/compress");
+  if (includes.includes("context-sieve")) managers.push("context-sieve (window-sized budgets)");
+  if (includes.includes("finish-reason-retry")) managers.push("finish-reason-retry (explains an exhausted window, also in subagent children)");
+  else console.log(`  note: ${label} has no finish-reason-retry, so subagent children of this profile get no explanation when their window fills`);
+  console.log(`  compaction: pi auto-compaction (native, default on) + ${managers.length ? managers.join(", ") : "nothing else"}`);
+}
+
 // Step 1 ("install"): resolve every name and replay the real settings.json narrowing.
 // Returns the resolved resource list, or null if resolution itself failed.
 function checkInstallNarrowing(includes, label) {
@@ -170,6 +202,7 @@ async function checkProfile(name) {
     return;
   }
   checkStubsAndOrdering(includes, `profile ${name}`, !!def.experimental);
+  checkSafetyAndCompaction(def, includes, `profile ${name}`);
   const resolved = checkInstallNarrowing(includes, `profile ${name}`);
   if (resolved) await checkLoad(resolved, `profile ${name}`);
 }

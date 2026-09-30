@@ -317,7 +317,12 @@ function testFirewallConfigFromProfile() {
     const file = path.join(dir, "pi-kit", "firewall.json");
     fs.mkdirSync(path.dirname(file));
     fs.writeFileSync(file, "{broken");
-    assert.deepEqual(writeFirewallConfig(pt, file), { mode: "manual", policy: "pentest", source: "profile" }, "an unreadable config is replaced");
+    // An unreadable firewall config used to be replaced silently with the profile's; it holds the
+    // operator's firewall choices, so it now stops the run (see profile-safety-smoke.mjs).
+    assert.throws(() => writeFirewallConfig(pt, file), /not valid JSON/, "an unreadable config is not overwritten");
+    assert.equal(fs.readFileSync(file, "utf8"), "{broken");
+    fs.rmSync(file);
+    assert.deepEqual(writeFirewallConfig(pt, file), { mode: "manual", policy: "pentest", source: "profile" }, "an absent config is created from the profile");
     assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).policy, "pentest");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

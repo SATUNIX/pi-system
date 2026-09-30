@@ -1,4 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import fs from "node:fs";
+import path from "node:path";
 
 // Self-containment rule: import only node:* builtins and typebox peer.
 // No sibling imports. No toolchain-lib imports. See CONTRIBUTING.md.
@@ -232,7 +234,7 @@ function fileLists(preparation: any, branchEntries: unknown): { readFiles: strin
 }
 
 /** Build the deterministic summary. Pure: no I/O, no model call. */
-export function buildCompressedSummary(event: any, note = ""): CompressResult {
+export function buildCompressedSummary(event: any, note = "", objective = ""): CompressResult {
   const preparation = event?.preparation ?? {};
   const history: Msg[] = Array.isArray(preparation.messagesToSummarize) ? preparation.messagesToSummarize : [];
   const prefix: Msg[] = preparation.isSplitTurn && Array.isArray(preparation.turnPrefixMessages) ? preparation.turnPrefixMessages : [];
@@ -251,13 +253,17 @@ export function buildCompressedSummary(event: any, note = ""): CompressResult {
     "Tool output, reasoning, and code blocks were removed. Long messages are trimmed ([…N chars…]).",
     "Messages after this summary are kept verbatim. Re-read files before relying on their contents.",
   ].join("\n");
+  // The active objective is pinned above the conversation: a deterministic summary keeps only the
+  // first turn and the newest ones, so a goal set mid-session (/goal writes .pi/GOAL.yaml) would
+  // otherwise fall into the omitted middle.
+  const objectiveSection = objective.trim() ? `## Active goal\n${clip(oneLine(objective), lim.note)}` : "";
   const noteSection = note.trim() ? `## Operator note\n${clip(note.trim(), lim.note)}` : "";
   const files = [
     fileSection("modified-files", modifiedFiles, Math.floor(lim.files * 0.5)),
     fileSection("read-files", readFiles, Math.floor(lim.files * 0.5)),
   ].filter(Boolean).join("\n\n");
 
-  const fixed = [header, noteSection, files, "## Conversation"].filter(Boolean).join("\n\n").length;
+  const fixed = [header, objectiveSection, noteSection, files, "## Conversation"].filter(Boolean).join("\n\n").length;
   let remaining = lim.budget - fixed;
 
   // Priority: first turn (the original ask), newest turn, earlier summary
@@ -296,11 +302,22 @@ export function buildCompressedSummary(event: any, note = ""): CompressResult {
   }
   const conversation = turns.length ? `## Conversation\n${body.join("\n\n")}` : "";
 
-  const summary = [header, noteSection, previous, conversation, files].filter(Boolean).join("\n\n");
+  const summary = [header, objectiveSection, noteSection, previous, conversation, files].filter(Boolean).join("\n\n");
   return {
     summary,
     details: { compressor: COMPRESSOR_ID, version: 1, readFiles, modifiedFiles, turns: turns.length, omittedTurns },
   };
+}
+
+// goal-core owns the mission goal: <cwd>/.pi/GOAL.yaml with a `goal:` line. Read-only, best effort.
+function readActiveGoal(cwd: string | undefined): string {
+  if (!cwd) return "";
+  try {
+    const raw = fs.readFileSync(path.join(cwd, ".pi", "GOAL.yaml"), "utf8");
+    return oneLine((raw.match(/^goal:\s*(.*)$/m)?.[1] ?? raw).trim()).slice(0, 1_000);
+  } catch {
+    return "";
+  }
 }
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info"): void {
@@ -321,7 +338,7 @@ export default function (pi: ExtensionAPI) {
   // cancel as the generic "Compaction cancelled".
   let lastRefusal: string | undefined;
 
-  pi.on("session_before_compact", async (event: any) => {
+  pi.on("session_before_compact", async (event: any, ctx?: ExtensionContext) => {
     const instructions = event?.customInstructions;
     if (typeof instructions !== "string" || !instructions.startsWith(COMPRESS_MARKER)) return undefined;
     lastRefusal = undefined;
@@ -334,7 +351,7 @@ export default function (pi: ExtensionAPI) {
         lastRefusal = "nothing older than the kept recent window (compaction.keepRecentTokens) to compress";
         return { cancel: true };
       }
-      const { summary, details } = buildCompressedSummary(event, instructions.slice(COMPRESS_MARKER.length));
+      const { summary, details } = buildCompressedSummary(event, instructions.slice(COMPRESS_MARKER.length), readActiveGoal(ctx?.cwd));
       return {
         compaction: {
           summary,

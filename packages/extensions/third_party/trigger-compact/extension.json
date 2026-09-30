@@ -1,12 +1,12 @@
 {
   "$schema": "../../../core/schema/extension.schema.json",
   "name": "trigger-compact",
-  "summary": "Automatically triggers context compaction when token usage crosses a fixed threshold (default 100k, configurable), but only while pi auto-compaction (compaction.enabled in /settings) is on. Registers /trigger-compact for manual compaction and /compact-threshold [amount|off|on|reset|status].",
+  "summary": "Compacts context when token usage crosses a fixed threshold (default 100k, configurable) - only while pi auto-compaction (compaction.enabled) is on, only when it is below pi's own window-minus-reserve trigger, and never in a one-shot child session. A compaction that interrupts a live run is resumed once. Registers /trigger-compact and /compact-threshold [amount|off|on|reset|status].",
   "category": "workflow",
   "tier": "T1",
   "layer": 3,
   "entry": "index.ts",
-  "hooks": ["turn_end"],
+  "hooks": ["turn_end", "agent_settled"],
   "registers": { "tools": [], "commands": ["/trigger-compact", "/compact-threshold"] },
   "profiles": ["long-horizon", "autonomous", "self-improving", "pentest"],
   "enabledByDefault": true,
@@ -19,7 +19,7 @@
     "models": []
   },
   "pulls": [],
-  "env": ["PI_KIT_COMPACT_THRESHOLD_TOKENS"],
+  "env": ["PI_KIT_COMPACT_THRESHOLD_TOKENS", "PI_KIT_INTERNAL_CHILD", "PI_CODING_AGENT_DIR"],
   "provenance": { "origin": "vendored" },
   "homeRepo": null,
   "status": "stable"

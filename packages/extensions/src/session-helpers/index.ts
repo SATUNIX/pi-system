@@ -3,6 +3,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  agentDir,
+  computeCompactionState,
+  describeCompaction,
+  formatK,
+  markWarned,
+  publishCompaction,
+  warnOnce,
+  type CompactionState,
+} from "./compaction-state.ts";
+import { transactionalSwitch, type Expectation, type SwitchOutcome } from "./profile-switch.ts";
 
 // Self-containment rule: import only node:* builtins and typebox peer.
 // No sibling imports. No toolchain-lib imports. See CONTRIBUTING.md.
@@ -45,19 +56,44 @@ const KIT_SHEET = [
   "  /kit       Show this cheatsheet            /helpers  Alias for /kit",
   "  /footer    Toggle the GitOps status bar    (/footer status, /footer reload)",
   "  /todos     Show the working todo list      /goal     Show or set the current goal",
-  "  /profile   Switch the active kit profile     /profile status  What is loaded vs profiles",
+  "  /profile   Switch the kit profile (rolls back on failure)   /profile status  Effective configuration",
   "  /update    Check for and apply pi / kit / package updates (latest or next channel)",
-  "  /compaction  Show or toggle auto-compaction (pi setting + kit trigger)",
+  "  /compaction  Is auto-compaction really on, and when? (/compaction status, on, off, trigger on|off)",
   "",
   "Profile-dependent (present when the matching extension is loaded):",
   "  /verify  /orchestrate  /handoff  /trigger-compact  /compress  /save  /verdicts",
   "  /plan  /caveman  /firewall:status   /improve (self-improving profile only)",
 ].join("\n");
 
+type Level = "info" | "warning" | "error";
+
+// Operator-facing output. ctx.ui.notify is the kit's standard fire-and-forget path (see
+// custom-footer), but it is a no-op in print/JSON runs, where a command used to print nothing at
+// all. Without a UI the message goes to stderr (stdout stays reserved for the run's own output);
+// notify is still called best-effort so a UI-less host that does implement it keeps working.
+function report(ctx: ExtensionContext, content: string, level: Level = "info"): void {
+  if (ctx.hasUI) {
+    try {
+      ctx.ui.notify(content, level);
+    } catch {
+      /* stale ctx after a reload: nothing left to tell */
+    }
+    return;
+  }
+  try {
+    process.stderr.write(`[pi-kit] ${content}\n`);
+  } catch {
+    /* no stderr */
+  }
+  try {
+    ctx.ui?.notify?.(content, level);
+  } catch {
+    /* no-op UI */
+  }
+}
+
 function show(ctx: ExtensionContext, content: string): void {
-  // ctx.ui.notify is the kit's standard fire-and-forget output path (see custom-footer).
-  // hasUI guards print/JSON modes where notify is a no-op.
-  if (ctx.hasUI) ctx.ui.notify(content, "info");
+  report(ctx, content, "info");
 }
 
 // --- profile switching -------------------------------------------------------
@@ -66,10 +102,6 @@ function show(ctx: ExtensionContext, content: string): void {
 // packages/core/install.mjs --profile <name> --yes`), then reload so pi re-reads
 // settings.json. The install logic stays single-sourced in the installer; this
 // command only locates the kit checkout, picks a profile, and drives it.
-
-function agentDir(): string {
-  return process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
-}
 
 // Kit layouts we can drive. The monorepo is the source of truth
 // (<root>/packages/core/install.mjs + <root>/packages/kit/profiles); a legacy flat
@@ -113,7 +145,19 @@ export function resolveKitLayout(root: string): KitLayout | null {
   return null;
 }
 
-function readMarker(cwd: string = process.cwd()): { kitSource?: string; profile?: string; scope?: string; mode?: string; ref?: string | null } {
+interface Marker {
+  kitSource?: string;
+  profile?: string;
+  scope?: string;
+  mode?: string;
+  ref?: string | null;
+  channel?: string | null;
+  companions?: unknown;
+  extensions?: unknown;
+  installedAt?: string;
+}
+
+function readMarker(cwd: string = process.cwd()): Marker {
   // Match uninstall.mjs: a project marker in the cwd wins, otherwise the global marker.
   const projectMarker = path.join(cwd, ".pi", ".pi-kit.json");
   const file = fs.existsSync(projectMarker) ? projectMarker : path.join(agentDir(), ".pi-kit.json");
@@ -277,10 +321,13 @@ export function diffSets(from: string[], to: string[]): { add: string[]; remove:
   return { add: to.filter((n) => !from.includes(n)), remove: from.filter((n) => !to.includes(n)) };
 }
 
-// Which profile the loaded set matches: exact, or the closest by symmetric difference.
-export function matchProfile(kitRoot: string, loaded: string[], profiles: string[]): { exact?: string; closest?: string; distance: number } {
+// Which profile the loaded set matches: exact, or the closest by symmetric difference. Profiles can
+// have identical extension sets (long-horizon and autonomous do): `prefer` (the marker's profile) wins
+// such a tie, otherwise the alphabetically first twin would be reported for both.
+export function matchProfile(kitRoot: string, loaded: string[], profiles: string[], prefer?: string): { exact?: string; closest?: string; distance: number } {
   let best: { name?: string; distance: number } = { distance: Number.POSITIVE_INFINITY };
-  for (const name of profiles) {
+  const ordered = prefer && profiles.includes(prefer) ? [prefer, ...profiles.filter((p) => p !== prefer)] : profiles;
+  for (const name of ordered) {
     const d = diffSets(loaded, profileKitExtensions(kitRoot, name));
     const distance = d.add.length + d.remove.length;
     if (distance === 0) return { exact: name, closest: name, distance: 0 };
@@ -300,34 +347,45 @@ function nodeBinary(): string {
 // --- compaction status/toggle -------------------------------------------------
 // pi's own auto-compaction is `compaction.enabled` (global settings, overridden by the
 // project's .pi/settings.json). The kit's trigger-compact adds a fixed-budget trigger that
-// now obeys the same switch plus its own on/off (<agent dir>/pi-kit/trigger-compact.json).
+// obeys the same switch plus its own on/off (<agent dir>/pi-kit/trigger-compact.json). The
+// effective state is computed in ./compaction-state.ts with pi's own precedence and thresholds;
+// this wrapper feeds it what only the live session knows (model window, trust, trigger loaded).
 
-export interface CompactionState {
-  enabled: boolean;
-  source: "project" | "global" | "default";
-  reserveTokens: number;
-  keepRecentTokens: number;
-  kitTrigger: { enabled: boolean; thresholdTokens: number | null };
+/** The live session's view of compaction, published for other extensions after every change. */
+export function currentCompactionState(pi: ExtensionAPI, ctx: ExtensionContext): CompactionState {
+  let contextWindow: number | null | undefined;
+  try {
+    // A model with no window is reported as 0 (unknown), no model at all as undefined.
+    contextWindow = ctx.model ? Number((ctx.model as { contextWindow?: unknown }).contextWindow ?? 0) : undefined;
+  } catch {
+    contextWindow = undefined;
+  }
+  let projectTrusted: boolean | undefined;
+  try {
+    projectTrusted = typeof ctx.isProjectTrusted === "function" ? ctx.isProjectTrusted() : undefined;
+  } catch {
+    projectTrusted = undefined;
+  }
+  let kitTriggerLoaded = false;
+  try {
+    kitTriggerLoaded = pi.getCommands().some((cmd) => cmd.name === "compact-threshold");
+  } catch {
+    kitTriggerLoaded = false;
+  }
+  return computeCompactionState({ cwd: ctx.cwd ?? process.cwd(), projectTrusted, contextWindow, kitTriggerLoaded });
 }
 
-export function compactionState(cwd: string): CompactionState {
-  const project = readJsonFile(path.join(cwd, ".pi", "settings.json"))?.compaction ?? {};
-  const global = readJsonFile(path.join(agentDir(), "settings.json"))?.compaction ?? {};
-  const pick = (key: string) => (project[key] !== undefined ? project[key] : global[key]);
-  const enabled = typeof project.enabled === "boolean" ? project.enabled : typeof global.enabled === "boolean" ? global.enabled : true;
-  const source = typeof project.enabled === "boolean" ? "project" : typeof global.enabled === "boolean" ? "global" : "default";
-  const kit = readJsonFile(path.join(agentDir(), "pi-kit", "trigger-compact.json")) ?? {};
-  const envThreshold = Number(process.env.PI_KIT_COMPACT_THRESHOLD_TOKENS);
-  return {
-    enabled,
-    source,
-    reserveTokens: typeof pick("reserveTokens") === "number" ? pick("reserveTokens") : 16384,
-    keepRecentTokens: typeof pick("keepRecentTokens") === "number" ? pick("keepRecentTokens") : 20000,
-    kitTrigger: {
-      enabled: kit.enabled !== false,
-      thresholdTokens: Number.isFinite(envThreshold) && envThreshold > 0 ? envThreshold : typeof kit.thresholdTokens === "number" ? kit.thresholdTokens : 100_000,
-    },
-  };
+// Recompute, publish `globalThis[Symbol.for("pi-kit.compaction")]`, and warn once per session.
+function refreshCompaction(pi: ExtensionAPI, ctx: ExtensionContext, opts: { warn?: boolean } = {}): CompactionState | null {
+  try {
+    const state = currentCompactionState(pi, ctx);
+    publishCompaction(state);
+    if (opts.warn !== false) warnOnce(ctx, state);
+    return state;
+  } catch {
+    publishCompaction(null);
+    return null;
+  }
 }
 
 function writeJsonAtomic(file: string, value: unknown): void {
@@ -359,22 +417,8 @@ export function setKitTriggerEnabled(enabled: boolean): void {
   else writeJsonAtomic(file, current);
 }
 
-function formatK(n: number | null): string {
-  if (n === null) return "?";
-  return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
-}
-
-export function describeCompaction(state: CompactionState, kitLoaded: boolean): string {
-  return [
-    `Auto-compaction (pi): ${state.enabled ? "ON" : "OFF"}  [${state.source === "default" ? "default" : `${state.source} settings`}]`,
-    `  compacts when context exceeds (window − ${formatK(state.reserveTokens)} reserve); keeps ~${formatK(state.keepRecentTokens)} recent tokens`,
-    kitLoaded
-      ? `Kit fixed-budget trigger (trigger-compact): ${!state.enabled ? "OFF (follows pi's switch)" : state.kitTrigger.enabled ? `ON at ${formatK(state.kitTrigger.thresholdTokens)} tokens` : "OFF (/compact-threshold off)"}`
-      : "Kit fixed-budget trigger: not loaded in this profile",
-    "",
-    "Manual /compact always works. Change: /compaction on|off (pi), /compaction trigger on|off (kit).",
-  ].join("\n");
-}
+export { computeCompactionState, describeCompaction, publishCompaction, COMPACTION_GLOBAL_KEY } from "./compaction-state.ts";
+export type { CompactionState, PublishedCompaction } from "./compaction-state.ts";
 
 // --- pi-lean-ctx binary preflight -------------------------------------------
 // pi-lean-ctx routes bash/read/grep output through an external `lean-ctx` CLI that
@@ -442,6 +486,190 @@ export function unfilteredKitEntry(settingsFile: string): boolean {
 /** @deprecated use unfilteredKitEntry (also matches git installs). */
 export const unfilteredNpmKitEntry = unfilteredKitEntry;
 
+// --- transactional switch orchestration ---------------------------------------
+// The mechanics (snapshot, verify, rollback) live in ./profile-switch.ts; this part decides which
+// files a switch can touch and what the requested profile expects, then drives the installer.
+
+// Extensions whose absence widens what the agent may do; /profile status flags them.
+const MANDATORY_PROTECTION = ["tool-firewall", "protected-paths"];
+const NOTABLE_EXTENSIONS = [
+  "tool-firewall", "protected-paths", "verify-gate", "verifier-board", "trigger-compact", "custom-compaction", "context-sieve",
+  "finish-reason-retry", "autonomous-loop", "autonomy-run", "conductor", "subagent", "delegation-guard", "effort", "memory-vault", "goal-core",
+];
+
+export function firewallConfigFile(): string {
+  return process.env.PI_KIT_FIREWALL_CONFIG?.trim() || path.join(agentDir(), "pi-kit", "firewall.json");
+}
+
+/**
+ * The firewall a profile demands, or null when the profile names a policy or mode this kit does
+ * not know. Mirrors firewallConfigFor() in packages/core/lib/profiles.mjs; an unknown value must
+ * stop the switch rather than quietly become the default.
+ */
+export function firewallExpectation(def: any): { policy: "coding" | "pentest"; mode: "auto" | "manual" } | null {
+  const fw = def?.firewall;
+  if (fw === undefined || fw === null) return { policy: "coding", mode: "manual" };
+  if (typeof fw !== "object" || Array.isArray(fw)) return null;
+  const { policy, mode } = fw as { policy?: unknown; mode?: unknown };
+  if (policy !== undefined && policy !== "coding" && policy !== "pentest") return null;
+  if (mode !== undefined && mode !== "auto" && mode !== "manual") return null;
+  return { policy: policy === "pentest" ? "pentest" : "coding", mode: mode === "auto" ? "auto" : "manual" };
+}
+
+/** Every file a switch can change, for both scopes (a global switch must not disturb the project, and vice versa). */
+export function switchFiles(projectCwd: string): string[] {
+  return [
+    path.join(agentDir(), "settings.json"),
+    path.join(agentDir(), ".pi-kit.json"),
+    path.join(projectCwd, ".pi", "settings.json"),
+    path.join(projectCwd, ".pi", ".pi-kit.json"),
+    firewallConfigFile(),
+    path.join(agentDir(), "pi-kit", "overrides.json"),
+    path.join(agentDir(), ".env"),
+  ];
+}
+
+interface SwitchRequest {
+  kitRoot: string;
+  layout: KitLayout;
+  target: string;
+  installArgs: string[];
+  projectScoped: boolean;
+  projectCwd: string;
+  /** false: apply and ask the operator to /reload (first-run auto-profile). */
+  reload: boolean;
+  announce: (warnings: string[]) => void;
+}
+
+async function runSwitch(pi: ExtensionAPI, c: ExtensionContext, req: SwitchRequest): Promise<SwitchOutcome> {
+  const def = readJsonFile(path.join(req.layout.profilesDir, `${req.target}.json`));
+  const fw = firewallExpectation(def);
+  if (!fw) {
+    return {
+      ok: false,
+      stage: "install",
+      message: `profile: refusing to switch to "${req.target}": its firewall block names an unknown policy or mode (${JSON.stringify(def?.firewall)}). Known policies: coding, pentest; modes: auto, manual. Nothing was changed.`,
+      warnings: [],
+      rolledBack: false,
+      rollbackErrors: [],
+      backupDir: null,
+    };
+  }
+  const command = c as ExtensionCommandContext;
+  return transactionalSwitch({
+    exec: (cmd, args, options) => pi.exec(cmd, args, options) as Promise<{ stdout: string; stderr: string; code: number; killed?: boolean }>,
+    command: nodeBinary(),
+    args: req.installArgs,
+    cwd: req.projectScoped ? req.projectCwd : req.layout.root,
+    timeoutMs: 120_000,
+    files: switchFiles(req.projectCwd),
+    expectation: {
+      profile: req.target,
+      scope: req.projectScoped ? "project" : "global",
+      kitRoot: req.kitRoot,
+      markerFile: req.projectScoped ? path.join(req.projectCwd, ".pi", ".pi-kit.json") : path.join(agentDir(), ".pi-kit.json"),
+      settingsFile: req.projectScoped ? path.join(req.projectCwd, ".pi", "settings.json") : path.join(agentDir(), "settings.json"),
+      firewallFile: firewallConfigFile(),
+      extensions: () => profileKitExtensions(req.kitRoot, req.target),
+      firewall: fw,
+      loadedExtensions: (file) => loadedKitExtensions(file, req.kitRoot),
+      extensionExists: (name) => isKitExtension(req.kitRoot, name),
+    },
+    announce: req.announce,
+    reload: req.reload
+      ? async () => {
+          await command.waitForIdle?.();
+          await command.reload();
+        }
+      : undefined,
+    reloadOld: req.reload
+      ? async () => {
+          await command.reload();
+        }
+      : undefined,
+  });
+}
+
+// --- /profile status: the effective configuration in a screenful ----------------
+
+function companionLabel(source: string): string {
+  return source.replace(/^npm:/, "").replace(/^git:/, "");
+}
+
+function registeredSources(settingsFile: string): Set<string> {
+  const out = new Set<string>();
+  const settings = readJsonFile(settingsFile);
+  for (const pkg of Array.isArray(settings?.packages) ? settings.packages : []) {
+    const source = typeof pkg === "string" ? pkg : pkg?.source;
+    if (typeof source === "string") out.add(source);
+  }
+  return out;
+}
+
+function overridesSummary(): string {
+  const file = path.join(agentDir(), "pi-kit", "overrides.json");
+  if (!fs.existsSync(file)) return "none";
+  const raw = readJsonFile(file);
+  if (!raw || typeof raw !== "object") return `UNREADABLE (${file} is not valid JSON; the installer will refuse to switch until it is fixed)`;
+  const n = (v: unknown) => (Array.isArray(v) ? v.length : 0);
+  const parts = [
+    `extensions +${n(raw.extensions?.add)}/-${n(raw.extensions?.remove)}`,
+    `skills -${n(raw.skills?.exclude)}/+${n(raw.skills?.include)}`,
+    `prompts -${n(raw.prompts?.exclude)}/+${n(raw.prompts?.include)}`,
+  ];
+  return `${parts.join(", ")} (${file})`;
+}
+
+export interface StatusInput {
+  kitRoot: string;
+  settingsFile: string;
+  loaded: string[] | null;
+  currentLabel: string;
+  marker: ReturnType<typeof readMarker>;
+  compaction: CompactionState | null;
+}
+
+export function effectiveConfigLines(input: StatusInput): string[] {
+  const { marker, loaded, compaction } = input;
+  const lines: string[] = [];
+  const recorded = marker.profile && input.currentLabel !== marker.profile ? ` (install marker says "${marker.profile}")` : "";
+  lines.push(`Profile: ${input.currentLabel}${recorded}`);
+  lines.push(
+    `Install: ${marker.mode ?? "unknown"}${marker.channel ? ` · channel ${marker.channel}` : ""}${marker.ref ? ` · ref ${marker.ref}` : ""} · scope ${marker.scope ?? "global"} · source ${marker.kitSource ?? "unknown"}${marker.installedAt ? ` · installed ${marker.installedAt}` : ""}`,
+  );
+  if (loaded === null) {
+    lines.push("Extensions: not filtered - every kit extension loads (experimental ones included). Run /profile <name> to apply a profile.");
+  } else {
+    const notable = NOTABLE_EXTENSIONS.filter((n) => loaded.includes(n));
+    lines.push(`Extensions: ${loaded.length} loaded${notable.length ? ` - notable: ${notable.join(", ")}` : ""}`);
+    for (const name of MANDATORY_PROTECTION) {
+      if (!loaded.includes(name)) lines.push(`  WARNING: ${name} is NOT loaded - its protection is off for this session`);
+    }
+  }
+  const fw = readJsonFile(firewallConfigFile());
+  if (!fw || typeof fw !== "object") lines.push(`Firewall: no config at ${firewallConfigFile()} (tool-firewall uses its built-in defaults)`);
+  else {
+    const known = (fw.policy === "coding" || fw.policy === "pentest") && (fw.mode === "auto" || fw.mode === "manual");
+    lines.push(`Firewall: policy ${fw.policy ?? "?"} · mode ${fw.mode ?? "?"}${fw.source ? ` (${fw.source === "user" ? "set with /auto" : "from the profile"})` : ""}${known ? "" : "  WARNING: unknown policy or mode - the firewall treats this as invalid, run /profile <name> to rewrite it"}`);
+  }
+  if (compaction) {
+    const src = compaction.source === "default" ? "default" : `${compaction.source} settings`;
+    const trigger = !compaction.kitTrigger.loaded ? "no kit trigger" : compaction.kitTrigger.effective ? `kit trigger at ${formatK(compaction.kitTrigger.thresholdTokens)}` : compaction.kitTrigger.enabled ? "kit trigger idle" : "kit trigger off";
+    lines.push(`Compaction: pi auto ${compaction.enabled ? "ON" : "OFF"} (${src}) · earliest trigger ${compaction.enabled ? formatK(compaction.thresholdTokens) : "none"} · ${trigger}`);
+    if (compaction.reason) lines.push(`  WARNING: ${compaction.reason}`);
+  } else {
+    lines.push("Compaction: state unavailable");
+  }
+  lines.push(`Overrides: ${overridesSummary()}`);
+  const companions: string[] = Array.isArray(marker.companions) ? marker.companions.filter((x: unknown): x is string => typeof x === "string") : [];
+  if (companions.length === 0) lines.push("Companions: none recorded");
+  else {
+    const registered = registeredSources(input.settingsFile);
+    lines.push(`Companions: ${companions.map((s) => `${companionLabel(s)}${registered.has(s) ? "" : " (not registered)"}`).join(", ")}`);
+  }
+  return lines;
+}
+
 async function applyDefaultProfile(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
   // Interactive sessions only: print/JSON runs and tests must never rewrite settings.
   if (!ctx.hasUI) return;
@@ -454,16 +682,28 @@ async function applyDefaultProfile(pi: ExtensionAPI, ctx: ExtensionContext): Pro
   const layout = kitRoot ? resolveKitLayout(kitRoot) : null;
   if (!kitRoot || !layout) return;
   const profile = setting && listProfiles(kitRoot).some((p) => p.name === setting) ? setting : "balanced";
-  const result = await pi.exec(nodeBinary(), [layout.installer, "--profile", profile, "--yes", "--settings-only", "--scope", scope], { cwd: scope === "project" ? cwd : kitRoot, timeout: 120_000 });
-  if (result.code === 0) {
-    ctx.ui.notify(`pi-system: applied the "${profile}" profile (the package was loading every extension). Run /reload to load it, or /profile to choose another.`, "info");
+  const outcome = await runSwitch(pi, ctx, {
+    kitRoot,
+    layout,
+    target: profile,
+    installArgs: [layout.installer, "--profile", profile, "--yes", "--settings-only", "--scope", scope],
+    projectScoped: scope === "project",
+    projectCwd: cwd,
+    reload: false,
+    announce: () => {},
+  });
+  if (outcome.ok) {
+    ctx.ui.notify(`pi-system: applied the "${profile}" profile (the package was loading every extension). Run /reload to load it, or /profile to choose another.${outcome.warnings.length ? `\n${outcome.warnings.join("\n")}` : ""}`, "info");
   } else {
-    ctx.ui.notify(`pi-system: every extension is loaded because no profile is applied, and applying "${profile}" failed. Run /profile.\n${(result.stderr || result.stdout || "").trim().slice(-800)}`, "warning");
+    ctx.ui.notify(`pi-system: every extension is loaded because no profile is applied, and applying "${profile}" failed. Run /profile.\n${outcome.message.slice(-800)}`, "warning");
   }
 }
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
+    // First and independent of everything below: publish the effective compaction state for the
+    // footer and warn once if compaction is off or cannot work. Must never break session start.
+    refreshCompaction(pi, ctx);
     try {
       await applyDefaultProfile(pi, ctx);
     } catch {
@@ -484,6 +724,19 @@ export default function (pi: ExtensionAPI) {
     } catch {
       // Preflight must never break session start.
     }
+  });
+
+  // The window changes with the model, and settings may be edited by hand mid-session: keep the
+  // published state current (cheap: two small JSON reads). The warning stays once per session.
+  pi.on("model_select", async (_event: unknown, ctx: ExtensionContext) => {
+    refreshCompaction(pi, ctx);
+  });
+  pi.on("before_agent_start", async (_event: unknown, ctx: ExtensionContext) => {
+    if (ctx) refreshCompaction(pi, ctx);
+    return undefined;
+  });
+  pi.on("session_shutdown", async () => {
+    publishCompaction(null);
   });
 
   pi.registerCommand("clear", {
@@ -513,11 +766,10 @@ export default function (pi: ExtensionAPI) {
       ["status", "on", "off", "trigger on", "trigger off"].filter((v) => v.startsWith(prefix.trim())).map((v) => ({ value: v, label: v })),
     handler: async (args, ctx) => {
       const c = ctx as ExtensionCommandContext;
-      const cwd = c.cwd ?? process.cwd();
       const kitLoaded = pi.getCommands().some((cmd) => cmd.name === "compact-threshold");
-      let arg = args.trim().toLowerCase();
+      let arg = args.trim().toLowerCase().replace(/\s+/g, " ");
       if (!arg && c.hasUI) {
-        const state = compactionState(cwd);
+        const state = currentCompactionState(pi, c);
         const options = [
           `${state.enabled ? "Turn OFF" : "Turn ON"} pi auto-compaction`,
           ...(kitLoaded && state.enabled ? [`${state.kitTrigger.enabled ? "Turn OFF" : "Turn ON"} the kit fixed-budget trigger (${formatK(state.kitTrigger.thresholdTokens)})`] : []),
@@ -528,15 +780,21 @@ export default function (pi: ExtensionAPI) {
         arg = choice.startsWith("Show") ? "status" : choice.includes("kit") ? `trigger ${state.kitTrigger.enabled ? "off" : "on"}` : state.enabled ? "off" : "on";
       }
       if (!arg || arg === "status") {
-        show(c, describeCompaction(compactionState(cwd), kitLoaded));
+        const state = currentCompactionState(pi, c);
+        publishCompaction(state);
+        report(c, describeCompaction(state), state.reason ? "warning" : "info");
+        if (state.reason) markWarned(c);
         return;
       }
       try {
         if (arg === "on" || arg === "off") {
           setGlobalCompactionEnabled(arg === "on");
-          const state = compactionState(cwd);
-          const projectNote = state.source === "project" && state.enabled !== (arg === "on") ? `\nNote: ${path.join(cwd, ".pi", "settings.json")} sets compaction.enabled=${state.enabled} and overrides the global setting for this project.` : "";
-          show(c, `Auto-compaction ${arg === "on" ? "enabled" : "disabled"} (global settings). Reloading so pi picks it up...${projectNote}`);
+          const state = currentCompactionState(pi, c);
+          publishCompaction(state);
+          const projectNote = state.source === "project" && state.enabled !== (arg === "on") ? `\nNote: ${path.join(c.cwd ?? process.cwd(), ".pi", "settings.json")} sets compaction.enabled=${state.enabled} and overrides the global setting for this project.` : "";
+          const offNote = arg === "off" ? "\nWARNING: with auto-compaction off pi also stops recovering from a context overflow, so a run ends when the window fills. Subagents and other child sessions inherit this. /compaction on restores it." : "";
+          report(c, `Auto-compaction ${arg === "on" ? "enabled" : "disabled"} (global settings). Reloading so pi picks it up...${offNote}${projectNote}`, arg === "off" ? "warning" : "info");
+          markWarned(c); // said above; the session_start that follows the reload must not repeat it
           // pi keeps settings in memory; reload so its own threshold/overflow checks see the change.
           await c.waitForIdle?.();
           await c.reload();
@@ -544,20 +802,22 @@ export default function (pi: ExtensionAPI) {
         }
         if (arg === "trigger on" || arg === "trigger off") {
           setKitTriggerEnabled(arg === "trigger on");
-          show(c, `Kit fixed-budget trigger ${arg === "trigger on" ? "enabled" : "disabled"}.${kitLoaded ? "" : " (trigger-compact is not loaded in this profile, so this has no effect until it is.)"}`);
+          const state = currentCompactionState(pi, c);
+          publishCompaction(state);
+          report(c, `Kit fixed-budget trigger ${arg === "trigger on" ? "enabled" : "disabled"}.${kitLoaded ? "" : " (trigger-compact is not loaded in this profile, so this has no effect until it is.)"}`);
           return;
         }
       } catch (error) {
-        if (c.hasUI) c.ui.notify(`compaction: ${error instanceof Error ? error.message : String(error)}`, "error");
+        report(c, `compaction: ${error instanceof Error ? error.message : String(error)}`, "error");
         return;
       }
-      if (c.hasUI) c.ui.notify(`compaction: unknown option "${arg}". Use status, on, off, trigger on, trigger off.`, "error");
+      report(c, `compaction: unknown option "${arg}". Use status, on, off, trigger on, trigger off.`, "error");
     },
   });
 
   pi.registerCommand("profile", {
     description:
-      "Switch the pi-kit profile in place: `/profile` picker, `/profile <name>`, `/profile status`, `/profile list`. Rewrites the kit's settings entry (keeping overrides.json customisations) and reloads — no restart.",
+      "Switch the pi-kit profile in place, all-or-nothing: `/profile` picker, `/profile <name>`, `/profile status` (effective configuration), `/profile list`. Rewrites the kit's settings entry (keeping overrides.json customisations), verifies the result, rolls back on any failure, then reloads - no restart.",
     getArgumentCompletions: (prefix: string) => {
       const kitRoot = findKitRoot();
       const names = kitRoot ? listProfiles(kitRoot).map((p) => p.name) : [];
@@ -568,17 +828,13 @@ export default function (pi: ExtensionAPI) {
       const kitRoot = findKitRoot();
       const layout = kitRoot ? resolveKitLayout(kitRoot) : null;
       if (!kitRoot || !layout) {
-        if (c.hasUI)
-          c.ui.notify(
-            "profile: could not locate the kit (needs its installer and a profiles directory). Set PI_KIT_ROOT to the kit path, or reinstall it (docs/INSTALL.md)",
-            "error",
-          );
+        report(c, "profile: could not locate the kit (needs its installer and a profiles directory). Set PI_KIT_ROOT to the kit path, or reinstall it (docs/INSTALL.md)", "error");
         return;
       }
 
       const profiles = listProfiles(kitRoot);
       if (profiles.length === 0) {
-        if (c.hasUI) c.ui.notify("profile: no profiles found in the kit checkout.", "error");
+        report(c, "profile: no profiles found in the kit checkout.", "error");
         return;
       }
       const projectCwd = c.cwd ?? process.cwd();
@@ -593,7 +849,7 @@ export default function (pi: ExtensionAPI) {
       // "Current" is what is actually configured, not what the marker last recorded: the two
       // drift when settings are edited by hand, and a stale marker made /profile refuse to
       // re-apply a profile ("already on X") that was no longer in effect.
-      const match = loaded ? matchProfile(kitRoot, loaded, profiles.map((p) => p.name)) : { exact: undefined, closest: marker.profile, distance: 0 };
+      const match = loaded ? matchProfile(kitRoot, loaded, profiles.map((p) => p.name), marker.profile) : { exact: undefined, closest: marker.profile, distance: 0 };
       // With no readable kit entry (missing or unfiltered) the marker is the only record.
       const current = match.exact ?? (loaded ? null : marker.profile ?? null);
       const currentLabel = current ?? (loaded ? `custom (closest: ${match.closest ?? "?"}, ${match.distance} difference${match.distance === 1 ? "" : "s"})` : `${marker.profile ?? "unknown"} (unfiltered package)`);
@@ -605,16 +861,26 @@ export default function (pi: ExtensionAPI) {
         return d.add.length || d.remove.length ? ` [+${d.add.length} −${d.remove.length}]` : "";
       };
 
+      // Arguments are validated before anything can change: one word, or nothing.
+      const words = requested.split(/\s+/).filter(Boolean);
+      if (words.length > 1) {
+        report(c, `profile: expected one argument, got ${words.length}: "${requested}". Usage: /profile [status|list|<${profiles.map((p) => p.name).join("|")}>]. Nothing was changed.`, "error");
+        return;
+      }
+
       if (requested === "list" || requested === "--list" || requested === "status") {
         const lines = [`Current: ${currentLabel}`, `Settings: ${settingsFile}`, ""];
-        if (requested === "status" && loaded && !current && match.closest) {
-          const d = diffSets(profileKitExtensions(kitRoot, match.closest), loaded);
-          if (d.add.length) lines.push(`  extra vs ${match.closest}: ${d.add.join(", ")}`);
-          if (d.remove.length) lines.push(`  missing vs ${match.closest}: ${d.remove.join(", ")}`);
-          lines.push("");
+        if (requested === "status") {
+          lines.push(...effectiveConfigLines({ kitRoot, settingsFile, loaded, currentLabel, marker, compaction: refreshCompaction(pi, c, { warn: false }) }), "");
+          if (loaded && !current && match.closest) {
+            const d = diffSets(profileKitExtensions(kitRoot, match.closest), loaded);
+            if (d.add.length) lines.push(`  extra vs ${match.closest}: ${d.add.join(", ")}`);
+            if (d.remove.length) lines.push(`  missing vs ${match.closest}: ${d.remove.join(", ")}`);
+            lines.push("");
+          }
         }
         lines.push("Profiles:", ...profiles.map((p) => `  ${p.name === current ? "*" : " "} ${p.name}${diffLabel(p.name)} - ${p.description}`), "", "Switch with: /profile <name>");
-        if (hasOverridesFile()) lines.push(`Overrides applied to every profile: ${path.join(agentDir(), "pi-kit", "overrides.json")}`);
+        if (hasOverridesFile() && requested !== "status") lines.push(`Overrides applied to every profile: ${path.join(agentDir(), "pi-kit", "overrides.json")}`);
         show(c, lines.join("\n"));
         return;
       }
@@ -622,23 +888,23 @@ export default function (pi: ExtensionAPI) {
       let target = requested;
       if (!target) {
         if (!c.hasUI) {
-          c.ui.notify(`profile: usage: /profile <${profiles.map((p) => p.name).join("|")}>`, "error");
+          report(c, `profile: usage: /profile <${profiles.map((p) => p.name).join("|")}> (or /profile status)`, "error");
           return;
         }
         const labels = profiles.map((p) => `${p.name}${p.name === current ? " (current)" : ""}${diffLabel(p.name)} - ${p.description}`);
         const choice = await c.ui.select(`Switch pi-kit profile (current: ${currentLabel})`, labels);
-        if (choice === undefined) return;
+        if (choice === undefined) return; // cancelled: nothing changes
         target = profiles[labels.indexOf(choice)]?.name ?? "";
       }
 
       // Renamed profiles (mirrors PROFILE_ALIASES in packages/core/lib/profiles.mjs).
       if (target === "engagement") target = "pentest";
       if (!profiles.some((p) => p.name === target)) {
-        if (c.hasUI) c.ui.notify(`profile: unknown profile "${target}". Known: ${profiles.map((p) => p.name).join(", ")}.`, "error");
+        report(c, `profile: unknown profile "${target}". Known: ${profiles.map((p) => p.name).join(", ")}. Nothing was changed.`, "error");
         return;
       }
       if (target === current) {
-        if (c.hasUI) c.ui.notify(`profile: already on "${target}" - nothing to do.`, "info");
+        report(c, `profile: already on "${target}" - nothing to do.`, "info");
         return;
       }
 
@@ -663,31 +929,37 @@ export default function (pi: ExtensionAPI) {
       // is passed, so a checkout found by PI_KIT_ROOT never replaces a git or npm install.
       if (marker.mode === "git" || marker.mode === "npm") installArgs.push("--mode", marker.mode);
 
-      let result: ExecResult;
+      let outcome: SwitchOutcome;
       try {
         // install.mjs derives a project install's settings and marker paths from
         // process.cwd(), so a project-scoped switch must run in the user's project rather
         // than in the kit root. A global switch is unaffected.
-        result = await pi.exec(nodeBinary(), installArgs, { cwd: projectScoped ? projectCwd : layout.root, timeout: 120_000 });
+        outcome = await runSwitch(pi, c, {
+          kitRoot,
+          layout,
+          target,
+          installArgs,
+          projectScoped,
+          projectCwd,
+          reload: true,
+          announce: (warnings) => {
+            if (c.hasUI) c.ui.setStatus("profile", undefined);
+            const extra = warnings.length ? `\nWarnings:\n${warnings.map((w) => `  ${w}`).join("\n")}` : "";
+            report(c, `profile: switched to "${target}"${capture ? " (customisations saved to overrides.json)" : ""}. Verified: marker, extension list and firewall match the profile.${extra}\nReloading...`, "info");
+          },
+        });
       } catch (error) {
-        if (c.hasUI) {
+        outcome = { ok: false, stage: "install", message: `profile: switch to "${target}" FAILED: ${error instanceof Error ? error.message : String(error)}`, warnings: [], rolledBack: false, rollbackErrors: [], backupDir: null };
+      }
+      if (c.hasUI) {
+        try {
           c.ui.setStatus("profile", undefined);
-          c.ui.notify(`profile: could not run the installer: ${error instanceof Error ? error.message : String(error)}`, "error");
+        } catch {
+          /* stale ctx */
         }
-        return;
       }
-      if (c.hasUI) c.ui.setStatus("profile", undefined);
-
-      if (result.code !== 0) {
-        const detail = (result.stderr || result.stdout || "").trim().slice(-1500);
-        if (c.hasUI) c.ui.notify(`profile: install failed (exit ${result.code}).\n${detail}`, "error");
-        return;
-      }
-
-      if (c.hasUI) c.ui.notify(`profile: switched to "${target}"${capture ? " (customisations saved to overrides.json)" : ""}. Reloading...`, "info");
-      await c.waitForIdle?.();
-      await c.reload();
-      return;
+      if (!outcome.ok) report(c, outcome.message + (outcome.warnings.length ? `\nWarnings:\n${outcome.warnings.map((w) => `  ${w}`).join("\n")}` : ""), "error");
+      // On success the reload has already replaced this instance: the announcement was made before it.
     },
   });
 }
