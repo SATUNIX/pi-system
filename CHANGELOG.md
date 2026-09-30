@@ -47,8 +47,13 @@ is and is not covered, and `docs/migration.md` if you installed from the earlier
   terminal-width-safe fitting, effort, unattended and compaction state, and cost provenance
   (measured, estimated or unknown).
 - **General autonomous runs.** `packages/autonomy` generalises the self-improvement supervisor
-  into a run engine with a versioned run contract, a lifecycle state machine, templates, scoped
-  unattended authorisation with containment, constrained egress, bounded recovery and budgets. See
+  into a run engine: a versioned, fail-closed run contract; a lifecycle state machine with distinct
+  outcomes; templates (`implement`, `deploy`, and `self-improve` as one optional template); a
+  boundary you read and authorise by digest before anything runs; scoped unattended authorisation
+  with host-side containment of every container; an allowlist egress proxy and run-scoped services;
+  trusted acceptance checks and an independent review; bounded recovery and hard budgets; and
+  approval-gated promotion. The `pi-autonomy` CLI accepts `--json` on every command, and `/autonomy`
+  (autonomous profile) drives it from inside pi as a command the model cannot call. See
   `docs/autonomy.md`.
 - `docs/concepts.md`, `docs/effort.md`, `docs/migration.md`, `docs/troubleshooting.md`,
   `docs/web-console.md`, `docs/beta.md` and `docs/private-system-lessons.md`; Mermaid diagrams in
