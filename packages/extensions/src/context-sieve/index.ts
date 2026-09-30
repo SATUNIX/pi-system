@@ -133,7 +133,7 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-function writeBudgetEvent(dir: string, event: { totalTokens: number; budget: number; dropped: string[]; included: string[]; truncated: string[]; message?: { tokens: number; included: string[]; skippedUnchanged: boolean } }): void {
+function writeBudgetEvent(dir: string, event: { totalTokens: number; budget: number; dropped: string[]; included: string[]; truncated: string[]; message?: { tokens: number; included: string[]; skippedUnchanged: boolean }; contextWindow?: number | null; windowClamped?: boolean }): void {
   try {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "sieve-budget.json"), JSON.stringify(event, null, 2));
@@ -155,6 +155,39 @@ function writeBudgetEvent(dir: string, event: { totalTokens: number; budget: num
 function positiveIntOr(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+// Share of the model's context window the injected contributions may take: the system-prompt channel
+// defaults to at most 10% of it, the hidden per-turn message to at most 3%, and even an explicit
+// operator budget is held under half the window (a budget larger than that leaves no room for the
+// conversation and is a misconfiguration, not a preference).
+const SYSTEM_WINDOW_SHARE = 0.1;
+const MESSAGE_WINDOW_SHARE = 0.03;
+const MAX_WINDOW_SHARE = 0.5;
+const MIN_BUDGET_TOKENS = 64;
+
+/** The model's context window, or null when it is unknown (no model, or contextWindow <= 0). Never 0. */
+export function knownContextWindow(ctx: unknown): number | null {
+  try {
+    const raw = Number((ctx as { model?: { contextWindow?: unknown } } | undefined)?.model?.contextWindow);
+    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve one budget in tokens. `configured` is the env value (absolute, when valid); `fallback` the
+ * built-in default. With a known window the default is scaled to `share` of it and any budget is
+ * capped at half of it; with an unknown window the configured numbers are used unchanged.
+ */
+export function budgetFor(configured: unknown, fallback: number, share: number, window: number | null): { tokens: number; clamped: boolean } {
+  const explicit = typeof configured === "string" ? configured.trim() !== "" && positiveIntOr(configured, 0) > 0 : typeof configured === "number" && configured > 0;
+  const wanted = positiveIntOr(configured, fallback);
+  if (window === null) return { tokens: wanted, clamped: false };
+  const base = explicit ? wanted : Math.min(wanted, Math.max(MIN_BUDGET_TOKENS, Math.floor(window * share)));
+  const tokens = Math.min(base, Math.max(1, Math.floor(window * MAX_WINDOW_SHARE)));
+  return { tokens, clamped: tokens < wanted };
 }
 
 // Conservative upper bound on the marker's own rendered length (template text plus a
@@ -226,13 +259,21 @@ export default function (pi: ExtensionAPI) {
     // producer/task identity for later concurrent writes.
   });
 
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     const dir = contribDir;
     const contributions = readContributions(dir);
     if (contributions.length === 0) return undefined;
 
-    const budgetTokens = positiveIntOr(process.env.PI_KIT_CTX_BUDGET_TOKENS, DEFAULT_BUDGET_TOKENS);
-    const messageBudgetTokens = positiveIntOr(process.env.PI_KIT_CTX_MESSAGE_BUDGET_TOKENS, DEFAULT_MESSAGE_BUDGET_TOKENS);
+    // The budgets are absolute token counts, but a fixed 4096 + 1200 is a third of a 16k window and
+    // most of an 8k one (the lite profile is for exactly those). Size them against the model's real
+    // context window; an unknown window (no model, contextWindow <= 0) keeps the configured numbers
+    // and is recorded as unknown, never as 0.
+    const window = knownContextWindow(ctx);
+    const sysBudget = budgetFor(process.env.PI_KIT_CTX_BUDGET_TOKENS, DEFAULT_BUDGET_TOKENS, SYSTEM_WINDOW_SHARE, window);
+    const messageBudget = budgetFor(process.env.PI_KIT_CTX_MESSAGE_BUDGET_TOKENS, DEFAULT_MESSAGE_BUDGET_TOKENS, MESSAGE_WINDOW_SHARE, window);
+    const budgetTokens = sysBudget.tokens;
+    const messageBudgetTokens = messageBudget.tokens;
+    const windowClamped = sysBudget.clamped || messageBudget.clamped;
     const system = assembleWithBudget(contributions.filter((c) => channelOf(c) === "system"), budgetTokens * CHARS_PER_TOKEN);
     const message = assembleWithBudget(contributions.filter((c) => channelOf(c) === "message"), messageBudgetTokens * CHARS_PER_TOKEN);
     const messageText = message.assembled.join("\n\n");
@@ -245,6 +286,8 @@ export default function (pi: ExtensionAPI) {
       included: system.included,
       truncated: [...system.truncatedIds, ...message.truncatedIds],
       message: { tokens: estimateTokens(messageText), included: message.included, skippedUnchanged },
+      contextWindow: window,
+      windowClamped,
     });
 
     const result: { systemPrompt?: string; message?: { customType: string; content: string; display: boolean } } = {};

@@ -10,7 +10,7 @@
   "enabledByDefault": true,
   "platforms": ["windows", "linux", "darwin"],
   "runtime": {
-    "nodeBuiltins": [],
+    "nodeBuiltins": ["node:fs", "node:path"],
     "npm": [],
     "piPeers": [],
     "services": [],
