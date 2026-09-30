@@ -16,7 +16,7 @@ import { kitStateDir } from "./config.ts";
 import { readFeedback, redact, type FeedbackRecord } from "./feedback.ts";
 import type { Completer } from "./judge.ts";
 
-export type Judgement = { ts: string; tool: string; sig: string; tier: string; verdict: "allow" | "block"; reason: string; high?: boolean; grants?: number; session: string };
+export type Judgement = { ts: string; tool: string; sig: string; tier: string; verdict: "allow" | "block"; reason: string; confidence?: string; high?: boolean; grants?: number; session: string };
 
 export type FamilyStats = { family: string; approvals: number; denials: number; judgeAllows: number; judgeBlocks: number; overrides: number; confirmed: number; last: string };
 

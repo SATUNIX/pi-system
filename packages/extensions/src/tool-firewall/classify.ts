@@ -154,12 +154,17 @@ export function classifyPath(abs: string | null, env: ClassifyEnv, remote?: stri
 
   // The tool I/O capture log stores tool output byte-exact, secrets included: reading it is a
   // credential read (so it feeds secret → egress), writing or deleting it is high.
-  const agentDir = remote ? null : `${env.home}/.pi/agent`;
+  // The agent directory honours PI_CODING_AGENT_DIR, like the rest of the kit's state (config.ts).
+  const agentDirEnv = process.env.PI_CODING_AGENT_DIR?.trim();
+  const agentDir = remote ? null : agentDirEnv ? normalize(agentDirEnv) : `${env.home}/.pi/agent`;
   const captureDir = remote ? null : (process.env.PI_KIT_CAPTURE_DIR?.trim() || `${agentDir}/pi-kit/capture`).replace(/\/+$/, "");
   if (captureDir && within(trimmed, captureDir)) return "credential";
 
   // Security controls for this kit.
   if (agentDir && (trimmed === `${agentDir}/settings.json` || within(trimmed, `${agentDir}/pi-kit`))) return "security_control";
+  // The remembered-approvals file wherever PI_KIT_FIREWALL_APPROVALS puts it: planting an entry would let an action run unasked.
+  const approvalsFile = remote ? "" : process.env.PI_KIT_FIREWALL_APPROVALS?.trim();
+  if (approvalsFile && (trimmed === normalize(approvalsFile) || trimmed.startsWith(`${normalize(approvalsFile)}.`))) return "security_control";
   if (/\/\.pi\/(?:auto-mode\.json|tool-firewall-audit\.jsonl|firewall(?:\/|$)|human-console(?:\/|$)|verdicts\.json|trace\.jsonl)/.test(trimmed)) return "security_control";
   if (/(?:^|\/)tool-firewall\/default-policy\.json$|(?:^|\/)packages\/core\/policies\//.test(trimmed)) return "security_control";
 

@@ -2,7 +2,7 @@
 //
 // ~/.pi/agent/pi-kit/firewall.json is written by the profile installer and by `/auto`:
 //   { "mode": "auto" | "manual", "policy": "coding" | "pentest", "judgeModel": "provider/id",
-//     "learn": true, "knownHosts": ["ms01"], "source": "profile" | "user" }
+//     "learn": true, "knownHosts": ["ms01"], "untrustedHosts": ["old-box"], "source": "profile" | "user" }
 // Precedence for the mode: PI_KIT_AUTO_MODE env > a project .pi/auto-mode.json (legacy) >
 // firewall.json > manual. For the policy: PI_KIT_FIREWALL_PROFILE env > firewall.json > coding.
 import fs from "node:fs";
@@ -17,10 +17,13 @@ export type FirewallConfig = {
   judgeModel?: string;
   learn: boolean;
   knownHosts: string[];
+  // Hosts the operator withdrew trust from (`/firewall revoke host:<name>`): removed from the known
+  // set even when ~/.ssh/config names them.
+  untrustedHosts: string[];
   source: "profile" | "user" | "default";
 };
 
-const DEFAULTS: FirewallConfig = { mode: "manual", policy: "coding", learn: true, knownHosts: [], source: "default" };
+const DEFAULTS: FirewallConfig = { mode: "manual", policy: "coding", learn: true, knownHosts: [], untrustedHosts: [], source: "default" };
 
 export function homeDir(): string {
   return process.env.HOME || os.homedir();
@@ -55,6 +58,7 @@ export function readConfig(): FirewallConfig {
       judgeModel: typeof raw?.judgeModel === "string" && raw.judgeModel.trim() ? raw.judgeModel.trim() : undefined,
       learn: raw?.learn !== false,
       knownHosts: Array.isArray(raw?.knownHosts) ? raw.knownHosts.filter((h: unknown) => typeof h === "string") : [],
+      untrustedHosts: Array.isArray(raw?.untrustedHosts) ? raw.untrustedHosts.filter((h: unknown) => typeof h === "string") : [],
       source: raw?.source === "user" || raw?.source === "profile" ? raw.source : "default",
     };
   } catch {
@@ -103,19 +107,24 @@ export function resolvePolicy(cfg: FirewallConfig = readConfig()): { policy: Pol
   return { policy: cfg.policy, source: cfg.source === "default" ? "default" : configPath() };
 }
 
-// Hosts named in ~/.ssh/config (aliases and literal HostNames, no wildcards) plus firewall.json.
-let hostCache: { key: string; hosts: Set<string> } | null = null;
-export function knownHosts(cfg: FirewallConfig = readConfig(), home = homeDir()): Set<string> {
+// Hosts named in ~/.ssh/config (aliases and literal HostNames, no wildcards) plus firewall.json,
+// minus the hosts the operator revoked. A known host only ever lowers the tier of READ-ONLY ssh and
+// `sudo -n` reads in auto mode with the coding policy (classify.ts `autoLow`); it never allows a
+// write. The files are small and read on every call, so a change is seen at once.
+export type KnownHosts = {
+  hosts: Set<string>; // effective: (firewall.json + ssh config) minus untrusted
+  fromConfig: Set<string>; // firewall.json knownHosts
+  fromSsh: Set<string>; // ~/.ssh/config and its Includes
+  untrusted: Set<string>; // firewall.json untrustedHosts
+  sshMtime: number; // newest modification time among the ssh files read (0 when there are none)
+};
+
+export function knownHostsMeta(cfg: FirewallConfig = readConfig(), home = homeDir()): KnownHosts {
   const sshConfig = path.join(home, ".ssh", "config");
-  let mtime = 0;
-  try {
-    mtime = fs.statSync(sshConfig).mtimeMs;
-  } catch {
-    /* none */
-  }
-  const key = `${sshConfig}:${mtime}:${cfg.knownHosts.join(",")}`;
-  if (hostCache?.key === key) return hostCache.hosts;
-  const hosts = new Set<string>(cfg.knownHosts.map((h) => h.toLowerCase()));
+  const fromConfig = new Set<string>(cfg.knownHosts.map((h) => h.toLowerCase()));
+  const untrusted = new Set<string>(cfg.untrustedHosts.map((h) => h.toLowerCase()));
+  const fromSsh = new Set<string>();
+  let sshMtime = 0;
   const seen = new Set<string>();
   const readSsh = (file: string, depth: number) => {
     if (depth > 3 || seen.has(file)) return;
@@ -123,6 +132,7 @@ export function knownHosts(cfg: FirewallConfig = readConfig(), home = homeDir())
     let text = "";
     try {
       text = fs.readFileSync(file, "utf8");
+      sshMtime = Math.max(sshMtime, fs.statSync(file).mtimeMs);
     } catch {
       return;
     }
@@ -146,12 +156,16 @@ export function knownHosts(cfg: FirewallConfig = readConfig(), home = homeDir())
         }
         continue;
       }
-      for (const h of m[2].split(/\s+/)) if (h && !/[*?!]/.test(h)) hosts.add(h.toLowerCase());
+      for (const h of m[2].split(/\s+/)) if (h && !/[*?!]/.test(h)) fromSsh.add(h.toLowerCase());
     }
   };
   readSsh(sshConfig, 0);
-  hostCache = { key, hosts };
-  return hosts;
+  const hosts = new Set<string>([...fromConfig, ...fromSsh].filter((h) => !untrusted.has(h)));
+  return { hosts, fromConfig, fromSsh, untrusted, sshMtime };
+}
+
+export function knownHosts(cfg: FirewallConfig = readConfig(), home = homeDir()): Set<string> {
+  return knownHostsMeta(cfg, home).hosts;
 }
 
 // The workspace is the enclosing git repository (or the cwd outside one).

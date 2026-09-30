@@ -318,7 +318,7 @@ export default function (pi: ExtensionAPI) {
       if (target && isSecretPath(target.scoped)) {
         return blocked(ctx, `secret-guard: blocked ${toolName} to secret file: ${rawPath}`);
       }
-      const configuredAdminPaths = [process.env.PI_KIT_FIREWALL_POLICY, process.env.PI_KIT_FIREWALL_AUDIT_LOG].filter((p): p is string => !!p).map(p => normalizePath(resolvedPath(p, cwd)));
+      const configuredAdminPaths = [process.env.PI_KIT_FIREWALL_POLICY, process.env.PI_KIT_FIREWALL_AUDIT_LOG, process.env.PI_KIT_FIREWALL_APPROVALS].filter((p): p is string => !!p).map(p => normalizePath(resolvedPath(p, cwd)));
       const absoluteProtected = PROTECTED_PATTERNS.filter(pattern => pattern.startsWith("/"));
       if (target && (isProtectedPath(target.scoped) || absoluteProtected.some(pattern => target.absolute.includes(pattern)) || configuredAdminPaths.includes(target.absolute) || withinAny(target.absolute, configuredHumanConsolePaths(cwd)))) {
         return blocked(ctx, `secret-guard: blocked ${toolName} to protected path: ${rawPath}`);

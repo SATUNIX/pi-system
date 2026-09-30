@@ -54,6 +54,8 @@ function firewallStatePaths(): string[] {
   return [
     firewallConfigPath(),
     process.env.PI_KIT_FIREWALL_FEEDBACK?.trim() || path.join(dir, "firewall-feedback.jsonl"),
+    // Remembered approvals: a planted entry here would let an action run without asking.
+    process.env.PI_KIT_FIREWALL_APPROVALS?.trim() || path.join(dir, "firewall-approvals.json"),
     process.env.PI_KIT_FIREWALL_SESSIONS_DIR?.trim() || path.join(dir, "firewall-sessions"),
     // The tool I/O capture log (tool-capture): the agent must not rewrite its own record.
     process.env.PI_KIT_CAPTURE_DIR?.trim() || path.join(dir, "capture"),
