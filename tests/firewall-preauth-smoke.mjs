@@ -328,7 +328,9 @@ try {
     // (d) pi's wiring: the firewall sees the very object that executes, after prepareArguments and
     // validation, and parallel batches execute only after every call is decided.
     const session = fs.readFileSync(path.join(PCA, "dist", "core", "agent-session.js"), "utf8");
-    assert.match(session, /beforeToolCall = async \(\{ toolCall, args \}\)[\s\S]{0,400}emitToolCall\(\{[\s\S]{0,200}input: args,/);
+    // pi <=0.87 assigns the hook inline; pi >=0.99 names it `_beforeToolCall`. Either way the
+    // `tool_call` event must carry the validated `args` object itself as `input`.
+    assert.match(session, /(?:beforeToolCall = async|_beforeToolCall\()\s*\(?\{ toolCall, args \}[\s\S]{0,600}emitToolCall\(\{[\s\S]{0,300}input: args,/);
     const loop = fs.readFileSync(AGENT_CORE, "utf8");
     assert.match(loop, /beforeToolCall\(\{\s*assistantMessage,\s*toolCall,\s*args: validatedArgs,/);
     assert.match(loop, /kind: "prepared",\s*toolCall,\s*tool,\s*args: validatedArgs,/);
