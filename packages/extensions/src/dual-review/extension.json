@@ -1,7 +1,7 @@
 {
   "$schema": "../../../core/schema/extension.schema.json",
   "name": "dual-review",
-  "summary": "Spawns a second pi reviewer agent on git diffs. /review or dual_review tool. Set DUAL_REVIEW_MODEL to route to a different model. Stub: uses primary model if unset.",
+  "summary": "Spawns a second pi reviewer agent on git diffs, as a read-only child governed by delegation-guard (the parent's protections, the effort ledger; nothing starts without the guard). /review or dual_review tool. Set DUAL_REVIEW_MODEL to route to a different model; uses the primary model if unset.",
   "category": "execution",
   "tier": "T2-T4",
   "layer": 5,

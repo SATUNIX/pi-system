@@ -75,7 +75,10 @@ from MCP-only mode: they do not touch a pentest target and are already gated by 
 7. **Every child agent is at least as protected as its parent.** `delegation-guard` starts a child
    only with the protections the parent registered; inside the child it checks that they loaded
    and otherwise blocks every tool and exits with code 78. This applies to grandchildren and to
-   every launch path (the `subagent` tool, workflows, verification reviewers, validators).
+   every launch path (the `subagent` tool, workflows, verification reviewers, validators, the
+   `dual_review` tool and `/review`). Extensions are added to a child by kit name only, never by
+   path, and a scan test fails when a launcher of `pi` children does not ask the guard
+   (`tests/delegation-guard-smoke.mjs`).
 8. **Unattended mode needs what the supervisor builds, and a contract an agent cannot fake.** It
    is active only when the process environment and a contract file say so and agree, and the
    contract is not in the workspace, the working directory or the agent directory and sits on a

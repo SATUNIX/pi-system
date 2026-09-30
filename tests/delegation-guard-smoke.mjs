@@ -253,6 +253,71 @@ const tests = {
     } finally { rmWorkspace(cwd); e.done(); w.cleanup(); }
   },
 
+  "an ambient child (conductor specialists, validators) is always given the guard, so the child-side check cannot be skipped": async () => {
+    const w = world({ registered: ["tool-firewall", "delegation-guard", "effort"], fixture: { "delegation-guard": { childGovernance: true }, effort: { childGovernance: true }, "tool-firewall": { childGovernance: true }, todo: {} } });
+    const e = await withEffort();
+    try {
+      const p = prepareChild({ cwd: process.cwd(), kind: "mandatory", role: "validator", readOnly: true, isolation: "ambient" });
+      assert.equal(p.ok, true, p.reason);
+      assert.deepEqual(argsOf(p), ["delegation-guard"], "the guard, and nothing else, is passed explicitly");
+      assert.ok(!p.args.includes("--no-extensions"), "an ambient child still loads the operator's installed extensions");
+      assert.equal(p.args.filter((a) => a === "-e").length, 1);
+      assert.match(p.env.PI_KIT_CHILD_REQUIRE, /tool-firewall/, "and is told what must have loaded");
+      // Without that explicit load a child whose settings did not include the guard would never check anything.
+      fs.rmSync(path.join(w.root, "src", "delegation-guard", "index.ts"));
+      const missing = prepareChild({ cwd: process.cwd(), kind: "mandatory", role: "validator", readOnly: true, isolation: "ambient" });
+      assert.equal(missing.ok, false);
+      assert.equal(missing.code, "governance-missing");
+    } finally { e.done(); w.cleanup(); }
+  },
+
+  "extensions are named, never addressed by path: a role, workflow or settings file cannot load arbitrary code into a governed child": async () => {
+    const w = world({ registered: ["delegation-guard", "effort"], fixture: { "delegation-guard": { childGovernance: true }, effort: { childGovernance: true }, memory: {}, todo: {} } });
+    const e = await withEffort();
+    const stray = path.join(w.agent, "evil.ts");
+    fs.writeFileSync(stray, "export default function () { process.exit(0); }\n");
+    try {
+      const p = prepareChild({ cwd: process.cwd(), kind: "discretionary", role: "worker", extraExtensions: ["memory", stray, "../evil", "evil.ts", "./evil.ts", "Memory", "mem ory", "", "-e", "a".repeat(200)] });
+      assert.equal(p.ok, true, p.reason);
+      assert.ok(argsOf(p).includes("memory"), "a registry name is honoured");
+      for (const bad of [stray, "../evil", "evil.ts", "./evil.ts"]) assert.ok(!p.args.includes(bad) && !p.args.some((a) => a.includes("evil")), `${bad} is not loaded`);
+      assert.deepEqual(p.args.filter((_, i) => p.args[i - 1] === "-e").filter((f) => !f.startsWith(w.root)), [], "everything loaded lives in the kit's own extension directories");
+      assert.equal(guardMod.kitExtensionPath(stray), null);
+      assert.equal(guardMod.kitExtensionPath("../delegation-guard"), null);
+      assert.ok(guardMod.kitExtensionPath("delegation-guard"), "a registry name resolves");
+      // The operator's override list follows the same rule.
+      const restore = setEnv("PI_KIT_SUBAGENT_EXTENSIONS", `memory,${stray}`);
+      try {
+        const q = prepareChild({ cwd: process.cwd(), kind: "discretionary", role: "worker" });
+        assert.ok(argsOf(q).includes("memory") && !q.args.includes(stray));
+      } finally { restore(); }
+    } finally { e.done(); w.cleanup(); }
+  },
+
+  "every extension that can start a pi child goes through the guard": () => {
+    // A launcher that resolves pi's own entry point starts a child process. Each must ask delegation-guard (directly or through
+    // the subagent launch wrapper) in code, not in a comment, so a new launch path cannot skip the boundary unnoticed.
+    const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const launchers = [];
+    for (const avenue of ["src", "third_party"]) {
+      const root = path.join(ROOT, "packages", "extensions", avenue);
+      for (const name of fs.readdirSync(root)) {
+        const dir = path.join(root, name);
+        if (!fs.statSync(dir).isDirectory()) continue;
+        const files = [];
+        const walk = (d) => { for (const f of fs.readdirSync(d)) { const full = path.join(d, f); if (fs.statSync(full).isDirectory()) { if (f !== "node_modules") walk(full); } else if (/\.(ts|js|mjs)$/.test(f)) files.push(full); } };
+        walk(dir);
+        const code = files.map((f) => strip(fs.readFileSync(f, "utf8")));
+        const spawnsPi = code.some((c) => /import\.meta\.resolve\(\s*["']@earendil-works\/pi-coding-agent["']\s*\)/.test(c) || /piChildArgv\(/.test(c));
+        if (!spawnsPi) continue;
+        launchers.push(name);
+        if (name === "delegation-guard") continue; // the guard itself only builds arguments
+        assert.ok(code.some((c) => /Symbol\.for\(["']pi-kit\.delegation["']\)/.test(c) || /prepareChildLaunch\(/.test(c)), `${name} starts pi children but never asks delegation-guard (Symbol.for("pi-kit.delegation") or prepareChildLaunch)`);
+      }
+    }
+    for (const known of ["dual-review", "verify-gate", "conductor", "subagent"]) assert.ok(launchers.includes(known), `the scan finds the known launcher ${known} (found: ${launchers.join(", ")})`);
+  },
+
   "child side: a missing protection blocks every tool call and exits with EX_CONFIG": async () => {
     const w = world({ registered: ["delegation-guard", "tool-firewall"], env: { PI_KIT_CHILD_REQUIRE: "tool-firewall,protected-paths,delegation-guard" } });
     const realExit = process.exit;
@@ -311,8 +376,9 @@ const tests = {
         if (!fs.existsSync(manifest) || JSON.parse(fs.readFileSync(manifest, "utf8")).childGovernance !== true) continue;
         seen.push(name);
         const files = fs.readdirSync(path.join(dir, name)).filter((f) => f.endsWith(".ts"));
-        const src = files.map((f) => fs.readFileSync(path.join(dir, name, f), "utf8")).join("\n");
-        assert.ok(src.includes('Symbol.for("pi-kit.protections")'), `${name} must register itself in the protections registry so a child can verify it loaded`);
+        // Code only: a comment that mentions the symbol must not satisfy the check.
+        const src = files.map((f) => fs.readFileSync(path.join(dir, name, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")).join("\n");
+        assert.ok(/registerProtection\(\s*["'][a-z0-9-]+["']\s*\)|Symbol\.for\(["']pi-kit\.protections["']\)/.test(src), `${name} must register itself in the protections registry so a child can verify it loaded`);
       }
     }
     assert.ok(seen.includes("effort") && seen.includes("delegation-guard"), `governance set: ${seen.join(", ")}`);
@@ -322,7 +388,6 @@ const tests = {
     for (const file of fs.readdirSync(path.join(ROOT, "packages", "kit", "profiles")).filter((f) => f.endsWith(".json"))) {
       const include = JSON.parse(fs.readFileSync(path.join(ROOT, "packages", "kit", "profiles", file), "utf8")).include;
       assert.ok(include.includes("effort") && include.includes("delegation-guard"), `${file}: effort and delegation-guard are in every profile`);
-      if (include.includes("subagent")) assert.ok(include.includes("delegation-guard") && include.includes("effort"), `${file}: subagent without its guard`);
     }
   },
 };

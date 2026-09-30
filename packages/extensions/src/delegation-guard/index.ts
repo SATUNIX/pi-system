@@ -74,11 +74,13 @@ function agentDir(): string {
   return process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
 }
 
+// Kit extensions are addressed by NAME, never by path. A role or workflow file that lists `extensions:` (or a
+// settings file the project can write) must not be able to load arbitrary code, in-process and before any tool
+// hook, into a governed child; a name that is not a plain registry name resolves to nothing and is skipped.
+const KIT_EXTENSION_NAME = /^[a-z0-9][a-z0-9-]{0,60}$/;
+
 export function kitExtensionPath(name: string): string | null {
-  if (name.includes("/") || name.endsWith(".ts")) {
-    const p = path.resolve(name);
-    return fs.existsSync(p) ? p : null;
-  }
+  if (!KIT_EXTENSION_NAME.test(name)) return null;
   for (const avenue of ["src", "third_party"]) {
     const p = path.join(extensionsRoot(), avenue, name, "index.ts");
     if (fs.existsSync(p)) return p;
@@ -155,9 +157,9 @@ export interface ChildRequest {
    * "isolated" (default): the child loads exactly the guard's extension set (`--no-extensions`).
    * "ambient": the child keeps loading the operator's installed extensions (for launchers whose
    * children need tools those extensions provide, e.g. MCP servers in a pentest specialist); the
-   * guard hands back no extension arguments, only the environment, and the child's own
-   * delegation-guard then verifies that every required protection is loaded, failing closed when
-   * one is not.
+   * guard hands back only `-e <delegation-guard>` (so the check below always runs) and the
+   * environment, and the child's own delegation-guard then verifies that every required protection
+   * is loaded, failing closed when one is not.
    */
   isolation?: "isolated" | "ambient";
 }
@@ -208,7 +210,10 @@ export function prepareChild(request: ChildRequest): Prepared {
   const ambient = request.isolation === "ambient";
   const paths = new Map<string, string>();
   const missing: string[] = [];
-  for (const name of ambient ? [] : required) {
+  // An ambient child loads the operator's installed extensions, so the guard cannot say which ones. It does say one
+  // thing itself: this guard is loaded explicitly (`-e`), even when the child's settings would not load it, because
+  // the child's own guard is what verifies that every required protection is present and exits 78 when one is not.
+  for (const name of ambient ? ["delegation-guard"] : required) {
     const p = kitExtensionPath(name);
     if (p) paths.set(name, p);
     else missing.push(name);
@@ -257,10 +262,8 @@ export function prepareChild(request: ChildRequest): Prepared {
     ...optional,
   ];
   const args: string[] = [];
-  if (!ambient) {
-    args.push("--no-extensions");
-    for (const [, p] of ordered) args.push("-e", p);
-  }
+  if (!ambient) args.push("--no-extensions");
+  for (const [, p] of ordered) args.push("-e", p);
 
   // The knobs that could weaken a child are not passed on; the child derives them again.
   delete env.PI_KIT_SUBAGENT_ISOLATE;
