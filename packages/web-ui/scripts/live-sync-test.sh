@@ -8,6 +8,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${PI_CONSOLE_SYNC_PORT:-8237}"
 BASE="localhost:${PORT}"
+# The console requires an access token on every API route; use a throwaway one for this run.
+TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+AUTH=(-H "Authorization: Bearer ${TOKEN}")
 TMP="$(mktemp -d)"
 ENC="--home-agrace--"
 SID="live-sync-test"
@@ -26,7 +29,7 @@ bad() {
 
 cleanup() {
 	[[ -n "${SERVER_PID:-}" ]] && kill "${SERVER_PID}" >/dev/null 2>&1
-	pkill -f "curl -sN ${BASE}" >/dev/null 2>&1 || true
+	pkill -f "curl -sN "${AUTH[@]}" ${BASE}" >/dev/null 2>&1 || true
 	rm -rf "${TMP}"
 }
 trap cleanup EXIT
@@ -43,20 +46,20 @@ mkdir -p "${TMP}/${ENC}"
 
 echo "pi-console live-sync test (port ${PORT})"
 
-(cd "${ROOT}" && PI_CONSOLE_PORT="${PORT}" PI_CODING_AGENT_SESSION_DIR="${TMP}" node server/server.js) >/tmp/pi-console-sync.log 2>&1 &
+(cd "${ROOT}" && PI_CONSOLE_TOKEN="${TOKEN}" PI_CONSOLE_PORT="${PORT}" PI_CODING_AGENT_SESSION_DIR="${TMP}" node server/server.js) >/tmp/pi-console-sync.log 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 40); do
-	curl -s --max-time 2 "${BASE}/api/health" >/dev/null 2>&1 && break
+	curl -s "${AUTH[@]}" --max-time 2 "${BASE}/api/health" >/dev/null 2>&1 && break
 	sleep 0.3
 done
 
 echo "[1] session is listed with live status"
-BODY=$(curl -s --max-time 10 "${BASE}/api/sessions")
+BODY=$(curl -s "${AUTH[@]}" --max-time 10 "${BASE}/api/sessions")
 echo "${BODY}" | grep -q "${SID}" && ok "session listed" || bad "session not listed: ${BODY:0:200}"
 echo "${BODY}" | grep -q '"status":"external"' && ok "marked external while being written" || bad "not marked external"
 
 echo "[2] initial subscribe replays existing history"
-curl -sN --max-time 12 "${BASE}/api/sessions/${SID}/events" >/tmp/sync-cap1.txt 2>&1 &
+curl -sN "${AUTH[@]}" --max-time 12 "${BASE}/api/sessions/${SID}/events" >/tmp/sync-cap1.txt 2>&1 &
 sleep 3
 grep -q 'MESSAGE_ONE_initial' /tmp/sync-cap1.txt && ok "history replayed" || bad "history missing"
 
@@ -71,9 +74,9 @@ sleep 4
 grep -q 'MESSAGE_THREE_incremental' /tmp/sync-cap1.txt && ok "second incremental message streamed" || bad "second incremental message NOT streamed"
 
 echo "[5] reconnect after the previous viewer drops (reacquire path)"
-pkill -f "curl -sN ${BASE}" >/dev/null 2>&1 || true
+pkill -f "curl -sN "${AUTH[@]}" ${BASE}" >/dev/null 2>&1 || true
 sleep 1
-curl -sN --max-time 12 "${BASE}/api/sessions/${SID}/events" >/tmp/sync-cap2.txt 2>&1 &
+curl -sN "${AUTH[@]}" --max-time 12 "${BASE}/api/sessions/${SID}/events" >/tmp/sync-cap2.txt 2>&1 &
 sleep 3
 msg assistant 4 "MESSAGE_FOUR_after_reconnect" >>"${FILE}"
 sleep 4
