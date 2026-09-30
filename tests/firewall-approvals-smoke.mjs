@@ -343,6 +343,16 @@ try {
     assert.equal(widened.seen.length, 1);
     const fresh = ui([undefined], "P-new");
     assert.equal((await bash(reloaded.pi, PUSH, fresh.ctx))?.block, true, "a new session (/new) never inherits it");
+    // Compaction (and a resumed session) keeps the same extension instance and session id: the in-memory state
+    // is reset (session_start) and the request text changes, and the approval, being file-backed, still applies
+    // to exactly the same action and nothing wider.
+    await reloaded.pi.handlers.get("session_start")({}, { cwd: wsA, ui: { notify() {} }, sessionManager: { getSessionId: () => "P1" } });
+    await reloaded.pi.handlers.get("before_agent_start")({ prompt: "Summary of the conversation so far: …" }, {});
+    const afterCompaction = ui([undefined], "P1");
+    assert.equal(await bash(reloaded.pi, PUSH, afterCompaction.ctx), undefined, "the approval survives compaction");
+    assert.equal(afterCompaction.seen.length, 0);
+    const notWider = ui([undefined], "P1");
+    assert.equal((await bash(reloaded.pi, "git push origin feature/other", notWider.ctx))?.block, true, "and is not widened by it");
     // Revoked before the reload: still revoked after it.
     const view = ui([], "P1");
     await cmd(reloaded.pi, "firewall", "revoke session", view.ctx);

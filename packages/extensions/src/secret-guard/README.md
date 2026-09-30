@@ -14,7 +14,10 @@ Blocks write, edit, and bash operations that target secret files or leak credent
 
 ## Configuration
 
-No env vars. Patterns are hardcoded in `index.ts` (`SECRET_PATTERNS` and `SECRET_BASH_PATTERNS`). To extend, add an extension in your own repo that hooks `tool_call` with your patterns.
+No env vars of its own. It also protects the files the firewall trusts: `PI_KIT_FIREWALL_POLICY`,
+`PI_KIT_FIREWALL_AUDIT_LOG`, `PI_KIT_FIREWALL_APPROVALS` and the unattended-run contract
+(`PI_KIT_UNATTENDED_CONTRACT`) cannot be written by the agent. On load it registers itself in
+`globalThis[Symbol.for("pi-kit.protections")]`. Patterns are hardcoded in `index.ts` (`SECRET_PATTERNS` and `SECRET_BASH_PATTERNS`). To extend, add an extension in your own repo that hooks `tool_call` with your patterns.
 
 ## Profiles
 
