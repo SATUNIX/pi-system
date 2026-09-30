@@ -21,6 +21,10 @@ export function el(tag, props = {}, children = []) {
 	for (const [key, value] of Object.entries(props)) {
 		if (key === "class") node.className = value;
 		else if (key === "text") node.textContent = value;
+		// The page's CSP has no 'unsafe-inline' for styles, which blocks a style *attribute*
+		// (setAttribute("style", ...)) but not the CSSOM; assign through the latter.
+		else if (key === "style" && typeof value === "string")
+			node.style.cssText = value;
 		else if (key === "dataset") Object.assign(node.dataset, value);
 		else if (key.startsWith("on") && typeof value === "function")
 			node.addEventListener(key.slice(2), value);

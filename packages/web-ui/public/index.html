@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
+    <meta name="referrer" content="no-referrer" />
     <title>pi-console</title>
     <link rel="stylesheet" href="/css/style.css" />
   </head>
@@ -417,6 +418,36 @@
           <button id="agent-save" class="btn btn-primary" type="submit">
             Save
           </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="unlock-dialog" class="dialog">
+      <form id="unlock-form" method="dialog">
+        <header class="dialog-head">
+          <h2 class="dialog-title">Access token</h2>
+        </header>
+        <div class="dialog-body">
+          <p class="muted">
+            This console needs its access token. Open the login link that
+            <code>/console</code> prints (or <code>/console open</code>), or
+            paste the token here. It stays in this tab only.
+          </p>
+          <div class="field">
+            <label for="unlock-input">Token</label>
+            <input
+              id="unlock-input"
+              class="input"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <p id="unlock-error" class="dialog-error" hidden></p>
+        </div>
+        <footer class="dialog-foot">
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="submit">Unlock</button>
         </footer>
       </form>
     </dialog>

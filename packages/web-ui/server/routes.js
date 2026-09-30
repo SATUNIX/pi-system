@@ -17,41 +17,84 @@ import { sessionStats } from "./stats.js";
 import { readTodos } from "./todos.js";
 import { acquireTailer, isFileActive, releaseTailer } from "./tailer.js";
 import { DEFAULT_CWD } from "./config.js";
+import { mediaType } from "./security.js";
+import {
+	ENTRY_ID_RE,
+	HttpError,
+	MODEL_ARG_RE,
+	STREAMING_BEHAVIOURS,
+	optionalString,
+	parseSessionId,
+	requireObject,
+} from "./validate.js";
 
 const VERSION = "0.1.0";
 
-function sendJson(res, status, body) {
+/** Largest JSON request body accepted, in bytes. */
+export const MAX_BODY_BYTES = 1_000_000;
+
+function sendJson(res, status, body, extraHeaders = {}) {
 	const payload = JSON.stringify(body);
 	res.writeHead(status, {
 		"Content-Type": "application/json; charset=utf-8",
 		"Cache-Control": "no-store",
 		"Content-Length": Buffer.byteLength(payload),
+		...extraHeaders,
 	});
 	res.end(payload);
 }
 
+/**
+ * Read a bounded JSON object body. The size is enforced on the declared Content-Length
+ * first and again on the bytes actually received (chunked bodies have no length), and the
+ * bytes are decoded once at the end so a multi-byte character split across chunks survives.
+ */
 function readBody(req) {
 	return new Promise((resolve, reject) => {
-		let data = "";
+		const headers = req.headers || {};
+		if (mediaType(headers["content-type"]) !== "application/json") {
+			return reject(new HttpError(415, "Content-Type must be application/json"));
+		}
+		const declared = Number(headers["content-length"]);
+		if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+			return reject(new HttpError(413, "request body too large"));
+		}
+		const chunks = [];
 		let size = 0;
+		let settled = false;
 		req.on("data", (chunk) => {
+			if (settled) return;
 			size += chunk.length;
-			if (size > 1_000_000) {
-				reject(new Error("request body too large"));
-				req.destroy();
+			if (size > MAX_BODY_BYTES) {
+				settled = true;
+				chunks.length = 0;
+				reject(new HttpError(413, "request body too large"));
 				return;
 			}
-			data += chunk;
+			chunks.push(chunk);
 		});
 		req.on("end", () => {
-			if (!data.trim()) return resolve({});
+			if (settled) return;
+			settled = true;
+			const text = Buffer.concat(chunks).toString("utf8");
+			if (!text.trim()) return resolve({});
+			let parsed;
 			try {
-				resolve(JSON.parse(data));
+				parsed = JSON.parse(text);
 			} catch {
-				reject(new Error("invalid JSON body"));
+				return reject(new HttpError(400, "invalid JSON body"));
+			}
+			try {
+				resolve(requireObject(parsed));
+			} catch (error) {
+				reject(error);
 			}
 		});
-		req.on("error", reject);
+		req.on("error", (error) => {
+			if (settled) return;
+			settled = true;
+			reject(error);
+		});
 	});
 }
 
@@ -139,8 +182,16 @@ function searchOf(req) {
 	return q === -1 ? "" : raw.slice(q);
 }
 
-/** Route one /api request. Returns true when the request was handled. */
-export async function handleApi(req, res, url) {
+/**
+ * Route one /api request. Returns true when the request was handled.
+ *
+ * Authentication, Host/Origin checks and content-type enforcement happen in server.js
+ * (security.js evaluateRequest) before this is called; this function validates the
+ * request's content and never forwards anything to a pi child except the fixed command
+ * shapes built below (spawn.js additionally enforces an allowlist of RPC command types).
+ * `ctx.authMode` is only reported by /api/health.
+ */
+export async function handleApi(req, res, url, ctx = {}) {
 	const { pathname } = url;
 	if (!pathname.startsWith("/api/")) return false;
 
@@ -158,9 +209,18 @@ export async function handleApi(req, res, url) {
 					ok: true,
 					version: VERSION,
 					uptimeSec: Math.round(process.uptime()),
+					// Tells the page whether to ask for a token: "token" unless the operator
+					// explicitly started the server with PI_CONSOLE_AUTH=off.
+					auth: ctx.authMode === "off" ? "off" : "token",
 				}),
 				true
 			);
+		}
+
+		// Reaching this route means the request already passed the token check, so the
+		// login page uses it to validate a token the operator typed in.
+		if (parts[1] === "auth" && parts.length === 2 && method === "GET") {
+			return sendJson(res, 200, { authenticated: true }), true;
 		}
 
 		if (parts[1] === "config" && parts.length === 2 && method === "GET") {
@@ -239,7 +299,7 @@ export async function handleApi(req, res, url) {
 		}
 
 		if (parts[1] === "sessions" && parts.length >= 3) {
-			const id = decodeURIComponent(parts[2]);
+			const id = parseSessionId(parts[2]);
 			const sub = parts[3];
 
 			if (parts.length === 3 && method === "GET") {
@@ -288,12 +348,23 @@ export async function handleApi(req, res, url) {
 					typeof body.message === "string" ? body.message.trim() : "";
 				if (!message)
 					return sendJson(res, 400, { error: "message is required" }), true;
+				// Validate everything before ensureLive(), which can spawn a child.
+				const streamingBehavior = optionalString(
+					body.streamingBehavior,
+					"streamingBehavior",
+					{ max: 20 },
+				);
+				if (
+					streamingBehavior !== undefined &&
+					!STREAMING_BEHAVIOURS.includes(streamingBehavior)
+				)
+					throw new HttpError(400, "invalid streamingBehavior");
 				const proc = await ensureLive(id);
 				if (!proc)
 					return sendJson(res, 404, { error: "session not found" }), true;
 				const cmd = { type: "prompt", message };
-				if (body.streamingBehavior)
-					cmd.streamingBehavior = body.streamingBehavior;
+				if (streamingBehavior !== undefined)
+					cmd.streamingBehavior = streamingBehavior;
 				proc.send(cmd).catch(() => {});
 				return sendJson(res, 202, { queued: true }), true;
 			}
@@ -313,13 +384,19 @@ export async function handleApi(req, res, url) {
 						sendJson(res, 400, { error: "provider and modelId are required" }),
 						true
 					);
+				const provider = optionalString(body.provider, "provider", {
+					pattern: MODEL_ARG_RE,
+				});
+				const modelId = optionalString(body.modelId, "modelId", {
+					pattern: MODEL_ARG_RE,
+				});
 				const proc = await ensureLive(id);
 				if (!proc)
 					return sendJson(res, 404, { error: "session not found" }), true;
 				const data = await proc.send({
 					type: "set_model",
-					provider: body.provider,
-					modelId: body.modelId,
+					provider,
+					modelId,
 				});
 				return sendJson(res, 200, { model: data }), true;
 			}
@@ -341,10 +418,14 @@ export async function handleApi(req, res, url) {
 
 			if (sub === "fork" && method === "POST") {
 				const body = await readBody(req);
+				const entryId = optionalString(body.entryId, "entryId", {
+					max: 100,
+					pattern: ENTRY_ID_RE,
+				});
 				const proc = await ensureLive(id);
 				if (!proc)
 					return sendJson(res, 404, { error: "session not found" }), true;
-				const data = await proc.send({ type: "fork", entryId: body.entryId });
+				const data = await proc.send({ type: "fork", entryId });
 				return sendJson(res, 200, { fork: data }), true;
 			}
 
@@ -363,22 +444,42 @@ export async function handleApi(req, res, url) {
 	} catch (err) {
 		const status = Number(err && err.statusCode) || 400;
 		return (
-			sendJson(res, status, {
-				error: String(err && err.message ? err.message : err),
-			}),
+			sendJson(
+				res,
+				status,
+				{ error: String(err && err.message ? err.message : err) },
+				// An oversized body may still be arriving: do not keep the connection for reuse.
+				status === 413 ? { Connection: "close" } : {},
+			),
 			true
 		);
 	}
 }
 
+// Open SSE responses, so shutdown can end them (otherwise server.close() waits on them).
+const openStreams = new Set();
+
+/** End every open event stream (shutdown). Their close handlers release subscriptions. */
+export function closeAllStreams() {
+	for (const res of [...openStreams]) {
+		try {
+			res.end();
+		} catch {
+			/* already gone */
+		}
+	}
+	openStreams.clear();
+}
+
 function handleSse(res, id) {
 	res.writeHead(200, {
 		"Content-Type": "text/event-stream; charset=utf-8",
-		"Cache-Control": "no-cache, no-transform",
+		"Cache-Control": "no-store, no-transform",
 		Connection: "keep-alive",
 		"X-Accel-Buffering": "no",
 	});
 	res.write(": connected\n\n");
+	openStreams.add(res);
 
 	const write = (message) => {
 		try {
@@ -423,10 +524,14 @@ function handleSse(res, id) {
 		}
 	}, 15000);
 
+	let cleaned = false;
 	const cleanup = () => {
+		if (cleaned) return; // 'error' and 'close' can both fire
+		cleaned = true;
 		unsubscribe();
 		if (cleanupTailer) cleanupTailer();
 		clearInterval(heartbeat);
+		openStreams.delete(res);
 	};
 	res.on("close", cleanup);
 	res.on("error", cleanup);

@@ -10,9 +10,38 @@ import * as crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { PI_BIN, RUNTIME_DIR, DEFAULT_CWD } from "./config.js";
 import { agentBody, resolveAgent } from "./agents.js";
+import { sanitizeSpawnConfig } from "./validate.js";
 
 const MAX_REPLAY_EVENTS = 500;
 const RESPONSE_TIMEOUT_MS = 15000;
+const KILL_GRACE_MS = 3000;
+
+// The only pi RPC commands this server will ever write to a child. pi's RPC surface is much
+// larger and includes `bash` (run a shell command directly), `switch_session` (open any path)
+// and `export_html` (write to any path); the UI needs none of those, so anything else is
+// refused here rather than trusted to be well-formed upstream.
+export const ALLOWED_RPC_COMMANDS = Object.freeze(
+	new Set([
+		"prompt",
+		"abort",
+		"set_model",
+		"set_thinking_level",
+		"fork",
+		"new_session",
+		"get_state",
+		"get_session_stats",
+	]),
+);
+
+// Secrets of this server that must never reach a pi child: the child (and the model driving
+// it) can print its environment, which would put the console token into a session file.
+const CHILD_ENV_DENYLIST = ["PI_CONSOLE_TOKEN", "PI_CONSOLE_TOKEN_FILE"];
+
+function childEnv() {
+	const env = { ...process.env };
+	for (const key of CHILD_ENV_DENYLIST) delete env[key];
+	return env;
+}
 
 let registry = new Map(); // publicId -> PiRpcProcess
 
@@ -26,7 +55,7 @@ export class PiRpcProcess {
 
 		this.child = spawn(PI_BIN, argv, {
 			cwd,
-			env: process.env,
+			env: childEnv(),
 			stdio: ["pipe", "pipe", "pipe"],
 			windowsHide: true,
 		});
@@ -162,9 +191,17 @@ export class PiRpcProcess {
 	/** Send one RPC command; resolves with its response data. */
 	send(command, { timeoutMs = RESPONSE_TIMEOUT_MS } = {}) {
 		return new Promise((resolve, reject) => {
+			if (!command || !ALLOWED_RPC_COMMANDS.has(command.type)) {
+				return reject(
+					new Error(
+						`rpc command not allowed: ${String(command && command.type).slice(0, 40)}`,
+					),
+				);
+			}
 			if (this.exited) return reject(new Error("pi child has exited"));
 			const id = `c${this.nextId++}`;
-			const payload = { id, ...command };
+			// The server-assigned id wins over anything a caller put in the command.
+			const payload = { ...command, id };
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
 				reject(new Error(`timeout waiting for response to ${command.type}`));
@@ -204,7 +241,8 @@ export class PiRpcProcess {
 		return !this.exited;
 	}
 
-	kill() {
+	/** SIGTERM now, SIGKILL after `graceMs` if the child is still there. */
+	kill({ graceMs = KILL_GRACE_MS } = {}) {
 		if (this.exited) return;
 		try {
 			this.child.kill("SIGTERM");
@@ -219,7 +257,20 @@ export class PiRpcProcess {
 					/* ignore */
 				}
 			}
-		}, 3000).unref?.();
+		}, graceMs).unref?.();
+	}
+
+	/** Resolves once the child has exited, or after `timeoutMs` at the latest. */
+	whenExited(timeoutMs) {
+		return new Promise((resolve) => {
+			if (this.exited) return resolve();
+			const timer = setTimeout(resolve, timeoutMs);
+			timer.unref?.();
+			this.child.once("exit", () => {
+				clearTimeout(timer);
+				resolve();
+			});
+		});
 	}
 }
 
@@ -245,10 +296,11 @@ function buildArgv(config) {
 /**
  * Spawn a new pi RPC child.
  * config: { cwd, agent, agentSource, provider, model, thinking }
+ * Every field is validated (validate.js) before it can reach argv or the filesystem.
  */
-export async function createSession(config) {
-	const cwd = config.cwd || DEFAULT_CWD;
-	if (!fs.existsSync(cwd)) throw new Error(`cwd does not exist: ${cwd}`);
+export async function createSession(input) {
+	const config = sanitizeSpawnConfig(input, { defaultCwd: DEFAULT_CWD });
+	const cwd = config.cwd;
 
 	const argv = buildArgv(config);
 	let agentFile = null;
@@ -301,7 +353,15 @@ export function listLiveSessions() {
 	return [...new Set(registry.values())];
 }
 
-export function killAll() {
-	for (const proc of registry.values()) proc.kill();
+/**
+ * Stop every child: SIGTERM, then SIGKILL after `graceMs`. Resolves when they have all
+ * exited (bounded), so a shutdown never leaves a pi process behind, including one that
+ * ignores SIGTERM. Temp agent-prompt files are removed even for a child that outlived the wait.
+ */
+export async function killAll({ graceMs = 1500 } = {}) {
+	const procs = listLiveSessions();
 	registry = new Map();
+	for (const proc of procs) proc.kill({ graceMs });
+	await Promise.all(procs.map((proc) => proc.whenExited(graceMs + 1000)));
+	for (const proc of procs) proc._cleanup();
 }

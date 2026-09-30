@@ -1,9 +1,25 @@
 // api.js — thin fetch wrappers around the pi-console REST API (relative paths only).
-async function request(method, path, body) {
-	const options = { method };
-	if (body !== undefined) {
-		options.headers = { "Content-Type": "application/json" };
-		options.body = JSON.stringify(body);
+import { authHeaders } from "./auth.js";
+
+let unauthorizedHandler = () => {};
+
+/** Called whenever the server answers 401, so the app can ask for a fresh token. */
+export function setUnauthorizedHandler(fn) {
+	unauthorizedHandler = typeof fn === "function" ? fn : () => {};
+}
+
+export function notifyUnauthorized() {
+	unauthorizedHandler();
+}
+
+async function request(method, path, body, { quiet401 = false } = {}) {
+	const headers = { ...authHeaders() };
+	// No cookies are used, so none are sent: another localhost service's cookies stay out of it.
+	const options = { method, headers, cache: "no-store", credentials: "omit" };
+	if (method !== "GET") {
+		// The server requires JSON on every state-changing request, bodiless ones included.
+		headers["Content-Type"] = "application/json";
+		options.body = JSON.stringify(body === undefined ? {} : body);
 	}
 	const res = await fetch(path, options);
 	const text = await res.text();
@@ -16,8 +32,11 @@ async function request(method, path, body) {
 		}
 	}
 	if (!res.ok) {
+		if (res.status === 401 && !quiet401) notifyUnauthorized();
 		const message = (data && data.error) || `request failed (${res.status})`;
-		throw new Error(message);
+		const error = new Error(message);
+		error.status = res.status;
+		throw error;
 	}
 	return data;
 }
@@ -26,6 +45,8 @@ const enc = encodeURIComponent;
 
 export const api = {
 	health: () => request("GET", "/api/health"),
+	// Validates the token currently held (or just typed) without triggering the 401 handler.
+	authCheck: () => request("GET", "/api/auth", undefined, { quiet401: true }),
 	config: () => request("GET", "/api/config"),
 	prompts: () => request("GET", "/api/prompts"),
 	skills: () => request("GET", "/api/skills"),
