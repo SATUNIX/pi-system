@@ -430,6 +430,8 @@ function nonFlagArgs(argv: string[], from: number): string[] {
   return argv.slice(from).filter((a) => !a.startsWith("-"));
 }
 
+const UNSEEN_TARGET_WRITERS = new Set(["touch", "mkdir", "cp", "mv", "tee", "chmod", "chown", "chgrp", "truncate", "ln", "install"]);
+
 function classifySegment(c: Ctx): void {
   const { seg, exe } = c;
   const argv = seg.argv;
@@ -446,6 +448,9 @@ function classifySegment(c: Ctx): void {
     return;
   }
   if (seg.evalOf) add(c, "medium", "opaque", "eval_dynamic", "eval of runtime-built text", "eval");
+  // xargs/parallel append the paths that arrive on stdin, which cannot be seen: a writer fed that way can
+  // reach any path (rm has its own handling of piped-in paths).
+  if (seg.unknownArgs && UNSEEN_TARGET_WRITERS.has(exe)) add(c, "medium", "write_outside", "unresolved_write_args", `${exe} writes to paths supplied on stdin (xargs/parallel), which cannot be checked`, `${exe} stdin-paths`);
 
   // Environment tampering with this kit's safety controls.
   for (const as of seg.assigns) {
