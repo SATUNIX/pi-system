@@ -98,6 +98,27 @@ try {
   assert.equal(Object.keys(globalThis[KEY]).length, 0, "list() is not an enumerable own property");
   ok("registry is iterable like a Set of names");
 
+  // 7. Interoperability with another extension that only uses the bare global key: it creates a plain
+  //    Set<string> when the key is absent, or calls .add(name) when it exists, and reads with .has()
+  //    and iteration. Both directions work, and the registry is a real Set.
+  const lead = (name) => {
+    globalThis[KEY] ??= new Set();
+    globalThis[KEY].add(name);
+  };
+  reset();
+  lead("delegation");
+  for (const factory of Object.values(loaders)) factory(fakePi().api);
+  assert.ok(globalThis[KEY] instanceof Set);
+  assert.deepEqual([...globalThis[KEY]].sort(), ["delegation", ...ALL].sort(), "protections are added to a Set another extension created first");
+  assert.equal(globalThis[KEY].has("tool-firewall"), true);
+  assert.deepEqual(globalThis[KEY].list(), ["delegation", ...ALL].sort(), "list() is available even on a Set the other extension created");
+  reset();
+  for (const factory of Object.values(loaders)) factory(fakePi().api);
+  assert.ok(globalThis[KEY] instanceof Set, "the registry created by a protection is a Set (subclass)");
+  lead("delegation");
+  assert.deepEqual([...globalThis[KEY]].sort(), ["delegation", ...ALL].sort(), "another extension can .add(name) to it and iterate it");
+  ok("interoperates with an extension that only uses new Set()/.add()/.has()/iteration on the global key");
+
   console.log(`[protections-registry-smoke] all ${checks} checks passed`);
 } finally {
   reset();
