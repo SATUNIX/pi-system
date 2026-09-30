@@ -73,6 +73,8 @@ let cachedPolicyPath: string | null = null;
 let cachedPolicyMtime = 0;
 let cachedPolicyLabel = "builtin-fallback";
 let lastPolicyWarnings: string[] = [];
+// Rules we changed but still enforce (e.g. stateful flags dropped) — NOT skips.
+let lastPolicyAdjustments: string[] = [];
 
 function workspacePath(...parts: string[]): string {
   return path.join(process.cwd(), ...parts);
@@ -126,14 +128,21 @@ function compileCommandRules(rules: unknown, listLabel: string): CommandRule[] {
       lastPolicyWarnings.push(`${listLabel}[${index}] has no string "pattern" — skipped`);
       return;
     }
+    // Stateful flags (g/y) make RegExp.test carry lastIndex across calls, so a rule that
+    // should deny can be skipped on a later text (fail open). Strip them before compiling.
+    const rawFlags = typeof rule.flags === "string" ? rule.flags : "";
+    const flags = rawFlags.replace(/[gy]/g, "");
     let re: RegExp;
     try {
-      re = new RegExp(rule.pattern, typeof rule.flags === "string" ? rule.flags : "");
+      re = new RegExp(rule.pattern, flags);
     } catch (error) {
       lastPolicyWarnings.push(`${listLabel}[${index}] pattern is invalid regex (${String((error as Error)?.message ?? error)}) — skipped: ${rule.pattern}`);
       return;
     }
-    out.push({ pattern: rule.pattern, flags: rule.flags, risk_class: typeof rule.risk_class === "string" ? rule.risk_class : "unknown", reason: typeof rule.reason === "string" ? rule.reason : rule.pattern, re });
+    if (flags !== rawFlags) {
+      lastPolicyAdjustments.push(`${listLabel}[${index}] dropped stateful regex flag(s) from "${rawFlags}" — they make matching order-dependent, but the rule is still enforced`);
+    }
+    out.push({ pattern: rule.pattern, flags, risk_class: typeof rule.risk_class === "string" ? rule.risk_class : "unknown", reason: typeof rule.reason === "string" ? rule.reason : rule.pattern, re });
   });
   return out;
 }
@@ -166,6 +175,7 @@ function statMtime(filePath: string | null): number {
 
 function reloadPolicy(): void {
   lastPolicyWarnings = [];
+  lastPolicyAdjustments = [];
   const nextPath = policyPath();
   cachedPolicyPath = nextPath;
   let policy = BUILTIN_FALLBACK;
@@ -579,9 +589,9 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
       // Export the root session before any subagent is spawned, so children share its approvals.
       rootSessionId(sessionIdOf(ctx));
       ctx.ui?.notify?.(`tool-firewall: loaded (${cachedPolicyLabel}, default unknown=${policy.defaults.unknown}, rules=${ruleCount(policy)}, mode=${mode}, policy=${pol})`, "info");
-      if (lastPolicyWarnings.length > 0) {
-        audit({ event: "policy_rule_warnings", warnings: lastPolicyWarnings });
-        ctx.ui?.notify?.(`tool-firewall: WARNING — ${lastPolicyWarnings.length} custom rule(s) in the policy were skipped (not enforced): ${lastPolicyWarnings.join("; ")}`, "warning");
+      if (lastPolicyWarnings.length > 0 || lastPolicyAdjustments.length > 0) {
+        audit({ event: "policy_rule_warnings", warnings: lastPolicyWarnings, adjustments: lastPolicyAdjustments });
+        if (lastPolicyWarnings.length > 0) ctx.ui?.notify?.(`tool-firewall: WARNING — ${lastPolicyWarnings.length} custom rule(s) in the policy were skipped (not enforced): ${lastPolicyWarnings.join("; ")}`, "warning");
       }
       noteApprovalProblems(readApprovals(), ctx);
       unattended.current(pol, { cwd: ctx?.cwd || process.cwd(), workspace: workspaceRoot(ctx?.cwd || process.cwd()) }); // a contract inside this workspace turns it off
@@ -589,6 +599,7 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
       if (st.requested && !st.active) ctx.ui?.notify?.(`tool-firewall: WARNING — unattended mode was requested but is NOT active (${st.warnings[0]}). Failing closed: normal approval rules apply.`, "warning");
       else if (st.active) ctx.ui?.notify?.(`tool-firewall: ${st.label} — contract sha256:${st.digest?.slice(0, 12)}; no prompts, no judge; hard denies and outside-the-zone actions fail closed`, "warning");
       unattended.publish();
+      if (lastPolicyAdjustments.length > 0) ctx.ui?.notify?.(`tool-firewall: WARNING — ${lastPolicyAdjustments.length} rule(s) adjusted but still enforced: ${lastPolicyAdjustments.join("; ")}`, "warning");
     } catch (error) {
       cachedPolicy = BUILTIN_FALLBACK;
       audit({ event: "policy_load_error", error: String(error) });
@@ -981,7 +992,7 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
     const here = scopeRecords(readFeedback(), { workspace, since: floorFor(view, workspace) });
     const learned = listLearned(Date.now(), here).filter((l) => l.status === "learned").length;
     const kh = knownHostsMeta(cfg);
-    const warningSuffix = lastPolicyWarnings.length > 0 ? ` skipped-rules=${lastPolicyWarnings.length}(!)` : "";
+    const warningSuffix = `${lastPolicyWarnings.length > 0 ? ` skipped-rules=${lastPolicyWarnings.length}(!)` : ""}${lastPolicyAdjustments.length > 0 ? ` adjusted-rules=${lastPolicyAdjustments.length}` : ""}`;
     const zone = unattended.state();
     const decides =
       zone.active && p.policy === "coding"
@@ -1021,6 +1032,7 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
         sshBaseline = knownHostsMeta(readConfig()).sshMtime;
         sshWarned = false;
         say(ctx, `tool-firewall: reloaded policy (${cachedPolicyLabel})`, "info");
+        if (lastPolicyAdjustments.length > 0) say(ctx, `tool-firewall: WARNING — ${lastPolicyAdjustments.length} rule(s) adjusted but still enforced: ${lastPolicyAdjustments.join("; ")}`, "warning");
         if (lastPolicyWarnings.length > 0) say(ctx, `tool-firewall: WARNING — ${lastPolicyWarnings.length} rule(s) skipped: ${lastPolicyWarnings.join("; ")}`, "warning");
         return;
       }

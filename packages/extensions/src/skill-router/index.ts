@@ -17,7 +17,7 @@ import { matchTriggers, parseSkillFile, searchSkills, type SkillEntry } from "./
 //
 // Before this, all ~40 skill descriptions (~4k tokens) were in every prompt of every session.
 
-const isChild = () => process.env.PI_KIT_INTERNAL_CHILD === "1";
+const isChild = () => process.env.PI_KIT_INTERNAL_CHILD === "1" || process.env.PI_SUBAGENT_CHILD === "1";
 
 export function loadCatalog(pi: ExtensionAPI): SkillEntry[] {
   const out: SkillEntry[] = [];

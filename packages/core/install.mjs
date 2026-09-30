@@ -59,6 +59,7 @@ const profile = canonicalProfileName(legacySurface ? "lite" : get("--profile", "
 const onlyNames = get("--only", null)?.split(",").map(n => n.trim());
 const all = has("--all");
 const scope = get("--scope", "global");
+if (!["global", "project"].includes(scope)) throw new Error(`[install] unknown --scope "${scope}" (expected global or project)`);
 const dryRun = has("--dry-run");
 const uninstall = has("--uninstall");
 const noExternals = has("--no-externals");
@@ -275,10 +276,7 @@ function resolveCommand(name) {
 // --- Load profile from profiles/<name>.json ---
 function loadProfile(name) {
   const p = path.join(PROFILES_DIR, `${canonicalProfileName(name)}.json`);
-  if (!fs.existsSync(p)) {
-    console.error(`[install] Profile not found: ${p}`);
-    process.exit(1);
-  }
+  if (!fs.existsSync(p)) throw new Error(`[install] Profile not found: ${p}`);
   return JSON.parse(fs.readFileSync(p, "utf8"));
 }
 
@@ -306,6 +304,8 @@ function allExtensionNames() {
 // entry is about to be replaced, so its hand edits (extensions added or removed, skill and
 // prompt exclusions) become overrides first and survive the move.
 if (captureOverrides || legacyMigration) {
+  const checked = readOverridesChecked();
+  if (checked.error) throw new Error(`[install] capture-overrides: refusing to overwrite overrides: ${checked.error}`);
   const marker = readMarkerFile();
   const settings = readSettings(settingsPath);
   const idx = findPackageEntry(settings, legacyMigration?.from ?? kitSource, settingsPath);
@@ -320,7 +320,9 @@ if (captureOverrides || legacyMigration) {
     // file as it is today — the profile may have changed since.
     const baseline = { ...installedDef, include: Array.isArray(marker.extensions) ? marker.extensions : installedDef.include ?? [] };
     const entry = settings.packages[idx];
-    const drift = captureDrift(typeof entry === "string" ? {} : entry, baseline, (name) => resolveName(name)?.avenue !== "external" && resolveName(name) !== null);
+    const comparable = typeof entry !== "string" && Array.isArray(entry.extensions);
+    const drift = comparable ? captureDrift(entry, baseline, (name) => resolveName(name)?.avenue !== "external" && resolveName(name) !== null) : readOverrides();
+    if (!comparable) console.log("[install] capture-overrides: kit entry has no comparable extension list; nothing to capture.");
     if (isEmptyOverrides(drift)) {
       console.log("[install] capture-overrides: settings match the installed profile; nothing to capture.");
     } else if (dryRun) {
@@ -415,7 +417,10 @@ const extensionPatterns = resolvedResources
 
 // --- Preflight: check required tools ---
 function check(cmd, name, required = true) {
-  if (dryRun && resolveCommand(name)) return true;
+  if (dryRun) {
+    if (!resolveCommand(name) && required) console.warn(`[install] WARN: ${name} not found - preview continues (dry run)`);
+    return true;
+  }
   try { execSync(cmd, { stdio: "pipe" }); return true; }
   catch {
     if (resolveCommand(name)) return true;
@@ -448,7 +453,7 @@ console.log("");
 // load does not change any code, and the gate made every /profile switch slow and fallible).
 // Only a local checkout is gated: a release (git tag or npm) and main were checked in CI, and
 // the gate would check this copy, not the one being registered.
-if (!settingsOnly && mode === "local") {
+if (!settingsOnly && !dryRun && mode === "local") {
   console.log("[install] Running verify gate...");
   try {
     execSync("node packages/core/verify.mjs", { cwd: ROOT, stdio: "inherit" });

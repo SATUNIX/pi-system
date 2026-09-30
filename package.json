@@ -1,6 +1,6 @@
 {
   "name": "@satunix/pi-system",
-  "version": "0.2.4-beta.0",
+  "version": "0.2.4-beta.1",
   "description": "Safety-first kit for the pi coding agent: tool firewall, secret guard, checkpoints, verification, memory, orchestration, skills and themes. One package; pick a profile with /profile.",
   "type": "module",
   "keywords": [
@@ -224,6 +224,8 @@
     "profile:check": "node packages/core/profile-check.mjs",
     "new": "node packages/core/new-extension.mjs",
     "extract": "node packages/core/extract-extension.mjs",
-    "security:lockfile": "node packages/core/lockfile-check.mjs"
+    "security:lockfile": "node packages/core/lockfile-check.mjs",
+    "smoke:notify": "node tests/notify-smoke.mjs",
+    "smoke:consolidation": "node tests/consolidation-smoke.mjs"
   }
 }

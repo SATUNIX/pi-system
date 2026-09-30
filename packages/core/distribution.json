@@ -1,13 +1,15 @@
 {
-  "$comment": "How pi-system is delivered. git (the primary public path): releases are tags (vX.Y.Z) and `next` is the main branch of git.source, both on public GitHub, so no credentials or npm account are needed. npm: releases are dist-tags of npm.package (published by .github/workflows/release.yml, manual and currently unused). git.legacySources lists retired private sources: an install registered from one is migrated to git.source and never reconnected to it. Per-machine overrides: PI_KIT_DELIVERY=git|npm, PI_SYSTEM_GIT_SOURCE=<pi git source> (ignored when it names a legacy source). See docs/releasing.md.",
+  "$comment": "How pi-system is delivered. git (the primary public path): releases are tags (vX.Y.Z) and `next` is the main branch of git.source, both on public GitHub, so no credentials or npm account are needed. npm: releases are dist-tags of npm.package (published by .github/workflows/release.yml, manual and currently unused). git.legacySources lists fingerprints of retired private sources: an install registered from one is migrated to git.source and never reconnected to it. Per-machine overrides: PI_KIT_DELIVERY=git|npm, PI_SYSTEM_GIT_SOURCE=<pi git source> (ignored when it names a legacy source). See docs/releasing.md.",
   "delivery": "git",
   "git": {
     "source": "git:github.com/SATUNIX/pi-system",
     "branch": "main",
     "tagPrefix": "v",
     "legacySources": [
-      "gitlab.home.internal/lab/pi-system",
-      "gitlab.home.internal/root/pi-system"
+      "sha256:1bbc2f0c5eb44c5382561c9a9d60d688210cd833bb6f3e996010062adb26661e",
+      "sha256:030059d98cf655b13e2e1e0e9c8cbf9f399b37295682f59f65a95b8f5f5e05a9",
+      "sha256:435873f62f8eae368718d4365b76952caaa67ff4136de5301f6b92a653ed638a",
+      "sha256:89ee5220340d2687c6a3bcebb6dcb08a2209218833807a4aa1589897f82cc140"
     ]
   },
   "npm": {

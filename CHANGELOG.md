@@ -10,6 +10,14 @@ Versions before `0.2.1-beta.0` were internal; their numbers do not correspond to
 
 _Nothing yet._
 
+## [0.2.4-beta.1]
+
+### Changed
+
+- Removed generated marketing media from the development repository and updated the public
+  export manifest to match.
+- Prepared the next public beta through the protected GitLab export pipeline.
+
 ## [0.2.4-beta.0]
 
 The first public beta. Delivered from `github.com/SATUNIX/pi-system`; see `docs/beta.md` for what

@@ -295,6 +295,382 @@ function testNullSettingsFile() {
   }
 }
 
+// F3: `--capture-overrides` must tolerate a marker profile with no profiles/<name>.json.
+// `--only` records profile "custom" and `--all` records "all"; neither file exists. The
+// capture path falls back to the empty baseline and the marker's recorded extensions
+// instead of aborting with exit 1.
+function testCaptureOverridesCustomProfile() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-marker-capture-"));
+  const agentDir = path.join(dir, "agent");
+  const binDir = path.join(dir, "bin");
+  const projectDir = path.join(dir, "project");
+  const logPath = path.join(dir, "pi-calls.log");
+  try {
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    const fakePi = path.join(binDir, "pi");
+    fs.writeFileSync(fakePi, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PI_FAKE_LOG"\nexit 0\n`);
+    fs.chmodSync(fakePi, 0o755);
+
+    // Kit already registered, so the `--settings-only` run skips re-registration and the
+    // entry is present for capture-overrides to compare against.
+    fs.mkdirSync(path.join(projectDir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, ".pi", "settings.json"),
+      JSON.stringify({ packages: [ROOT] }, null, 2),
+    );
+
+    // A `--only` install records profile "custom"; no profiles/custom.json exists.
+    run(
+      process.execPath,
+      [INSTALL, "--only", "context-sieve", "--settings-only", "--mode", "local", "--scope", "project"],
+      baseEnv(agentDir, binDir, logPath),
+      projectDir,
+    );
+    const markerPath = path.join(projectDir, ".pi", ".pi-kit.json");
+    const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+    assert.equal(marker.profile, "custom", "a --only install must record profile: custom");
+
+    // Before the fix this aborted with exit 1 ("Profile not found: .../custom.json");
+    // run() throws on a nonzero status.
+    const capture = run(
+      process.execPath,
+      [INSTALL, "--capture-overrides", "--scope", "project"],
+      baseEnv(agentDir, binDir, logPath),
+      projectDir,
+    );
+    const output = `${capture.stdout}\n${capture.stderr}`;
+    assert.ok(
+      !output.includes("Profile not found"),
+      `capture-overrides must not abort when the marker profile has no JSON (got: ${output})`,
+    );
+    assert.match(output, /\[install\] capture-overrides:/, "capture path must have run");
+
+    console.log("  OK: --capture-overrides tolerates a custom (--only) marker profile");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// F4: `--dry-run` must not run the verify gate. The gate shells out with a bare `node`,
+// so a fake `node` first on PATH records the invocation while the outer installer keeps
+// running under its absolute process.execPath.
+function testDryRunSkipsVerifyGate() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-marker-dryrun-"));
+  const agentDir = path.join(dir, "agent");
+  const binDir = path.join(dir, "bin");
+  const logPath = path.join(dir, "pi-calls.log");
+  const nodeLog = path.join(dir, "node-calls.log");
+  try {
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.mkdirSync(binDir, { recursive: true });
+
+    const fakePi = path.join(binDir, "pi");
+    fs.writeFileSync(fakePi, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PI_FAKE_LOG"\nexit 0\n`);
+    fs.chmodSync(fakePi, 0o755);
+
+    // Only the gate's bare `node` reaches this shim; the installer is spawned via
+    // process.execPath, an absolute path.
+    const fakeNode = path.join(binDir, "node");
+    fs.writeFileSync(fakeNode, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PI_NODE_LOG"\nexit 0\n`);
+    fs.chmodSync(fakeNode, 0o755);
+
+    const env = { ...baseEnv(agentDir, binDir, logPath), PI_NODE_LOG: nodeLog };
+    run(
+      process.execPath,
+      [INSTALL, "--dry-run", "--mode", "local", "--profile", "balanced", "--scope", "global"],
+      env,
+    );
+
+    const nodeCalls = fs.existsSync(nodeLog) ? fs.readFileSync(nodeLog, "utf8") : "";
+    assert.ok(
+      !nodeCalls.includes("verify.mjs"),
+      `--dry-run must not run the verify gate (node calls: ${JSON.stringify(nodeCalls)})`,
+    );
+
+    console.log("  OK: --dry-run does not run the verify gate");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// B-031: a --dry-run preview must not require `pi` or `git` on PATH. The installer is
+// launched by absolute process.execPath, so PATH can be an empty dir; resolveCommand
+// for both tools returns null, and the dry-run check must warn and continue instead of
+// exiting 1.
+function testDryRunWithoutRequiredTools() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-marker-dryrun-no-tools-"));
+  const agentDir = path.join(dir, "agent");
+  const binDir = path.join(dir, "bin");
+  try {
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.mkdirSync(binDir, { recursive: true });
+
+    const result = spawnSync(
+      process.execPath,
+      [INSTALL, "--dry-run", "--mode", "local", "--settings-only", "--profile", "balanced", "--scope", "global"],
+      {
+        cwd: ROOT,
+        env: {
+          ...process.env,
+          PI_CODING_AGENT_DIR: agentDir,
+          PI_LEAN_CTX_BIN: path.join(agentDir, "no-lean-ctx"),
+          PATH: binDir,
+        },
+        encoding: "utf8",
+      },
+    );
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 0, `--dry-run without pi/git must exit 0 (stdout: ${result.stdout} stderr: ${result.stderr})`);
+    assert.ok(!/FAIL: pi is required/.test(output), `--dry-run must not fail on a missing pi (got: ${output})`);
+    assert.match(output, /\[install\] pi-system/, `a --dry-run preview must proceed without pi/git (got: ${output})`);
+
+    console.log("  OK: --dry-run does not require pi/git on PATH");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// F5/B-025: an unknown --scope must be rejected instead of silently becoming project
+// scope (and registering the kit globally).
+function testInvalidScopeRejected() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-marker-scope-"));
+  const agentDir = path.join(dir, "agent");
+  const binDir = path.join(dir, "bin");
+  const logPath = path.join(dir, "pi-calls.log");
+  try {
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.mkdirSync(binDir, { recursive: true });
+
+    const fakePi = path.join(binDir, "pi");
+    fs.writeFileSync(fakePi, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PI_FAKE_LOG"\nexit 0\n`);
+    fs.chmodSync(fakePi, 0o755);
+
+    const result = spawnSync(
+      process.execPath,
+      [INSTALL, "--dry-run", "--settings-only", "--scope", "bogus", "--profile", "balanced"],
+      { cwd: ROOT, env: baseEnv(agentDir, binDir, logPath), encoding: "utf8" },
+    );
+    assert.equal(result.status, 1, `--scope bogus must exit 1 (stdout: ${result.stdout})`);
+    assert.match(
+      `${result.stdout}\n${result.stderr}`,
+      /unknown --scope "bogus"/,
+      "an invalid --scope must print a clear error",
+    );
+
+    console.log("  OK: an invalid --scope is rejected with exit 1");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Regression: an `--all` install leaves the settings entry as a bare string (whole package,
+// unfiltered). captureDrift reads extensions only from an object entry, so treating a string
+// as `{}` saw zero actual extensions and wrote a remove-everything overrides.json. Capture
+// must instead report nothing to compare and leave overrides untouched.
+function testCaptureOverridesAllStringEntryDoesNotRemoveAll() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-marker-capture-all-"));
+  const agentDir = path.join(dir, "agent");
+  const binDir = path.join(dir, "bin");
+  const projectDir = path.join(dir, "project");
+  const logPath = path.join(dir, "pi-calls.log");
+  try {
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(path.join(projectDir, ".pi"), { recursive: true });
+
+    const fakePi = path.join(binDir, "pi");
+    fs.writeFileSync(fakePi, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PI_FAKE_LOG"\nexit 0\n`);
+    fs.chmodSync(fakePi, 0o755);
+
+    // Kit already registered so the `--settings-only` run does not rely on the fake pi.
+    fs.writeFileSync(
+      path.join(projectDir, ".pi", "settings.json"),
+      JSON.stringify({ packages: [ROOT] }, null, 2),
+    );
+
+    run(
+      process.execPath,
+      [INSTALL, "--all", "--no-externals", "--settings-only", "--mode", "local", "--scope", "project"],
+      baseEnv(agentDir, binDir, logPath),
+      projectDir,
+    );
+    assert.equal(
+      typeof JSON.parse(fs.readFileSync(path.join(projectDir, ".pi", "settings.json"), "utf8")).packages[0],
+      "string",
+      "an --all install must leave the kit entry as a bare string",
+    );
+
+    const capture = run(
+      process.execPath,
+      [INSTALL, "--capture-overrides", "--scope", "project"],
+      baseEnv(agentDir, binDir, logPath),
+      projectDir,
+    );
+
+    const output = `${capture.stdout}\n${capture.stderr}`;
+    assert.match(output, /\[install\] capture-overrides:/, `capture path must have run (got: ${output})`);
+    const overridesFile = path.join(agentDir, "pi-kit", "overrides.json");
+    assert.equal(fs.existsSync(overridesFile), false, "capture must not create overrides.json for an incomparable entry");
+
+    console.log("  OK: --capture-overrides on an --all (string entry) writes no remove-all");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Regression: an object entry without an `extensions` array (e.g. a hand-written
+// `{ source }` registration, or a legacy entry) is just as incomparable as a bare
+// string. captureDrift would read zero actual extensions and write a remove-all.
+function testCaptureOverridesObjectWithoutExtensions() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-marker-capture-noext-"));
+  const agentDir = path.join(dir, "agent");
+  const binDir = path.join(dir, "bin");
+  const projectDir = path.join(dir, "project");
+  const logPath = path.join(dir, "pi-calls.log");
+  const settingsPath = path.join(projectDir, ".pi", "settings.json");
+  try {
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(path.join(projectDir, ".pi"), { recursive: true });
+
+    const fakePi = path.join(binDir, "pi");
+    fs.writeFileSync(fakePi, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PI_FAKE_LOG"\nexit 0\n`);
+    fs.chmodSync(fakePi, 0o755);
+
+    fs.writeFileSync(settingsPath, JSON.stringify({ packages: [ROOT] }, null, 2));
+    run(
+      process.execPath,
+      [INSTALL, "--only", "context-sieve", "--settings-only", "--mode", "local", "--scope", "project"],
+      baseEnv(agentDir, binDir, logPath),
+      projectDir,
+    );
+
+    // Drop the extension list from the (object) entry while keeping it registered.
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    settings.packages[0] = { source: ROOT };
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+
+    const capture = run(
+      process.execPath,
+      [INSTALL, "--capture-overrides", "--scope", "project"],
+      baseEnv(agentDir, binDir, logPath),
+      projectDir,
+    );
+
+    const output = `${capture.stdout}\n${capture.stderr}`;
+    assert.match(output, /\[install\] capture-overrides:/, `capture path must have run (got: ${output})`);
+    const overridesFile = path.join(agentDir, "pi-kit", "overrides.json");
+    assert.equal(fs.existsSync(overridesFile), false, "capture must not create overrides.json for an incomparable entry");
+
+    console.log("  OK: --capture-overrides on an object entry without extensions writes no remove-all");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// I1: an operator-owned but corrupt overrides.json must never be silently clobbered.
+// --capture-overrides refuses (exit 1) before writing; a normal install warns and ignores it.
+// Both the unparseable-JSON and the valid-JSON-but-not-an-object cases are covered.
+function testCaptureOverridesRefusesInvalidOverrides() {
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "pi-kit-marker-corrupt-overrides-"),
+  );
+  const agentDir = path.join(dir, "agent");
+  const binDir = path.join(dir, "bin");
+  const projectDir = path.join(dir, "project");
+  const logPath = path.join(dir, "pi-calls.log");
+  try {
+    fs.mkdirSync(path.join(agentDir, "pi-kit"), { recursive: true });
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(path.join(projectDir, ".pi"), { recursive: true });
+
+    const fakePi = path.join(binDir, "pi");
+    fs.writeFileSync(
+      fakePi,
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PI_FAKE_LOG"\nexit 0\n`,
+    );
+    fs.chmodSync(fakePi, 0o755);
+
+    // Kit already registered, so a marker/entry exists for capture-overrides to compare against.
+    fs.writeFileSync(
+      path.join(projectDir, ".pi", "settings.json"),
+      JSON.stringify({ packages: [ROOT] }, null, 2),
+    );
+
+    const overridesFile = path.join(agentDir, "pi-kit", "overrides.json");
+
+    // First: unparseable JSON. Second: valid JSON but not an object.
+    for (const corrupt of [
+      `{ "extensions": { "add": ["task-graph",] } }`,
+      "[1,2,3]",
+    ]) {
+      fs.writeFileSync(overridesFile, corrupt);
+      const before = fs.readFileSync(overridesFile);
+
+      // Must refuse before the marker/entry checks, so the file can never be overwritten.
+      const capture = spawnSync(
+        process.execPath,
+        [INSTALL, "--capture-overrides", "--scope", "project"],
+        {
+          cwd: projectDir,
+          env: baseEnv(agentDir, binDir, logPath),
+          encoding: "utf8",
+        },
+      );
+      assert.equal(
+        capture.status,
+        1,
+        `capture-overrides on an invalid overrides.json must exit 1 (stderr: ${capture.stderr})`,
+      );
+      assert.match(
+        capture.stderr,
+        /refusing to overwrite/,
+        "capture-overrides must say it is refusing to overwrite",
+      );
+      assert.deepEqual(
+        fs.readFileSync(overridesFile),
+        before,
+        "capture-overrides must not touch an invalid overrides.json",
+      );
+
+      // A normal install warns and continues with the empty fallback, file bytes intact.
+      const install = spawnSync(
+        process.execPath,
+        [INSTALL, "--settings-only", "--mode", "local", "--scope", "project"],
+        {
+          cwd: projectDir,
+          env: baseEnv(agentDir, binDir, logPath),
+          encoding: "utf8",
+        },
+      );
+      assert.equal(
+        install.status,
+        1,
+        `a normal profile install must fail closed on unreadable overrides (stderr: ${install.stderr})`,
+      );
+      assert.match(
+        install.stderr + install.stdout,
+        /invalid overrides|not valid JSON|must contain a JSON object/,
+        "a normal install must explain the invalid overrides refusal",
+      );
+      assert.deepEqual(
+        fs.readFileSync(overridesFile),
+        before,
+        "a normal install must not touch an invalid overrides.json",
+      );
+    }
+
+    console.log(
+      "  OK: an invalid overrides.json is refused by capture and normal profile installs without clobbering it",
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-marker-"));
 const agentDir = path.join(dir, "agent");
 const binDir = path.join(dir, "bin");
@@ -342,6 +718,13 @@ try {
   testGlobalScopeAutoDetect();
   testPreviousCompanionsRetained();
   testNullSettingsFile();
+  testCaptureOverridesCustomProfile();
+  testDryRunSkipsVerifyGate();
+  testDryRunWithoutRequiredTools();
+  testInvalidScopeRejected();
+  testCaptureOverridesAllStringEntryDoesNotRemoveAll();
+  testCaptureOverridesObjectWithoutExtensions();
+  testCaptureOverridesRefusesInvalidOverrides();
 
   console.log("\n[install-marker-smoke] all checks passed");
 } finally {

@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/SATUNIX/pi-system/actions/workflows/ci.yml"><img src="https://github.com/SATUNIX/pi-system/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.4--beta.0-blue" alt="version 0.2.4-beta.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.4--beta.1-blue" alt="version 0.2.4-beta.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="licence MIT"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/pi-%E2%89%A50.85.1-8A2BE2" alt="pi 0.85.1 or newer"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/node-%E2%89%A522.19-339933?logo=nodedotjs&logoColor=white" alt="Node.js 22.19 or newer"></a>
@@ -102,3 +102,6 @@ see [`CONTRIBUTING.md`](CONTRIBUTING.md) to add an extension. Security reports: 
 
 Licence: MIT, © SATUNIX. Vendored third-party code is credited in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+Development is canonical in private GitLab; GitHub distributes reviewed public releases.
+See [repository topology](docs/repository-topology.md) for the release and contribution flow.

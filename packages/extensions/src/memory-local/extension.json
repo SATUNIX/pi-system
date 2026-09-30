@@ -12,7 +12,7 @@
   "enabledByDefault": false,
   "platforms": ["windows", "linux", "darwin"],
   "runtime": {
-    "nodeBuiltins": ["node:fs", "node:path", "node:os", "node:https", "node:http", "node:url"],
+    "nodeBuiltins": ["node:fs", "node:http", "node:https", "node:os", "node:path", "node:url"],
     "npm": [],
     "piPeers": ["typebox"],
     "services": [],

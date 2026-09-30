@@ -9,10 +9,9 @@ function handoffFilePath(cwd: string): string {
 function appendHandoff(filePath: string, note: string): void {
   const timestamp = new Date().toISOString();
   const entry = `\n## ${timestamp}\n\n${note.trim()}\n`;
-  try {
-    fs.writeFileSync(filePath, `# Handoff Notes\n${entry}`, { flag: "wx" }); // created only if absent, in one step
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, `# Handoff Notes\n${entry}`);
+  } else {
     fs.appendFileSync(filePath, entry);
   }
 }
@@ -23,7 +22,7 @@ export default function (pi: ExtensionAPI) {
   // in. It is now opt-in (PI_KIT_HANDOFF_AUTO=1); /handoff <note> is the deliberate path, and
   // the memory vault's per-turn recaps cover automatic continuity.
   pi.on("session_shutdown", async (_event, ctx) => {
-    if (process.env.PI_KIT_INTERNAL_CHILD === "1") return;
+    if (process.env.PI_KIT_INTERNAL_CHILD === "1" || process.env.PI_SUBAGENT_CHILD === "1") return;
     if (process.env.PI_KIT_HANDOFF_AUTO !== "1") return;
     const entries = ctx.sessionManager.getEntries();
     // Collect last few tool results as a brief summary
@@ -50,12 +49,12 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const note = args.trim();
       if (!note) {
-        ctx.ui.notify("Usage: /handoff <note>", "warning");
+        if (ctx.hasUI) ctx.ui.notify("Usage: /handoff <note>", "warning");
         return;
       }
       const filePath = handoffFilePath(ctx.cwd);
       appendHandoff(filePath, note);
-      ctx.ui.notify(`Handoff note written to ${path.basename(filePath)}`, "info");
+      if (ctx.hasUI) ctx.ui.notify(`Handoff note written to ${path.basename(filePath)}`, "info");
     },
   });
 }

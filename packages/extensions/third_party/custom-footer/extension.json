@@ -42,11 +42,7 @@
     "darwin"
   ],
   "runtime": {
-    "nodeBuiltins": [
-      "fs",
-      "os",
-      "path"
-    ],
+    "nodeBuiltins": ["child_process", "fs", "os", "path"],
     "npm": [],
     "piPeers": [],
     "services": [],

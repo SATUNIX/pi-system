@@ -141,6 +141,50 @@ async function testProducerFirstSessionStart() {
   }
 }
 
+// 2c. B-019: a pasted multi-line goal must survive the /goal -> GOAL.yaml -> session_start
+// -> contribution round trip. Previously the second line was silently truncated because the
+// scalar was written verbatim and read back with a single-line regex.
+async function testGoalMultilineRoundTrip() {
+  const ws = tmpWorkspace("pi-kit-goal-multiline-");
+  try {
+    const ctx = { cwd: ws, sessionManager: { getSessionId: () => "goal-ml" }, ui: { notify() {} } };
+    const producer = await loadProducer("extensions/goal-core/index.ts", ws, "goal-ml");
+    await producer.commands.get("goal").handler("Ship v2\nsecond line", ctx);
+
+    // `goal:` must keep the first line verbatim so the naive single-line readers in
+    // verify-gate/verifier-board stay correct; `goal_full:` must carry the whole goal.
+    const yaml = fs.readFileSync(path.join(ws, ".pi", "GOAL.yaml"), "utf8");
+    const line = yaml.match(/^goal:\s*(.*)$/m)?.[1];
+    assert.equal(line, "Ship v2", "the goal: scalar must keep the first line for naive readers");
+    const fullLine = yaml.match(/^goal_full:\s*(.*)$/m)?.[1];
+    assert.equal(typeof fullLine === "string" ? JSON.parse(fullLine) : undefined, "Ship v2\nsecond line",
+      "goal_full: must persist the full multi-line goal as a JSON scalar");
+
+    // A fresh instance must re-materialize the complete goal at session_start.
+    await loadProducer("extensions/goal-core/index.ts", ws, "goal-ml");
+    const contrib = JSON.parse(fs.readFileSync(path.join(contribDir(ws), "sessions", "goal-ml", "goal-core.json"), "utf8"));
+    assert.ok(contrib.content.includes("Ship v2"), "the contribution must include the first line");
+    assert.ok(contrib.content.includes("second line"), "the contribution must include the second line");
+  } finally {
+    rmWorkspace(ws);
+  }
+}
+
+// 2d. B-019 legacy compatibility: a file written by the old code (`goal: Ship it`, unquoted)
+// must still read back and materialize unchanged.
+async function testGoalLegacyUnquotedRead() {
+  const ws = tmpWorkspace("pi-kit-goal-legacy-");
+  try {
+    fs.mkdirSync(path.join(ws, ".pi"), { recursive: true });
+    fs.writeFileSync(path.join(ws, ".pi", "GOAL.yaml"), `goal: Ship it\ncreated: ${new Date().toISOString()}\n`);
+    await loadProducer("extensions/goal-core/index.ts", ws, "goal-legacy");
+    const contrib = JSON.parse(fs.readFileSync(path.join(contribDir(ws), "sessions", "goal-legacy", "goal-core.json"), "utf8"));
+    assert.ok(contrib.content.includes("Ship it"), "a legacy unquoted goal must still be materialized");
+  } finally {
+    rmWorkspace(ws);
+  }
+}
+
 // 3. Legacy fallback: with no session id, producers and the reader keep using the flat
 // directory (mirrors the existing context-budget harness style).
 async function testLegacyFallback() {
@@ -331,6 +375,8 @@ const tests = [
   ["reader isolation: concurrent sessions do not see each other's contributions", testReaderIsolation],
   ["producer/reader agreement: goal-core writes sessions/<id>/ and context-sieve reads it", testProducerReaderAgreement],
   ["load-order independence: a producer writing before context-sieve is still included", testProducerFirstSessionStart],
+  ["multi-line goal survives /goal -> GOAL.yaml -> session_start -> contribution", testGoalMultilineRoundTrip],
+  ["legacy unquoted goal still reads back after the JSON-scalar change", testGoalLegacyUnquotedRead],
   ["legacy fallback: no session id keeps the flat directory", testLegacyFallback],
   ["traversal safety: a malicious session id falls back flat and never escapes", testTraversalSafety],
   ["session-scoped guidelines producer writes sessions/<id>/guidelines.json, not flat", testGuidelinesProducer],

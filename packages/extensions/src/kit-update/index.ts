@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ExecResult, ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
@@ -93,7 +94,7 @@ export function compareVersions(a: string, b: string): number {
 export const PUBLIC_KIT_SOURCE = "git:github.com/SATUNIX/pi-system";
 
 /** Retired private sources (host/path keys). distribution.json may list more; these are always treated as retired. */
-const BUILTIN_LEGACY_SOURCES = ["gitlab.home.internal/lab/pi-system", "gitlab.home.internal/root/pi-system"];
+const BUILTIN_LEGACY_SOURCES = ["sha256:1bbc2f0c5eb44c5382561c9a9d60d688210cd833bb6f3e996010062adb26661e", "sha256:030059d98cf655b13e2e1e0e9c8cbf9f399b37295682f59f65a95b8f5f5e05a9", "sha256:435873f62f8eae368718d4365b76952caaa67ff4136de5301f6b92a653ed638a", "sha256:89ee5220340d2687c6a3bcebb6dcb08a2209218833807a4aa1589897f82cc140"];
 
 export interface Distribution {
   /** null when the kit ships no distribution.json and PI_KIT_DELIVERY is unset. */
@@ -179,7 +180,7 @@ export function gitSourceWithRef(source: string, ref: string | null): string {
 /** True when `source` names one of the retired private sources (any ref or URL form). */
 export function isLegacyGitSource(source: string | null | undefined, legacySources: string[] = BUILTIN_LEGACY_SOURCES): boolean {
   const git = parseGitSource(source);
-  return Boolean(git && legacySources.includes(`${git.host}/${git.path}`.toLowerCase()));
+  return Boolean(git && legacySources.some((legacy) => { const key = `${git.host}/${git.path}`.toLowerCase(); return legacy === key || legacy === `sha256:${createHash("sha256").update(key).digest("hex")}`; }));
 }
 
 function isKitGitSource(source: string): boolean {
@@ -315,6 +316,65 @@ export function ownKitRoot(): string | null {
   }
 }
 
+/** A user agent-dir role copy that shadows a shipped kit role with different content. */
+export interface StaleRoleCopy {
+  name: string;
+  path: string;
+}
+
+/** Shipped kit roles: `<kitRoot>/packages/kit/agents/*.md`, filename stem -> file content. Empty when there is no readable kit root. */
+export function shippedRoles(kitRoot: string | null): Map<string, string> {
+  const roles = new Map<string, string>();
+  if (!kitRoot) return roles;
+  let files: string[];
+  try {
+    files = fs.readdirSync(path.join(kitRoot, "packages", "kit", "agents"));
+  } catch {
+    return roles;
+  }
+  for (const file of files) {
+    if (!file.endsWith(".md")) continue;
+    try {
+      roles.set(file.slice(0, -3), fs.readFileSync(path.join(kitRoot, "packages", "kit", "agents", file), "utf8"));
+    } catch {
+      /* an unreadable role is simply not shipped */
+    }
+  }
+  return roles;
+}
+
+/**
+ * User agent-dir role copies (`<agentDir>/agents/*.md`) whose name is a shipped kit role but whose
+ * content differs. Byte-equal copies are harmless and non-kit roles are ignored. Report-only: nothing
+ * is deleted.
+ */
+export function detectStaleRoleCopies(agentDir: string, kitRoot: string | null): StaleRoleCopy[] {
+  const shipped = shippedRoles(kitRoot);
+  const dir = path.join(agentDir, "agents");
+  let files: string[];
+  try {
+    files = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const stale: StaleRoleCopy[] = [];
+  for (const file of files) {
+    if (!file.endsWith(".md")) continue;
+    const name = file.slice(0, -3);
+    const shippedContent = shipped.get(name);
+    if (shippedContent === undefined) continue;
+    const filePath = path.join(dir, file);
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, "utf8");
+    } catch {
+      continue;
+    }
+    if (content !== shippedContent) stale.push({ name, path: filePath });
+  }
+  return stale.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function sameDir(a: string, b: string): boolean {
   try {
     return fs.realpathSync(a) === fs.realpathSync(b);
@@ -409,6 +469,7 @@ export interface UpdateReport {
     legacyOrigin?: boolean;
   };
   packages: PackageStatus[];
+  staleRoles: StaleRoleCopy[];
   /** True when at least one registry or git lookup failed (results may be incomplete). */
   offline: boolean;
 }
@@ -538,7 +599,7 @@ export async function checkForUpdates(cwd: string, fetchImpl: FetchLike, piVersi
     return { source: e.source, name: npm.name, scope: e.scope, installed, kitPin, latest, action };
   });
 
-  return { cwd, checkedAt: new Date().toISOString(), pi, kit: { ...kit, commit, target, available, note, tags, migrateTo, ...(legacyOrigin ? { legacyOrigin } : {}) }, packages, offline };
+  return { cwd, checkedAt: new Date().toISOString(), pi, kit: { ...kit, commit, target, available, note, tags, migrateTo, ...(legacyOrigin ? { legacyOrigin } : {}) }, packages, staleRoles: detectStaleRoleCopies(agentDir(), kit.root), offline };
 }
 
 /** Anything the user can act on (pinned-only notices do not count). */
@@ -586,6 +647,11 @@ export function formatReport(report: UpdateReport): string {
     }
   }
   if (report.offline) lines.push("", "  Some registry or git lookups failed (offline?); results may be incomplete.");
+  const staleRoles = report.staleRoles ?? [];
+  if (staleRoles.length) {
+    lines.push("", `  Stale role copies in ${agentDir()}/agents (shadow the shipped kit roles; delete or update them):`);
+    for (const role of staleRoles) lines.push(`    ${role.name}  ${role.path}`);
+  }
   lines.push("", "  /update            pick what to update", "  /update all        update everything, re-apply the profile, reload", "  /update channel <latest|next|X.Y.Z>   switch the kit's release channel");
   return lines.join("\n");
 }
@@ -967,6 +1033,7 @@ export default function (pi: ExtensionAPI) {
     // Never block or break session start: the check runs in the background.
     void check(cwd)
       .then((report) => {
+        if (report.staleRoles?.length) ctx.ui.notify(`pi-system: ${report.staleRoles.length} stale role copies shadow shipped roles (see /update status).`, "warning");
         if (!hasUpdates(report)) return;
         ctx.ui.setStatus("kit-update", "updates: /update");
         ctx.ui.notify(summaryLine(report), "info");
