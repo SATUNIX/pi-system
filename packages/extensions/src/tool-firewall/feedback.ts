@@ -103,6 +103,14 @@ export function appendFeedback(rec: Omit<FeedbackRecord, "ts"> & { ts?: string }
   fs.appendFileSync(file, `${JSON.stringify(full)}\n`);
 }
 
+// Learning is scoped. An approval given in one workspace says nothing about another, and a
+// revocation floor (approvals.ts `floorFor`) cuts off every decision made before it. Callers pass
+// the scoped records to exactStatus / statusFor / operatorApproved / listLearned. A record with no
+// (or a malformed) project or timestamp never counts: fail closed.
+export function scopeRecords(records: FeedbackRecord[], scope: { workspace?: string; since?: number }): FeedbackRecord[] {
+  return records.filter((r) => (scope.workspace === undefined || r.project === scope.workspace) && (!scope.since || Date.parse(r.ts) > scope.since));
+}
+
 export type LearnedStatus = { sig: string; approvals: number; sessions: number; denials: number; last: string; status: "learned" | "learning" | "suspended" | "expired" };
 
 const familiesIn = (sig: string): string[] => {
@@ -157,8 +165,7 @@ export function operatorApproved(sig: string, now = Date.now(), records = readFe
   return fams.length > 0 && fams.every((f) => familyStatus(toolOf(sig), f, now, records).approvals > 0);
 }
 
-export function listLearned(now = Date.now()): LearnedStatus[] {
-  const records = readFeedback();
+export function listLearned(now = Date.now(), records = readFeedback()): LearnedStatus[] {
   const pairs = new Map<string, [string, string]>();
   for (const r of records) for (const f of familiesIn(r.sig)) pairs.set(`${r.tool}|${f}`, [r.tool, f]);
   return [...pairs.values()].map(([t, f]) => familyStatus(t, f, now, records)).sort((a, b) => (a.last < b.last ? 1 : -1));

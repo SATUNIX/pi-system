@@ -4,6 +4,11 @@
 // pane and the human console without scrolling: the tier and summary, the command, the reasons
 // that raised the tier (highest first), then the session history, judge note (why it differs
 // from what the operator allowed), past decisions and what "allow for this session" does. The full analysis is in `/auto explain`.
+//
+// A card only ever shows an action that no rule has settled: a HARD DENY (policy says never) is
+// never put to the operator. A card the automatic layers could not settle (the judge unsure,
+// unavailable or timed out) is tagged UNCERTAIN; what the operator answers is an OPERATOR DECISION,
+// remembered only within the scope the card names.
 import type { Assessment, Finding, Tier } from "./classify.ts";
 import type { LearnedStatus } from "./feedback.ts";
 
@@ -43,12 +48,14 @@ export type CardExtras = {
   mode: string;
   policy: string;
   covers?: string; // what a session allow does (omitted when it is not offered)
+  scope?: string; // how far a session allow reaches, e.g. "this session + workspace, 24h" (with `covers`)
+  uncertain?: boolean; // the judge or classifier could not settle it: an operator escalation
   maxLines?: number;
 };
 
 export function buildCard(a: Assessment, x: CardExtras): string {
   const max = Math.max(4, x.maxLines ?? CARD_MAX_LINES);
-  const head = [clip(`${TIER_LABEL[x.tier]} · ${a.tool} · ${flat(a.summary)}`)];
+  const head = [clip(`${x.uncertain ? "UNCERTAIN · " : ""}${TIER_LABEL[x.tier]} · ${a.tool} · ${flat(a.summary)}`)];
   if (a.command !== undefined) {
     const cmd = `$ ${flat(a.command)}`;
     head.push(clip(cmd));
@@ -60,7 +67,7 @@ export function buildCard(a: Assessment, x: CardExtras): string {
   if (x.judgeNote) tail.push(clip(`Judge: ${x.judgeNote}`));
   if (x.precedent && (x.precedent.approvals || x.precedent.denials)) tail.push(clip(`Your past decisions on this kind: ${x.precedent.approvals} approval(s) in ${x.precedent.sessions} session(s), ${x.precedent.denials} denial(s) (${x.precedent.status})`));
   if (x.covers) tail.push(clip(`Session allow: ${x.covers}`));
-  tail.push(`mode=${x.mode} policy=${x.policy} · action ${x.hash.slice(0, 12)} · /auto explain for details`);
+  tail.push(clip(`mode=${x.mode} policy=${x.policy}${x.covers && x.scope ? ` · session allow: ${x.scope}` : ""} · action ${x.hash.slice(0, 12)} · /auto explain`));
 
   const inHistory = new Set(history);
   const reasons = [...new Set(a.findings.filter((f) => f.tier !== "low" && !inHistory.has(f.detail)).sort((p, q) => rank(q.tier) - rank(p.tier)).map((f) => `• [${f.tier}] ${flat(f.detail)}`))];
@@ -85,7 +92,8 @@ export function buildDetail(a: Assessment, x: CardExtras): string {
   const why = [...new Set(a.findings.filter((f) => f.tier !== "low").map((f) => `  • [${f.tier}] ${f.detail}`))];
   if (why.length) lines.push("Why:", ...why);
   if (x.trajectory.length) lines.push("Session history:", ...x.trajectory.map((f) => `  • ${f.detail}`));
-  if (x.covers) lines.push(`Session allow: ${x.covers}`);
+  if (x.covers) lines.push(`Session allow: ${x.covers}${x.scope ? ` (${x.scope})` : ""}`);
+  if (x.uncertain) lines.push("Outcome: UNCERTAIN: the automatic layers could not settle this; your answer is an OPERATOR DECISION.");
   lines.push(`signature: ${x.signature}`, `mode=${x.mode} policy=${x.policy} · action ${x.hash.slice(0, 12)}`);
   return lines.join("\n");
 }

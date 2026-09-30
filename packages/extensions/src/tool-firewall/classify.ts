@@ -41,6 +41,11 @@ export type Finding = {
 
 export type SegmentView = { text: string; where: string; tier: Tier; effects: Effect[] };
 
+// A host this command contacts from here (loopback excluded), and how; and a git remote it pushes to or
+// fetches from. Unattended mode checks them against the run contract.
+export type HostRef = { host: string; how: "read" | "send" | "connect"; via: string };
+export type RemoteRef = { name: string; op: "push" | "fetch" };
+
 export type Assessment = {
   tool: string;
   tier: Tier;
@@ -55,6 +60,9 @@ export type Assessment = {
   executes: string[];
   chmodExec: string[];
   sends: { dest: string; local: boolean }[];
+  hosts: HostRef[];
+  remotes: RemoteRef[];
+  remoteChanges: number; // git remote / url config changes in the same command
   deletes: number;
   untrusted: boolean;
 };
@@ -66,6 +74,8 @@ export type ClassifyEnv = {
   tmpRoots: string[];
   knownHosts: Set<string>;
   policy: "coding" | "pentest";
+  // Files that are the boundary of an unattended run (the contract): a control surface like the kit's own state.
+  boundaryPaths?: string[];
 };
 
 export const TIER_RANK: Record<Tier, number> = { low: 0, medium: 1, high: 2, critical: 3 };
@@ -154,14 +164,22 @@ export function classifyPath(abs: string | null, env: ClassifyEnv, remote?: stri
 
   // The tool I/O capture log stores tool output byte-exact, secrets included: reading it is a
   // credential read (so it feeds secret → egress), writing or deleting it is high.
-  const agentDir = remote ? null : `${env.home}/.pi/agent`;
-  const captureDir = remote ? null : (process.env.PI_KIT_CAPTURE_DIR?.trim() || `${agentDir}/pi-kit/capture`).replace(/\/+$/, "");
+  // The agent directory honours PI_CODING_AGENT_DIR, like the rest of the kit's state (config.ts); the
+  // default ~/.pi/agent stays protected as well.
+  const agentDirEnv = process.env.PI_CODING_AGENT_DIR?.trim();
+  const agentDirs = remote ? [] : [...new Set([...(agentDirEnv ? [normalize(agentDirEnv)] : []), `${env.home}/.pi/agent`])];
+  const captureDir = remote ? null : (process.env.PI_KIT_CAPTURE_DIR?.trim() || `${agentDirs[0]}/pi-kit/capture`).replace(/\/+$/, "");
   if (captureDir && within(trimmed, captureDir)) return "credential";
 
   // Security controls for this kit.
-  if (agentDir && (trimmed === `${agentDir}/settings.json` || within(trimmed, `${agentDir}/pi-kit`))) return "security_control";
+  if (agentDirs.some((d) => trimmed === `${d}/settings.json` || within(trimmed, `${d}/pi-kit`))) return "security_control";
+  // The remembered-approvals file wherever PI_KIT_FIREWALL_APPROVALS puts it: planting an entry would let an action run unasked.
+  const approvalsFile = remote ? "" : process.env.PI_KIT_FIREWALL_APPROVALS?.trim();
+  if (approvalsFile && (trimmed === normalize(approvalsFile) || trimmed.startsWith(`${normalize(approvalsFile)}.`))) return "security_control";
   if (/\/\.pi\/(?:auto-mode\.json|tool-firewall-audit\.jsonl|firewall(?:\/|$)|human-console(?:\/|$)|verdicts\.json|trace\.jsonl)/.test(trimmed)) return "security_control";
   if (/(?:^|\/)tool-firewall\/default-policy\.json$|(?:^|\/)packages\/core\/policies\//.test(trimmed)) return "security_control";
+
+  if (!remote && env.boundaryPaths?.some((b) => trimmed === b || within(trimmed, b))) return "security_control";
 
   // Credentials.
   const homeRel = trimmed.startsWith(`${home}/`) ? trimmed.slice(home.length + 1) : null;
@@ -253,6 +271,7 @@ function writePath(c: Ctx, p: string, how: string): void {
   if (tcp) {
     const local = LOCALHOST_RE.test(tcp[2]);
     c.a.sends.push({ dest: tcp[2], local });
+    noteHost(c, tcp[2], "send");
     add(c, local ? "low" : "medium", "network_send", "dev_tcp", `opens a ${tcp[1]} socket to ${tcp[2]}:${tcp[3]}`, `/dev/${tcp[1]} ${tcp[2]}`);
     return;
   }
@@ -375,6 +394,16 @@ function looksLikePath(a: string): boolean {
 
 const LOCALHOST_RE = /^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[?::1\]?|[\w.-]+\.localhost|host\.docker\.internal)$/i;
 
+// Loopback stays inside the zone; everything else is recorded for the unattended egress check. Hosts
+// reached FROM a remote machine (inside `ssh host '…'`) are not contacted from here and are not recorded.
+const LOOPBACK_RE = /^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|::1|[\w.-]+\.localhost)$/i;
+function noteHost(c: Ctx, host: string | null | undefined, how: HostRef["how"]): void {
+  if (c.seg.remote) return;
+  const h = (host ?? "?").toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (LOOPBACK_RE.test(h)) return;
+  c.a.hosts.push({ host: h || "?", how, via: c.exe });
+}
+
 function urlHost(u: string): string | null {
   const m = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[^@/]*@)?(\[[^\]]+\]|[^:/?#\s]+)/i.exec(u);
   return m ? m[1].toLowerCase() : null;
@@ -425,6 +454,8 @@ function nonFlagArgs(argv: string[], from: number): string[] {
   return argv.slice(from).filter((a) => !a.startsWith("-"));
 }
 
+const UNSEEN_TARGET_WRITERS = new Set(["touch", "mkdir", "cp", "mv", "tee", "chmod", "chown", "chgrp", "truncate", "ln", "install"]);
+
 function classifySegment(c: Ctx): void {
   const { seg, exe } = c;
   const argv = seg.argv;
@@ -441,11 +472,14 @@ function classifySegment(c: Ctx): void {
     return;
   }
   if (seg.evalOf) add(c, "medium", "opaque", "eval_dynamic", "eval of runtime-built text", "eval");
+  // xargs/parallel append the paths that arrive on stdin, which cannot be seen: a writer fed that way can
+  // reach any path (rm has its own handling of piped-in paths).
+  if (seg.unknownArgs && UNSEEN_TARGET_WRITERS.has(exe)) add(c, "medium", "write_outside", "unresolved_write_args", `${exe} writes to paths supplied on stdin (xargs/parallel), which cannot be checked`, `${exe} stdin-paths`);
 
   // Environment tampering with this kit's safety controls.
   for (const as of seg.assigns) {
     const name = as.split("=")[0];
-    if (/^PI_KIT_(?:FIREWALL|AUTO_MODE|PROTECTED|WRITE_ALLOWLIST|INTERNAL_CHILD|HUMAN_CONSOLE|CAPTURE)/.test(name)) add(c, "high", "security_control", "safety_env_override", `overrides a safety setting via ${name}`, `env ${name}`);
+    if (/^PI_KIT_(?:FIREWALL|AUTO_MODE|PROTECTED|WRITE_ALLOWLIST|INTERNAL_CHILD|HUMAN_CONSOLE|CAPTURE|UNATTENDED)/.test(name)) add(c, "high", "security_control", "safety_env_override", `overrides a safety setting via ${name}`, `env ${name}`);
     if (/^(?:LD_PRELOAD|LD_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH)$/.test(name)) add(c, "high", "obfuscated_exec", "library_injection", `injects a shared library via ${name}`, `env ${name}`);
   }
 
@@ -537,6 +571,13 @@ function devTool(c: Ctx): void {
   // Writes into the output flags of common formatters/builders are workspace writes; nothing to add.
 }
 
+// What a nested classification (inline code that runs a shell command) contacted counts for the outer command too.
+function mergeInner(c: Ctx, inner: Assessment): void {
+  c.a.hosts.push(...inner.hosts);
+  c.a.remotes.push(...inner.remotes);
+  c.a.remoteChanges += inner.remoteChanges;
+}
+
 function stdinExec(c: Ctx): void {
   const { seg, exe } = c;
   // Walk back through the pipeline for the producer.
@@ -555,6 +596,7 @@ function stdinExec(c: Ctx): void {
     const script = p.argv.slice(1).filter((a) => !/^-[neE]+$/.test(a)).join(" ");
     const inner = classifyShellText(script, c.env, seg.cwd, seg.remote);
     for (const f of inner.findings) c.findings.push(f);
+    mergeInner(c, inner.a);
     return add(c, "low", "code_exec", "stdin_exec", `${exe} runs echoed commands`);
   }
   add(c, "medium", "code_exec", "stdin_exec", `${exe} executes its piped input`, `pipe|${exe}`);
@@ -585,6 +627,7 @@ function inlineCode(c: Ctx, code: string): void {
   for (const m of code.matchAll(/(?:os\.system|os\.popen|execSync|exec|spawnSync|shell_exec|system|subprocess\.(?:run|call|check_call|check_output|Popen))\s*\(\s*(['"`])([^'"`]+)\1/g)) {
     const inner = classifyShellText(m[2], c.env, c.seg.cwd, c.seg.remote);
     for (const f of inner.findings) c.findings.push(f);
+    mergeInner(c, inner.a);
     flagged = true;
   }
   for (const m of code.matchAll(/subprocess\.(?:run|call|check_call|check_output|Popen)\s*\(\s*\[([^\]]+)\]/g)) {
@@ -592,6 +635,7 @@ function inlineCode(c: Ctx, code: string): void {
     if (parts.length) {
       const inner = classifyShellText(parts.map((p) => (/[\s'"]/.test(p) ? `'${p.replace(/'/g, "")}'` : p)).join(" "), c.env, c.seg.cwd, c.seg.remote);
       for (const f of inner.findings) c.findings.push(f);
+      mergeInner(c, inner.a);
       flagged = true;
     }
   }
@@ -602,9 +646,11 @@ function inlineCode(c: Ctx, code: string): void {
   if (/requests\.(?:post|put|patch|delete)|urlopen\([^)]*data=|http\.client|method\s*:\s*['"](?:POST|PUT|PATCH|DELETE)|axios\.(?:post|put|patch|delete)|\.(?:post|put)\s*\(\s*['"`]https?:|socket\.connect|net\.connect|net\.createConnection|dgram|smtplib|ftplib|paramiko|XMLHttpRequest/.test(code)) {
     const dest = urls[0] ? urlHost(urls[0]) ?? "?" : "?";
     c.a.sends.push({ dest, local });
+    for (const u of urls.length ? urls : ["?"]) noteHost(c, urls.length ? urlHost(u) : "?", "send");
     add(c, local ? "low" : "medium", "network_send", "inline_network_send", `${exe} sends data over the network${dest !== "?" ? ` to ${dest}` : ""}`, `${exe} send ${dest}`);
   } else if (/requests\.get|urlopen|fetch\s*\(|axios\.get|https?\.get|urllib/.test(code)) {
     c.a.untrusted = true;
+    for (const u of urls.length ? urls : ["?"]) noteHost(c, urls.length ? urlHost(u) : "?", "read");
     add(c, "low", "network_read", "inline_network_read", `${exe} fetches from the network`);
   }
   // Writes and secret files named in the code.
@@ -700,7 +746,8 @@ function chmod(c: Ctx): void {
     if (exec) c.a.chmodExec.push(r.shown);
     if (r.cls === "root_critical" || r.cls === "device") { add(c, "critical", "destructive_system", "critical_chmod", `changes permissions on ${r.shown}${recursive ? " recursively" : ""}`, `chmod ${r.key}`); continue; }
     if (setuid) { add(c, "high", "privilege", "setuid", `sets setuid/setgid on ${r.shown}`, `chmod +s ${r.key}`); continue; }
-    if (["system", "security_control", "credential", "persistence"].includes(r.cls)) { add(c, "high", "write_outside", "sensitive_chmod", `changes permissions on ${r.shown}`, `chmod ${r.key}`); continue; }
+    if (r.cls === "security_control") { add(c, "high", "security_control", "security_control_chmod", `changes permissions on a safety-control file: ${r.shown}`, `chmod ${r.key}`); continue; }
+    if (["system", "credential", "persistence"].includes(r.cls)) { add(c, "high", "write_outside", "sensitive_chmod", `changes permissions on ${r.shown}`, `chmod ${r.key}`); continue; }
     if (worldWritable) { add(c, r.cls.startsWith("workspace") || r.cls === "temp" ? "medium" : "high", "write_outside", "world_writable", `makes ${r.shown} world-writable`, `chmod o+w ${r.key}`); continue; }
     if (r.cls === "home" || r.cls === "other" || r.cls === "unknown") { add(c, "medium", "write_outside", "outside_chmod", `changes permissions outside the workspace: ${r.shown}`, `chmod ${r.key}`); continue; }
     add(c, "low", "workspace_write", "chmod", `chmod ${mode} ${r.shown}`);
@@ -713,6 +760,7 @@ function chown(c: Ctx): void {
   for (const t of args.slice(1)) {
     const r = pathOf(c, t);
     if (r.cls === "root_critical" || r.cls === "device") add(c, "critical", "destructive_system", "critical_chown", `changes ownership of ${r.shown}`, `chown ${r.key}`);
+    else if (r.cls === "security_control") add(c, "high", "security_control", "security_control_chown", `changes ownership of a safety-control file: ${r.shown}`, `chown ${r.key}`);
     else if (r.cls.startsWith("workspace") || r.cls === "temp" || r.cls === "home") add(c, "medium", "workspace_write", "chown", `changes ownership of ${r.shown}`, `chown ${r.key}`);
     else add(c, "high", "privilege", "outside_chown", `changes ownership of ${r.shown}`, `chown ${r.key}`);
   }
@@ -789,6 +837,7 @@ function git(c: Ctx): void {
   while (i < argv.length && argv[i].startsWith("-")) {
     if (argv[i] === "-c" || argv[i] === "--config-env") {
       const kv = argv[i + 1] ?? "";
+      if (/^(?:remote\.|url\.)/i.test(kv)) c.a.remoteChanges++;
       if (/^(?:core\.(?:sshCommand|pager|editor|hooksPath|fsmonitor|askPass)|alias\.|credential\.helper|protocol\..*\.allow|uploadpack\.|diff\..*\.textconv|filter\.|gpg\.program)/i.test(kv)) risky.push(kv);
       i += 2;
       continue;
@@ -806,11 +855,14 @@ function git(c: Ctx): void {
     case "status": case "log": case "diff": case "show": case "blame": case "annotate": case "ls-files": case "ls-tree": case "ls-remote": case "rev-parse": case "rev-list": case "describe": case "shortlog": case "reflog": case "grep": case "cat-file": case "merge-base": case "for-each-ref": case "symbolic-ref": case "name-rev": case "whatchanged": case "count-objects": case "fsck": case "check-ignore": case "check-attr": case "var": case "help": case "version": case "--version": case "range-diff": case "show-ref": case "show-branch": case "cherry": case "difftool": case "verify-commit": case "verify-tag": case "bugreport": case "diff-tree": case "diff-files": case "diff-index": case "archive":
       if (sub === "reflog" && (rest[0] === "expire" || rest[0] === "delete")) return add(c, "high", "history_rewrite", "git_reflog_expire", "expires the reflog (drops recovery points)", k("reflog expire"));
       if (sub === "archive" && has(/^(?:-o|--output)/)) return add(c, "low", "workspace_write", "git_archive", "git archive");
+      if (sub === "ls-remote") c.a.remotes.push({ name: rest.filter((a) => !a.startsWith("-"))[0] ?? "origin", op: "fetch" });
       return add(c, "low", "read", "git_read", k(sub ?? ""));
     case "fetch": case "lfs":
+      if (sub === "fetch") for (const r of has(/^--all$/) ? ["--all"] : [rest.filter((a) => !a.startsWith("-"))[0] ?? "origin"]) c.a.remotes.push({ name: r, op: "fetch" });
       return add(c, "low", "network_read", "git_fetch", k(sub));
     case "clone": case "pull": case "submodule":
       c.a.untrusted = c.a.untrusted || sub === "clone";
+      if (sub === "clone" || sub === "pull") c.a.remotes.push({ name: has(/^--all$/) ? "--all" : rest.filter((a) => !a.startsWith("-"))[0] ?? "origin", op: "fetch" });
       return add(c, "low", "workspace_write", "git_pull", k(sub));
     case "add": case "commit": case "mv": case "init": case "apply": case "am": case "cherry-pick": case "revert": case "merge": case "switch": case "notes": case "bisect": case "format-patch": case "mergetool": case "sparse-checkout": case "maintenance": case "rerere": case "citool": case "gui": case "tag":
       if (sub === "tag" && has(/^-d$|^--delete$/)) return add(c, "medium", "history_rewrite", "git_tag_delete", "deletes a tag", k("tag -d"));
@@ -844,6 +896,7 @@ function git(c: Ctx): void {
       if (has(/^-i$|^--interactive$/)) return add(c, "medium", "history_rewrite", "git_rebase_interactive", "interactive rebase (needs an editor)", k("rebase -i"));
       return add(c, "low", "history_rewrite", "git_rebase", k("rebase"));
     case "push": {
+      c.a.remotes.push({ name: rest.filter((a) => !a.startsWith("-"))[0] ?? "origin", op: "push" });
       const force = has(/^-[A-Za-z]*f$|^--force(?:-with-lease|-if-includes)?(?:=.*)?$|^--mirror$/) || rest.some((a) => /^\+/.test(a));
       const del = has(/^-d$|^--delete$|^--prune$/) || rest.some((a) => /^:[^/]/.test(a));
       if (force) return add(c, "high", "history_rewrite", "git_force_push", "force-push rewrites remote history", k("push --force"));
@@ -854,9 +907,11 @@ function git(c: Ctx): void {
     }
     case "remote":
       if (!rest.length || rest[0] === "-v" || rest[0] === "show" || rest[0] === "get-url") return add(c, "low", "read", "git_read", k("remote"));
+      c.a.remoteChanges++;
       return add(c, "medium", "workspace_write", "git_remote_change", `changes git remotes (git remote ${rest[0]})`, k(`remote ${rest[0]}`));
     case "config": {
       const setting = rest.find((a) => !a.startsWith("-"));
+      if (setting && /^(?:remote\.|url\.)/i.test(setting) && !has(/^--(?:get|get-all|get-regexp|list)$|^-l$/)) c.a.remoteChanges++;
       if (has(/^--(?:get|get-all|get-regexp|list|show-origin)$|^-l$/) || rest.filter((a) => !a.startsWith("-")).length <= 1) return add(c, "low", "read", "git_read", k("config --get"));
       if (setting && /^(?:core\.(?:sshCommand|pager|editor|hooksPath|fsmonitor|askPass)|alias\.|credential\.helper|filter\.|diff\..*\.textconv|gpg\.program|url\..*\.insteadOf)/i.test(setting)) return add(c, "high", "persistence", "git_config_exec", `sets ${setting} (runs commands later)`, k(`config ${setting}`));
       if (has(/^--global$|^--system$/)) return add(c, "medium", "write_outside", "git_config_global", `changes global git config (${setting})`, k("config --global"));
@@ -935,6 +990,7 @@ function curlLike(c: Ctx): void {
   }
   const hosts = urls.map((u) => urlHost(u) ?? "?");
   const dest = hosts[0] ?? "?";
+  for (const h of hosts) noteHost(c, h, data.length > 0 || /^(?:POST|PUT|PATCH|DELETE)$/.test(method) ? "send" : "read");
   const local = hosts.length > 0 && hosts.every((h) => LOCALHOST_RE.test(h));
   const send = data.length > 0 || /^(?:POST|PUT|PATCH|DELETE)$/.test(method);
   if (config) add(c, "medium", "network_send", "curl_config", `${exe} reads options from a config file`, `${exe} -K`);
@@ -983,6 +1039,7 @@ function netcat(c: Ctx): void {
   const dest = argv.slice(1).find((a) => !a.startsWith("-") && !/^\d+$/.test(a)) ?? "?";
   const local = LOCALHOST_RE.test(dest);
   c.a.sends.push({ dest, local });
+  if (!listen) noteHost(c, dest, "connect");
   add(c, local && !listen ? "low" : "medium", "network_send", listen ? "listener" : "raw_socket", listen ? `${c.exe} opens a listening socket` : `${c.exe} connects to ${dest}`, `${c.exe} ${listen ? "listen" : dest}`);
 }
 
@@ -1013,6 +1070,7 @@ function scpRsync(c: Ctx): void {
       }
     }
     c.a.sends.push({ dest: destHost, local: false });
+    noteHost(c, destHost, "send");
     add(c, known ? "medium" : "high", "network_send", known ? "upload_known_host" : "upload_unknown_host", `uploads ${sources.join(" ")} to ${destHost}`, `${c.exe} upload ${destHost}`);
     if (deleting) add(c, "high", "delete", "remote_sync_delete", `${c.exe} --delete removes files on ${destHost}`, `${c.exe} --delete ${destHost}`);
     return;
@@ -1020,6 +1078,7 @@ function scpRsync(c: Ctx): void {
   const srcHost = sources.map(remoteOf).find(Boolean);
   if (srcHost) {
     const known = c.env.knownHosts.has(srcHost);
+    noteHost(c, srcHost, "read");
     add(c, "medium", "network_read", "download_host", `downloads from ${srcHost}`, `${c.exe} download ${srcHost}`, known);
     c.a.untrusted = true;
     c.a.downloads.push(pathOf(c, dest).shown);
@@ -1032,6 +1091,7 @@ function sshConn(c: Ctx): void {
   const s = c.seg.ssh;
   if (!s) return add(c, "medium", "remote_exec", "ssh", "ssh", "ssh");
   const known = c.env.knownHosts.has(s.host);
+  noteHost(c, s.host, "connect");
   if (s.proxyCommand) add(c, "medium", "code_exec", "ssh_proxy_command", `ssh to ${s.host} with a ProxyCommand/LocalCommand`, `ssh ${s.host} proxycmd`);
   if (s.forwards) add(c, "medium", "network_send", "ssh_forward", `ssh port forwarding via ${s.host}`, `ssh ${s.host} forward`);
   if (c.seg.interactiveShell) add(c, "medium", "remote_exec", "ssh_interactive", `opens an interactive shell on ${s.host}`, `ssh ${s.host}`);
@@ -1351,7 +1411,7 @@ function envDump(c: Ctx): void {
     // `export FOO=bar` / `set -euo pipefail`
     for (const a of argv.slice(1)) {
       const name = a.split("=")[0];
-      if (/^PI_KIT_(?:FIREWALL|AUTO_MODE|PROTECTED|WRITE_ALLOWLIST|INTERNAL_CHILD|HUMAN_CONSOLE|CAPTURE)/.test(name)) add(c, "high", "security_control", "safety_env_override", `overrides a safety setting via ${name}`, `export ${name}`);
+      if (/^PI_KIT_(?:FIREWALL|AUTO_MODE|PROTECTED|WRITE_ALLOWLIST|INTERNAL_CHILD|HUMAN_CONSOLE|CAPTURE|UNATTENDED)/.test(name)) add(c, "high", "security_control", "safety_env_override", `overrides a safety setting via ${name}`, `export ${name}`);
       if (/^(?:LD_PRELOAD|DYLD_INSERT_LIBRARIES)$/.test(name)) add(c, "high", "obfuscated_exec", "library_injection", `injects a shared library via ${name}`, `export ${name}`);
       if (/^HISTFILE$/.test(name) && /=\/dev\/null$|=$/.test(a)) add(c, "medium", "security_control", "history_disable", "disables shell history", "export HISTFILE");
     }
@@ -1556,7 +1616,10 @@ function editorLike(c: Ctx): void {
 
 function xdgOpen(c: Ctx): void {
   const target = c.seg.argv[1] ?? "";
-  if (/^https?:/.test(target)) return add(c, "low", "network_read", "open_url", `opens ${urlHost(target)}`);
+  if (/^https?:/.test(target)) {
+    noteHost(c, urlHost(target), "read");
+    return add(c, "low", "network_read", "open_url", `opens ${urlHost(target)}`);
+  }
   add(c, "low", "code_exec", "open", `${c.exe} ${target}`);
 }
 
@@ -1583,6 +1646,7 @@ function dockerLike(c: Ctx): void {
 function ftpLike(c: Ctx): void {
   const host = c.seg.argv.slice(1).find((a) => !a.startsWith("-")) ?? "?";
   c.a.sends.push({ dest: host, local: LOCALHOST_RE.test(host) });
+  noteHost(c, host, "connect");
   add(c, "medium", "network_send", "file_transfer", `${c.exe} to ${host}`, `${c.exe} ${host}`);
 }
 
@@ -1592,6 +1656,7 @@ function hyprctl(c: Ctx): void {
   if (sub === "dispatch" && /^exec/.test(c.seg.argv[2] ?? "")) {
     const inner = classifyShellText(c.seg.argv.slice(3).join(" "), c.env, c.seg.cwd, c.seg.remote);
     for (const f of inner.findings) c.findings.push(f);
+    mergeInner(c, inner.a);
     return;
   }
   if (sub === "kill") return add(c, "medium", "process_control", "desktop_kill", "hyprctl kill", "hyprctl kill");
@@ -1649,7 +1714,7 @@ const HANDLERS: Record<string, Handler> = {
 // Entry points
 
 function emptyAssessment(tool: string): Assessment {
-  return { tool, tier: "low", findings: [], effects: [], segments: [], summary: "", credentialReads: [], downloads: [], executes: [], chmodExec: [], sends: [], deletes: 0, untrusted: false };
+  return { tool, tier: "low", findings: [], effects: [], segments: [], summary: "", credentialReads: [], downloads: [], executes: [], chmodExec: [], sends: [], hosts: [], remotes: [], remoteChanges: 0, deletes: 0, untrusted: false };
 }
 
 function finalize(a: Assessment): Assessment {
@@ -1784,6 +1849,8 @@ export function classifyToolCall(tool: string, input: any, env: ClassifyEnv, rul
       if (!a.findings.length) add(c, "low", "read", "read", `${tool} ${p ?? ""}`);
     } else if (WEB_TOOLS.test(tool)) {
       a.untrusted = true;
+      // A web search has no fixed destination: it is recorded as an unknown one.
+      noteHost(c, input?.url ? urlHost(String(input.url)) : "?", "read");
       add(c, "low", "network_read", "web_read", `${tool}${input?.url ? ` ${urlHost(String(input.url))}` : ""}`);
     } else if (rule?.decision) {
       if (rule.decision === "deny") add(c, "critical", "security_control", "policy_deny", `policy denies ${tool}`, `tool ${tool}`);

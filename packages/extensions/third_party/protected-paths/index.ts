@@ -54,6 +54,8 @@ function firewallStatePaths(): string[] {
   return [
     firewallConfigPath(),
     process.env.PI_KIT_FIREWALL_FEEDBACK?.trim() || path.join(dir, "firewall-feedback.jsonl"),
+    // Remembered approvals: a planted entry here would let an action run without asking.
+    process.env.PI_KIT_FIREWALL_APPROVALS?.trim() || path.join(dir, "firewall-approvals.json"),
     process.env.PI_KIT_FIREWALL_SESSIONS_DIR?.trim() || path.join(dir, "firewall-sessions"),
     // The tool I/O capture log (tool-capture): the agent must not rewrite its own record.
     process.env.PI_KIT_CAPTURE_DIR?.trim() || path.join(dir, "capture"),
@@ -68,7 +70,11 @@ function getProtectedPaths(cwd: string): string[] {
   const base = env ? [...defaults, ...env.split(";").map(p => p.trim()).filter(Boolean)] : defaults;
   const configuredConsole = process.env.PI_KIT_HUMAN_CONSOLE_DIR?.trim();
   const dynamic = configuredConsole ? [normalizeSlashes(path.resolve(cwd, normalizeSlashes(configuredConsole)))] : [];
-  return [...base, ...firewallStatePaths(), ".pi/human-console/", ".pi/human-console-audit.jsonl", ...dynamic];
+  // The unattended-run contract (PI_KIT_UNATTENDED_CONTRACT) is the supervisor's, not the agent's: protected
+  // whether or not the firewall accepted it.
+  const contract = process.env.PI_KIT_UNATTENDED_CONTRACT?.trim();
+  const contractPaths = contract ? [normalizeSlashes(path.resolve(cwd, normalizeSlashes(contract)))] : [];
+  return [...base, ...firewallStatePaths(), ".pi/human-console/", ".pi/human-console-audit.jsonl", ...dynamic, ...contractPaths];
 }
 
 // Optional ALLOWLIST mode (Epic 6 Sprint 6.3, dream mode): when PI_KIT_WRITE_ALLOWLIST is
@@ -199,6 +205,28 @@ function looksLikeInlineProgram(rawToken: string, stripped: string): boolean {
   return false;
 }
 
+// Protections registry (shared, in-process; see tool-firewall/README.md). Each mandatory protection
+// (tool-firewall, secret-guard, protected-paths) records its name here when its factory has
+// installed its hooks, so a trusted launcher can check that a session loaded what it must have
+// loaded. Extensions are self-contained, so every one carries this same small helper: whichever
+// loads first creates the registry, the others add to it. It is a consistency check, not a
+// boundary against code running in the same process.
+const PROTECTIONS_KEY = Symbol.for("pi-kit.protections");
+function registerProtection(name: string): void {
+  try {
+    const g = globalThis as unknown as Record<symbol, any>;
+    let reg = g[PROTECTIONS_KEY];
+    if (!reg || typeof reg.add !== "function" || typeof reg.has !== "function") {
+      reg = new (class ProtectionRegistry extends Set<string> {})();
+      g[PROTECTIONS_KEY] = reg;
+    }
+    reg.add(name);
+    if (typeof reg.list !== "function") Object.defineProperty(reg, "list", { value: () => [...reg].map(String).sort(), enumerable: false, configurable: true });
+  } catch {
+    /* the registry must never break the protection itself */
+  }
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const toolName = event.toolName;
@@ -234,4 +262,6 @@ export default function (pi: ExtensionAPI) {
 
     return undefined;
   });
+  // Only once the hook is installed: a factory that failed earlier never registers.
+  registerProtection("protected-paths");
 }
