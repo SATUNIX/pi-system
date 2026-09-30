@@ -5,7 +5,8 @@
 // services by name. Deploying to anything outside the zone is promotion, which is separate and
 // needs a pre-authorised destination or an operator command; a worker never does it.
 import { FINITE_DEFAULTS } from "./common.mjs";
-import implement from "./implement.mjs";
+import implement, { evaluate, stepPrompt as implementPrompt } from "./implement.mjs";
+import { promotionTargets } from "../promotion.mjs";
 
 const describe = () => ({
   id: "deploy",
@@ -19,16 +20,16 @@ const describe = () => ({
 function validate(contract, api) {
   implement.validate(contract, api);
   if (!contract.permissions.network.services.length) api.err("permissions.network.services", "the deploy template needs at least one run service; use the implement template for work without services");
-  const checks = contract.acceptance.checks;
-  if (contract.permissions.network.services.length && !checks.some((k) => k.type === "service-health" && k.required)) {
+  if (contract.permissions.network.services.length && !contract.acceptance.checks.some((k) => k.type === "service-health" && k.required)) {
     api.warn("acceptance.checks", "no required service-health check: the run can succeed without proving any service is up");
   }
 }
 
-function stepPrompt(ctx) {
-  const base = implement.stepPrompt(ctx);
-  const services = ctx.contract.permissions.network.services;
-  const extra = ["", "## Services", ...services.map((s) => `- ${s.name}: reachable at http://${s.name}:${s.port} from your container${s.workspaceMounts.length ? `; it serves ${s.workspaceMounts.map((m) => `${m.source} (from your workspace, read-only) at ${m.target}`).join(", ")}` : ""}`), "Deploy by building into the paths above and by talking to the services over the internal network. Restarting or replacing a service, or exposing anything outside the zone, is not available to you."];
+function stepPrompt(args) {
+  const base = implementPrompt(args);
+  if (!args.fresh) return base;
+  const services = args.contract.permissions.network.services;
+  const extra = ["", "## Services", ...services.map((s) => `- ${s.name}: reachable at http://${s.name}:${s.port} from your container${s.workspaceMounts.length ? `; it serves ${s.workspaceMounts.map((m) => `${m.source} (a read-only copy of that directory of your workspace, refreshed by the supervisor after each of your steps) at ${m.target}`).join(", ")}` : ""}`), "Deploy by building into the paths above and by talking to the services over the internal network. Restarting or replacing a service, or exposing anything outside the zone, is not available to you."];
   return `${base}\n${extra.join("\n")}`;
 }
 
@@ -37,6 +38,9 @@ export default {
   describe,
   defaults: FINITE_DEFAULTS,
   validate,
+  seed: implement.seed,
   stepPrompt,
+  evaluate,
+  promotion: { targets: promotionTargets },
   finite: true,
 };

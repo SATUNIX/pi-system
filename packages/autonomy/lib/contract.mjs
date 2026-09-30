@@ -517,7 +517,7 @@ function readBudget(raw, c) {
     maxSteps: num(b.maxSteps, "budget.maxSteps", c, { min: 1, max: 1000, int: true }),
     maxMinutes: num(b.maxMinutes, "budget.maxMinutes", c, { min: 1, max: 43_200, int: true }),
   };
-  for (const k of Object.keys(out)) if (out[k] === undefined) c.err(`budget.${k}`, "is required (every run is bounded by money, steps and time)");
+  for (const k of Object.keys(out)) if (out[k] === undefined && (b[k] === undefined || b[k] === null)) c.err(`budget.${k}`, "is required (every run is bounded by money, steps and time)");
   if (out.totalUsd !== undefined && out.perStepUsd !== undefined && out.perStepUsd > out.totalUsd) c.err("budget.perStepUsd", "must not exceed budget.totalUsd");
   return out;
 }

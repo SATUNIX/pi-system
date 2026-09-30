@@ -18,7 +18,7 @@ export function runtimeConfig(contract, opts = {}) {
   const localDest = promotion.destinations.find((d) => d.kind === "local-branch");
   const remoteDest = promotion.destinations.find((d) => d.kind === "git-remote");
   // Where the integration branch is synchronised and published: nowhere unless promotion says so.
-  const integrationRemote = promotion.policy === "push" ? remoteDest?.url ?? null : promotion.policy === "local-branch" ? localDest?.repo ?? null : null;
+  const integrationRemote = promotion.policy === "push" ? remoteDest?.url ?? null : promotion.policy === "local-branch" ? localDest?.repo ?? repo?.path ?? null : null;
   const hardUsd = t.perStepHardUsd ?? 2 * contract.budget.perStepUsd;
   return {
     contract,
@@ -32,6 +32,7 @@ export function runtimeConfig(contract, opts = {}) {
     baseSource: repo?.path ?? repo?.url ?? null,
     integrationRemote,
     gitRemote: integrationRemote,
+    publishTags: promotion.policy === "push" ? Boolean(remoteDest?.tags) : false,
     image: r.image,
     engine: r.engine,
     container: { memory: r.memory, cpus: r.cpus, pids: r.pids, tmpSize: r.tmpSize, user: r.user },
