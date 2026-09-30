@@ -200,21 +200,21 @@ async function smokeCustomFooter() {
       entries.push({ type: "message", message: usage });
       await pi.handlers.get("turn_end")({ message: usage }, ctx);
       await pi.commands.get("footer").handler(["status"], ctx);
-      assert.match(notifications.at(-1).message, /pricing source: unconfigured/);
-      assert.match(notifications.at(-1).message, /estimated cost unknown/);
+      assert.match(notifications.at(-1).message, /pricing unconfigured/);
+      assert.match(notifications.at(-1).message, /cost\s+\? \(unknown: no prices configured/);
 
       fs.mkdirSync(path.join(workspace, ".pi-kit"));
       fs.writeFileSync(path.join(workspace, ".pi-kit", "costs.json"), JSON.stringify({ inputPerMTok: 2, outputPerMTok: 8 }));
       await pi.commands.get("footer").handler(["reload"], ctx);
       assert.match(notifications.at(-1).message, /pricing reloaded from/);
       await pi.commands.get("footer").handler(["status"], ctx);
-      assert.match(notifications.at(-1).message, /estimated cost \$0\.0060/);
+      assert.match(notifications.at(-1).message, /cost\s+~\$0\.0060 \(estimated/);
 
       fs.writeFileSync(path.join(workspace, ".pi-kit", "costs.json"), "{bad json");
       await pi.commands.get("footer").handler(["reload"], ctx);
-      assert.ok(notifications.some(item => item.level === "warning" && /kept prior pricing/.test(item.message)));
+      assert.ok(notifications.some(item => item.level === "warning" && /kept its prior pricing/.test(item.message)));
       await pi.commands.get("footer").handler(["status"], ctx);
-      assert.match(notifications.at(-1).message, /estimated cost \$0\.0060/);
+      assert.match(notifications.at(-1).message, /cost\s+~\$0\.0060 \(estimated/);
 
       await pi.commands.get("footer").handler([], ctx);
       assert.equal(footerCalls.at(-1)?.[0], undefined, "/footer off restores pi's built-in footer");
