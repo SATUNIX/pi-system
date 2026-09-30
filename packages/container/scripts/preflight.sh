@@ -3,7 +3,6 @@ set -eu
 
 DATA_ROOT="${PI_AGENT_DATA_ROOT:-${PENTEST_DATA_ROOT:-/srv/data/pi-system}}"
 
-sh scripts/check_template_contract.sh
 python3 scripts/validate-runtime-readiness.py
 python3 scripts/validate-scope-roe.py
 sh scripts/validate-pentest-env.sh

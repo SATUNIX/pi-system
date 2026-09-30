@@ -7,8 +7,8 @@
  * Enumerating the scripts from the manifest means a new `smoke:*` or `test:*` script is
  * picked up automatically instead of being forgotten.
  *
- * Included: every `smoke:*` and `test:*` script, plus `verify`, `eval`, `docs:check` and
- * `profile:check` (the last one runs once per shipped profile, because it takes one
+ * Included: every `smoke:*` and `test:*` script, plus `verify`, `eval`, `docs:check`,
+ * `docs:mermaid` and `profile:check` (the last one runs once per shipped profile, because it takes one
  * target per invocation).
  *
  * Excluded on purpose: `docs:serve` / `docs:build` (long-running server / site build),
@@ -33,7 +33,7 @@ import { describeProblems, findWiringProblems } from "./lib/wiring.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const INCLUDE_PREFIX = ["smoke:", "test:"];
-const INCLUDE_EXACT = ["verify", "eval", "docs:check", "profile:check"];
+const INCLUDE_EXACT = ["verify", "eval", "docs:check", "docs:mermaid", "profile:check"];
 
 /**
  * Resolve the npm executable for the running platform. Windows needs the `.cmd`
