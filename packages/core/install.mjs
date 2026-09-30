@@ -33,7 +33,7 @@ import { resolveProfile } from "./lib/resolve.mjs";
 import { readSources } from "./lib/sources.mjs";
 import { mergePackageBlock, removeOtherKitEntries, leanCtxBinaryAvailable, globalSettingsPath, globalAgentDir, readSettings, findPackageEntry, writeSettingsAtomic, isKitNpmSource, isKitGitSource } from "./lib/settings.mjs";
 import { readDistribution, isChannel, parseGitSource, gitSourceFor, channelOfGitSource, releaseTags, latestRelease, lsRemoteTags } from "./lib/distribution.mjs";
-import { readOverrides, writeOverrides, isEmptyOverrides, applyExtensionOverrides, excludedSkills, excludedPrompts, skillFilterPatterns, promptFilterPatterns, captureDrift, overridesPath, canonicalProfileName, writeFirewallConfig, firewallConfigPath } from "./lib/profiles.mjs";
+import { readOverrides, readOverridesChecked, reconcileOverrides, writeOverrides, isEmptyOverrides, applyExtensionOverrides, excludedSkills, excludedPrompts, skillFilterPatterns, promptFilterPatterns, captureDrift, overridesPath, canonicalProfileName, writeFirewallConfig, checkFirewallConfig, firewallConfigPath, kitSkills, kitPrompts, snapshotFiles, restoreSnapshots } from "./lib/profiles.mjs";
 import { resolve as resolveName } from "./lib/resolve.mjs";
 import { WORKSPACE_ROOT, PROFILES_DIR, FIRST_PARTY_DIR, THIRD_PARTY_DIR, SOURCES_PATH, ENV_EXAMPLE, extensionRelPath } from "./lib/paths.mjs";
 
@@ -94,6 +94,24 @@ const settingsPath = scope === "global"
 const markerPath = scope === "global"
   ? path.join(globalAgentDir(), ".pi-kit.json")
   : path.join(process.cwd(), ".pi", ".pi-kit.json");
+
+// Whole-run rollback for the fast --settings-only path (what /profile drives). Each write below is
+// atomic, but the run writes several files in sequence; any exit that is not a clean finish (a
+// failed step, an uncaught exception, SIGINT/SIGTERM) restores every one of them, so the
+// configuration is either the old one or the complete new one. `installCommitted` flips once the
+// marker, the last write, is on disk. A SIGKILL cannot run code; /profile snapshots as well.
+let installCommitted = false;
+if (settingsOnly && !dryRun) {
+  const snapshots = snapshotFiles([settingsPath, markerPath, firewallConfigPath(), overridesPath(), path.join(globalAgentDir(), ".env")]);
+  process.on("exit", (code) => {
+    if (installCommitted || code === 0) return;
+    const failed = restoreSnapshots(snapshots);
+    console.error(failed.length
+      ? `[install] ROLLBACK INCOMPLETE: could not restore ${failed.join(", ")}`
+      : `[install] Rolled back ${snapshots.length} configuration file(s); nothing was changed.`);
+  });
+  for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) process.on(signal, () => process.exit(code));
+}
 
 // A copy pi installed itself lives under <agent dir>/git or <agent dir>/npm (or .pi/git, .pi/npm
 // for project scope). Run from there (by /profile, /update or the first-run auto-profile), the
@@ -297,13 +315,44 @@ if (captureOverrides) {
 // Determine selected name set
 let selected;
 let profileDef = null;
-const overrides = readOverrides();
+// Operator overrides. Only a profile install applies them, so only then can they stop the run:
+// an unreadable file may hold a removal of a protection we cannot see (fail closed), and removing
+// a mandatory protection extension is refused outright. Names that no longer exist in this kit
+// (renamed or removed extensions, skills, prompts) are dropped with a warning instead of failing
+// the whole switch.
+let overrides = readOverrides();
+if (!all && !onlyNames) {
+  const read = readOverridesChecked();
+  if (read.error) {
+    console.error(`[install] FAIL: ${read.error}. Fix or delete it, then retry; nothing was changed.`);
+    process.exit(1);
+  }
+  const reconciled = reconcileOverrides(read.overrides, {
+    extensionExists: (name) => resolveName(name) !== null,
+    skills: kitSkills().map((s) => s.name),
+    prompts: kitPrompts(),
+  });
+  for (const warning of reconciled.warnings) console.warn(`[install] WARN: ${warning}`);
+  if (reconciled.errors.length) {
+    for (const error of reconciled.errors) console.error(`[install] FAIL: ${error}`);
+    process.exit(1);
+  }
+  overrides = reconciled.overrides;
+}
 if (all) {
   selected = allExtensionNames();
 } else if (onlyNames) {
   selected = onlyNames;
 } else {
   profileDef = loadProfile(profile);
+  // Safety-critical config is validated before anything is written: an unknown firewall policy or
+  // mode (in the profile or in the existing firewall.json) or an unreadable firewall.json stops here.
+  try {
+    checkFirewallConfig(profileDef);
+  } catch (error) {
+    console.error(`[install] FAIL: ${error.message}`);
+    process.exit(1);
+  }
   // Operator overrides apply on top of every profile so a switch never undoes hand edits.
   selected = applyExtensionOverrides(profileDef.include ?? [], overrides);
 }
@@ -500,7 +549,10 @@ if (profileDef) {
       const fw = writeFirewallConfig(profileDef);
       console.log(`[install] Firewall: mode ${fw.mode}${fw.source === "user" ? " (kept, set with /auto)" : ""}, policy ${fw.policy} -> ${firewallConfigPath()}`);
     } catch (error) {
-      console.error(`[install] WARN: could not write ${firewallConfigPath()}: ${error.message}`);
+      // The firewall config is safety-critical: continuing would record a profile whose gate was
+      // never applied. Fail closed (the run rolls back under --settings-only).
+      console.error(`[install] FAIL: could not write ${firewallConfigPath()}: ${error.message}`);
+      process.exit(1);
     }
   }
 }
@@ -526,6 +578,7 @@ if (!dryRun) {
   };
   writeSettingsAtomic(markerPath, marker);
 }
+installCommitted = true;
 
 const webConsoleSelected = selected.includes("web-console");
 console.log(`
