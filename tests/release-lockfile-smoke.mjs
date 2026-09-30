@@ -53,18 +53,26 @@ const results = [
     assert.match(src, /compareSemver\(version, prev\) <= 0/, "must compute and check version monotonicity (semver precedence, prerelease-aware)");
     assert.match(src, /is not forward of current/, "must fail with a clear message when the version does not strictly increase");
   }),
-  check("release gate runs the full per-profile capstone matrix (lite included) and the package check", () => {
-    assert.match(src, /readdirSync\(PROFILES_DIR\)/, "the profile loop must cover every profile file, so a new profile (lite) cannot be skipped");
-    assert.match(src, /profile-check\.mjs --profile \$\{file\.replace/, "must run profile-check per profile");
+  check("release gate is check:all (every profile, every suite, the clean install) plus the package and lockfile checks", () => {
+    // `npm run check:all` is the repository's single definition of "all the checks" (docs/releasing.md): a narrower list in
+    // the release script would let a new suite or profile go unrun at release time. It covers verify, eval, the per-profile
+    // install checks, every smoke and security suite and the clean-install test.
+    assert.match(src, /run\("npm run check:all", \{ always: true \}\)/, "the release gate must run `npm run check:all`");
+    assert.doesNotMatch(src, /run\("node packages\/core\/verify\.mjs"/, "a hand-picked subset of the checks must not replace check:all");
     assert.match(src, /pack-check\.mjs/, "must prove the published package packs and works from its unpacked copy");
     assert.match(src, /lockfile-check\.mjs/, "must run the lockfile integrity check");
   }),
-  check("release gate runs a real, strict MkDocs build", () => {
-    assert.match(src, /mkdocs build --strict/, "must run a real `mkdocs build --strict`, not only the lighter custom link-checker");
+  check("release gate runs a real, strict MkDocs build, and says up front when MkDocs is missing", () => {
+    assert.match(src, /run\("python -m mkdocs build --strict", \{ always: true \}\)/, "must run a real `mkdocs build --strict`, not only the lighter custom link-checker");
+    // `run` exits on failure, so a try/catch around it can never report a missing tool: the preflight has to come first.
+    const preflight = src.indexOf('execSync("python -m mkdocs --version"');
+    assert.ok(preflight > 0, "must check that MkDocs is installed before the long gate");
+    assert.ok(preflight < src.indexOf('run("npm run check:all"'), "the MkDocs preflight must come before the long gate, not after it");
+    assert.doesNotMatch(src, /try\s*\{\s*run\(/, "a try/catch around run() is dead code: run() exits the process on failure");
   }),
   check("dry-run actually exercises the validation gates", () => {
     const alwaysCount = (src.match(/\{\s*always:\s*true\s*\}/g) || []).length;
-    assert.ok(alwaysCount >= 8, `most validation gates must run even in --dry-run (found ${alwaysCount} \`always: true\` gates, expected >= 8) - a dry-run that skips every gate provides no real preflight evidence`);
+    assert.ok(alwaysCount >= 5, `every validation gate must run even in --dry-run (found ${alwaysCount} \`always: true\` gates, expected >= 5: npm ci, check:all, lockfile, mkdocs, pack-check) - a dry-run that skips every gate provides no real preflight evidence`);
   }),
 ];
 

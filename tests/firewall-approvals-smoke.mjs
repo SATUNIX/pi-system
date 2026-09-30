@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { loadExtension, fakePi, setEnv, tmpWorkspace, rmWorkspace, isolateKitEnv } from "../packages/core/eval/harness.mjs";
+import { loadExtension, loadModule, fakePi, setEnv, tmpWorkspace, rmWorkspace, isolateKitEnv } from "../packages/core/eval/harness.mjs";
 
 const root = tmpWorkspace("pi-kit-fw-appr-");
 const mk = (...p) => {
@@ -484,6 +484,46 @@ try {
       }
     }
     ok("the approvals file is protected from agent writes (protected-paths, secret-guard, firewall path class)");
+  }
+
+  // 12. Writes always hold the file's lock, and never proceed without it. -----------------------------
+  // The file is rewritten whole, so an unlocked write can lose a concurrent one. Losing an ADD only means being asked
+  // again; losing a REVOKE would bring back an approval the operator withdrew, so a busy lock fails the write loudly.
+  {
+    const approvals = await loadModule("extensions/tool-firewall/approvals.ts");
+    const target = path.join(root, "locked", "firewall-approvals.json");
+    const restore = setEnv("PI_KIT_FIREWALL_APPROVALS", target);
+    const aged = (file) => { const t = new Date(Date.now() - 60_000); fs.utimesSync(file, t, t); };
+    const stored = () => JSON.parse(fs.readFileSync(target, "utf8")).approvals.map((a) => a.id).sort();
+    const input = (hash) => ({ context: "session", session: "S1", workspace: wsA, cwd: wsA, policy: "coding", tool: "bash", hash, families: ["git_send"], scopes: [], tier: "medium", grantedBy: { actor: "operator", via: "card", session: "S1", mode: "manual", policy: "coding" }, action: { command: "git push origin main", summary: "git push origin main", steps: [], reasons: [], chain: [] } });
+    try {
+      const kept = approvals.addApproval(input("a".repeat(64)));
+      // (a) a stale lock (a crashed holder), and a dead break lock, are cleared and the write goes ahead
+      fs.writeFileSync(`${target}.lock`, "999999\n"); aged(`${target}.lock`);
+      fs.writeFileSync(`${target}.lock.break`, "999999\n"); aged(`${target}.lock.break`);
+      const second = approvals.addApproval(input("b".repeat(64)));
+      assert.equal(fs.existsSync(`${target}.lock`) || fs.existsSync(`${target}.lock.break`), false, "no lock is left behind");
+      assert.deepEqual(stored(), [kept.id, second.id].sort());
+      // (b) a lock held by a live process is waited for, then the write FAILS: nothing is written, and a revoke says so
+      fs.writeFileSync(`${target}.lock`, "another-holder\n"); // fresh: a live holder
+      const t0 = Date.now();
+      assert.throws(() => approvals.addApproval(input("c".repeat(64))), /approvals file is busy/);
+      fs.utimesSync(`${target}.lock`, new Date(), new Date()); // the holder is still alive: its lock is fresh again (a lock untouched for 10 s is stale)
+      const revoked = approvals.revokeApprovals(["all"], { root: "S1", workspace: wsA });
+      assert.ok(Date.now() - t0 >= 4_000, "it waited for the holder before giving up");
+      assert.match(revoked.error, /could not withdraw approvals: the approvals file is busy/);
+      assert.deepEqual(revoked.removed, [], "a revoke that could not take the lock reports that nothing changed");
+      assert.deepEqual(stored(), [kept.id, second.id].sort(), "and the file is untouched");
+      assert.equal(fs.readFileSync(`${target}.lock`, "utf8"), "another-holder\n", "the other holder's lock was not removed by our failed attempt");
+      fs.unlinkSync(`${target}.lock`);
+      // (c) once the lock is free the revoke goes through
+      const done = approvals.revokeApprovals(["all"], { root: "S1", workspace: wsA });
+      assert.equal(done.error, undefined);
+      assert.equal(done.removed.length, 2);
+      ok("approval writes always hold the lock: stale and dead break locks are cleared, a live holder is waited for then the write fails (an add is not remembered; a revoke says nothing changed), and a lock that is not ours is never removed");
+    } finally {
+      restore();
+    }
   }
 
   console.log(`[firewall-approvals-smoke] all ${checks} checks passed`);

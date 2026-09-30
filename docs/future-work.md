@@ -48,8 +48,16 @@ it.
 - **Companion tools that add their own shell or edit tools** (for example `pi-lean-ctx`) are seen
   only as unknown tools. Teaching the firewall the names of specific companions would make them
   first-class, and would need each one reviewed.
-- **Unattended mode trusts the supervisor's claim** that its boundary exists. A forged contract
-  elsewhere on disk is possible through paths that spawn pi without a shell.
+- **Unattended mode trusts the supervisor's claim** that its boundary exists. It now requires the
+  contract to be on a read-only mount (or another user's unwritable file), which an agent's shell
+  cannot fake, and a forged launch from an interpreter is a safety-setting override. What remains:
+  something that can mount filesystems, run code inside the pi process, or act as root. Tying the
+  contract to a secret only the supervisor holds would close the last gap.
+- **Approvals bind command text, not effect.** An approved `git push` follows a re-pointed remote,
+  and an approved script runs after an edit. Binding an approval to the resolved effect (the remote
+  URL, the script's content hash) would close it, at the cost of more prompts.
+- **A script the agent wrote can set the unattended variables** where the classifier sees only
+  `bash run.sh`. The provenance rule stops it from working; the classifier cannot see it.
 
 ## Profiles and compaction
 
@@ -69,7 +77,9 @@ it.
 - Two version constants still read `0.1.0` (`routes.js`, `configinfo.js`); the session panel shows an
   unknown context percentage as 0%.
 - The login link is passed to `xdg-open` as an argument, and the token file is readable by the agent
-  the console drives (both are documented in [Web console](web-console.md)).
+  the console drives (both are documented in [Web console](web-console.md); the firewall classifies
+  reading the token file as a credential read, which asks you but is not a lock). Moving the token
+  behind a one-time exchange, so it never appears in a command line, would close the first.
 
 ## Dependencies
 

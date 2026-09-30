@@ -63,10 +63,14 @@ log. `/console stop` removes that file.
   tunnel, or terminate TLS in front of it and list the public name in
   `PI_CONSOLE_ALLOWED_HOSTS`. A reverse proxy or a CORS setting is not authentication.
 - The token file and pi's own shell run as the same account, so an agent running as you can read
-  the file. The console protects against the network and other web pages, not against the
-  agent it is driving.
-- `/console open` passes the tokenised URL to `xdg-open` (or the platform's opener) as an argument,
-  which other local users on a shared host might glimpse in a process listing.
+  the file. The tool firewall classifies reading it (any file named `console.token`, or the file
+  `PI_CONSOLE_TOKEN_FILE` names) as a credential read, so it asks you and feeds the
+  secret-then-send rules; that is a guard rail, not a lock. The console protects against the
+  network and other web pages, not against the agent it is driving.
+- `/console open` passes the tokenised URL to `xdg-open` (or the platform's opener) as an argument.
+  Other local users on a shared host might glimpse it in a process listing, and a browser the
+  opener starts can keep it in its own command line. On a shared host use `/console` and paste the
+  printed URL instead.
 - The Content-Security-Policy and the browser behaviour have not been exercised in a real browser
   in this release; if `style-src` proves stricter than assumed, only the progress-bar widths break.
 - Nothing here was tested on Windows.

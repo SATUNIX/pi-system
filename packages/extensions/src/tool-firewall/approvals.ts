@@ -222,34 +222,72 @@ function sleepSync(ms: number): void {
   }
 }
 
-// A short exclusive lock so two sessions approving at once do not lose each other's entry. Best
-// effort and bounded: after ~1 s the write goes ahead unlocked (atomic rename keeps the file whole).
+// The approvals file is read, changed and rewritten whole, so two sessions writing at once would lose an entry:
+// an add (harmless: the operator is asked again) or, worse, a REVOKE (an approval the operator withdrew would
+// come back). So a write always holds this exclusive lock and never goes ahead without it: after the wait the
+// write fails, an add is not remembered, and a revoke reports that nothing was changed. The lock carries this
+// acquisition's token and is removed only if it still does, and a stale lock (a crashed holder) is broken under
+// a second short-lived lock after looking at it again, so two waiters cannot both remove "the" stale lock and
+// then both hold a fresh one.
+const LOCK_WAIT_MS = 5_000;
+const LOCK_STALE_MS = 10_000;
+const LOCK_BREAK_STALE_MS = 3_000;
+
+function breakStaleLock(lock: string): void {
+  const breaker = `${lock}.break`;
+  try {
+    fs.closeSync(fs.openSync(breaker, "wx", 0o600));
+  } catch {
+    try {
+      if (Date.now() - fs.statSync(breaker).mtimeMs > LOCK_BREAK_STALE_MS) fs.unlinkSync(breaker);
+    } catch {
+      /* raced */
+    }
+    return; // someone else is breaking it, or we cleared a dead breaker: look again
+  }
+  try {
+    if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) fs.unlinkSync(lock);
+  } catch {
+    /* released meanwhile */
+  } finally {
+    try {
+      fs.unlinkSync(breaker);
+    } catch {
+      /* gone */
+    }
+  }
+}
+
 function withLock<T>(file: string, fn: () => T): T {
   const lock = `${file}.lock`;
-  let held = false;
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    for (let i = 0; i < 50 && !held; i++) {
+  const token = `${process.pid}:${crypto.randomUUID()}\n`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      fs.writeFileSync(lock, token, { flag: "wx", mode: 0o600 });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
       try {
-        fs.closeSync(fs.openSync(lock, "wx", 0o600));
-        held = true;
-      } catch {
-        try {
-          if (Date.now() - fs.statSync(lock).mtimeMs > 10_000) fs.unlinkSync(lock);
-        } catch {
-          /* raced */
+        if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) {
+          breakStaleLock(lock);
+          continue;
         }
-        sleepSync(20);
+      } catch {
+        continue; // released between the attempt and the stat
       }
+      if (Date.now() > deadline) throw new Error("the approvals file is busy (another session holds its lock); nothing was written");
+      sleepSync(20);
     }
+  }
+  try {
     return fn();
   } finally {
-    if (held) {
-      try {
-        fs.unlinkSync(lock);
-      } catch {
-        /* gone */
-      }
+    try {
+      if (fs.readFileSync(lock, "utf8") === token) fs.unlinkSync(lock);
+    } catch {
+      /* gone */
     }
   }
 }
@@ -339,6 +377,14 @@ export function revokeApprovals(selectors: string[], scope: { root: string; work
   if (!sels.length) return fail("nothing to revoke: give an approval id, session, workspace or all");
   const words = sels.filter((x) => x === "all" || x === "session" || x === "workspace");
   if (words.length && sels.length > 1) return fail(`"${words[0]}" cannot be combined with other targets`);
+  try {
+    return revokeLocked(sels, scope, now, fail);
+  } catch (error) {
+    return fail(`could not withdraw approvals: ${String((error as Error)?.message ?? error)}`);
+  }
+}
+
+function revokeLocked(sels: string[], scope: { root: string; workspace: string }, now: number, fail: (error: string) => RevokeResult): RevokeResult {
   return withLock(approvalsPath(), () => {
     const view = readApprovals(now);
     const floors: Floors = { all: view.floors.all, workspaces: { ...view.floors.workspaces }, actions: { ...view.floors.actions } };

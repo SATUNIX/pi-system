@@ -20,7 +20,10 @@ release on its own, and the release workflow defaults to a dry run.
 
 ```sh
 # 1. On main, with a clean tree: add a "## [0.2.4-beta.1]" section to CHANGELOG.md and commit it.
-# 2. Run the full gate, bump every package.json and the lockfile, commit, tag (local only):
+# 2. Run the full gate, bump every package.json and the lockfile, commit, tag (local only).
+#    The gate is `npm ci --dry-run`, `npm run check:all` (about eight minutes), the lockfile check and a
+#    strict MkDocs build (`python -m pip install -r requirements-docs.txt` first; the script says so
+#    before it starts if MkDocs is missing):
 npm run release -- 0.2.4-beta.1
 # 3. Review the commit and tag, then push both:
 git push origin main --follow-tags

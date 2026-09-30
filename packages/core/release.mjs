@@ -23,7 +23,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { WORKSPACE_ROOT, PROFILES_DIR, PACKAGES_DIR } from "./lib/paths.mjs";
+import { WORKSPACE_ROOT, PACKAGES_DIR } from "./lib/paths.mjs";
 import { SEMVER, compareSemver } from "./lib/semver.mjs";
 import { setReadmeBadgeVersion } from "./lib/version-badge.mjs";
 
@@ -130,28 +130,23 @@ if (bumpOnly) {
   process.exit(0);
 }
 
-// 6. Full gate. `npm ci` first, so a lockfile that can't reproduce a clean install
-// blocks the release rather than shipping one (F-05's exact failure mode). Includes the
-// full per-profile + lite capstone matrix (H-08 fix: previously omitted entirely from
-// the release gate despite being the plan's own capstone acceptance criterion) and a
-// real, strict MkDocs build (H-08 fix: previously only the lighter custom link-checker
-// ran, which does not catch every broken-link class a real `mkdocs build --strict` does
-// - see docs/getting-started.md for the `requirements-docs.txt` prerequisite).
-run("npm ci --dry-run --ignore-scripts", { always: true });
-run("node packages/core/verify.mjs", { always: true });
-run("npm run test:security", { always: true });
-run("npm run eval", { always: true });
-run("npm run smoke:docs", { always: true });
-run("node packages/core/lockfile-check.mjs", { always: true });
-for (const file of fs.readdirSync(PROFILES_DIR)) {
-  if (!file.endsWith(".json")) continue;
-  run(`node packages/core/profile-check.mjs --profile ${file.replace(/\.json$/, "")}`, { always: true });
-}
+// 6. Full gate. MkDocs is part of it and is the one tool that is not an npm dependency, so find out now, not after
+// the whole suite, that it is missing (`run` exits on failure, so a check after it could never report this).
+// `npm ci` next, so a lockfile that can't reproduce a clean install blocks the release rather than shipping one
+// (F-05's exact failure mode). Then `npm run check:all`: the repository's single definition of "all the checks"
+// (what CI runs): the manifest, profile and catalogue checks, every smoke and security suite, the per-profile
+// install checks, the clean-install test on the packed tarball, the test-wiring check and the Mermaid check.
+// Then the checks that are not npm scripts of that kind: the lockfile check and a real, strict MkDocs build
+// (the lighter link checker does not catch every class of broken link; requirements-docs.txt is the prerequisite).
 try {
-  run("python -m mkdocs build --strict", { always: true });
+  execSync("python -m mkdocs --version", { cwd: ROOT, stdio: "ignore" });
 } catch {
-  fail("MkDocs build failed or MkDocs is not installed — run: python -m pip install --user -r requirements-docs.txt");
+  fail("MkDocs is not installed — the docs build is part of the release gate. Run: python -m pip install --user -r requirements-docs.txt");
 }
+run("npm ci --dry-run --ignore-scripts", { always: true });
+run("npm run check:all", { always: true });
+run("node packages/core/lockfile-check.mjs", { always: true });
+run("python -m mkdocs build --strict", { always: true });
 
 // 7. The one published package packs cleanly and works from its unpacked copy.
 run("node packages/core/pack-check.mjs", { always: true });

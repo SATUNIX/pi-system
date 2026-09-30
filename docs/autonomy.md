@@ -343,6 +343,10 @@ start with a small budget, before trusting a long run.
   this is a guard rail, not proof. `/autonomy start` binds its authorisation to the digest you were
   shown (`--digest`), and refuses if the file changed while you read it. A run id is a name
   (3–41 lowercase characters), never a path.
+- **The relay screens requests with a denylist.** It allows two routes and a model allowlist, removes
+  OpenRouter's web-search plugin and `web_search_options`, and refuses `:online` model variants. A
+  server-side tool feature it does not know by name would pass through; the model allowlist and
+  the budget are the stronger limits, and the worker's own network is the container's.
 - **`runtime.user: "0:0"`** (root inside the container) is accepted only when the engine reports
   itself rootless, where that root is your own user; on a rootful engine it would be host uid 0, so
   the run refuses to start. `plan` prints the user the containers run as.

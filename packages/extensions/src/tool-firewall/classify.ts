@@ -170,6 +170,10 @@ export function classifyPath(abs: string | null, env: ClassifyEnv, remote?: stri
   const agentDirs = remote ? [] : [...new Set([...(agentDirEnv ? [normalize(agentDirEnv)] : []), `${env.home}/.pi/agent`])];
   const captureDir = remote ? null : (process.env.PI_KIT_CAPTURE_DIR?.trim() || `${agentDirs[0]}/pi-kit/capture`).replace(/\/+$/, "");
   if (captureDir && within(trimmed, captureDir)) return "credential";
+  // The web console's access token (`/console` writes <web-ui>/.runtime/console.token, or the operator names a file in
+  // PI_CONSOLE_TOKEN_FILE): whoever holds it can drive sessions with shell access, so reading it is a credential read.
+  const consoleTokenFile = remote ? "" : process.env.PI_CONSOLE_TOKEN_FILE?.trim();
+  if (base === "console.token" || (consoleTokenFile && trimmed === normalize(consoleTokenFile))) return "credential";
 
   // Security controls for this kit.
   if (agentDirs.some((d) => trimmed === `${d}/settings.json` || within(trimmed, `${d}/pi-kit`))) return "security_control";

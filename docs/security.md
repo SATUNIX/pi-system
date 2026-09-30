@@ -111,6 +111,15 @@ from MCP-only mode: they do not touch a pentest target and are already gated by 
   does at run time: `./build.sh` or `python tool.py` is judged by name and context. A wrapper
   script the agent wrote earlier can hide an effect. Session history (download then execute,
   secret then send) and the headless fail-closed behaviour are the backstop.
+- **An approval binds the command as written, in one workspace, directory and session, not what it
+  will do.** `git push origin main` approved once runs again unasked in the same place even if
+  `origin` now points somewhere else, and an approved script runs again after it has been edited.
+  Approvals expire (24 hours for a session allow, 30 days for a learned one) and `/firewall revoke`
+  withdraws them, but the next repeat is judged by its text.
+- **The approvals file and the effort ledger are files.** Writes to the approvals file hold a lock
+  and fail (nothing is remembered, a revoke says nothing changed) rather than go ahead without it;
+  both locks recover from a crashed holder. A process running as your user can still edit either
+  file; the firewall protects them from the agent's tools, not from you or from another process.
 - **Low-tier actions run unasked in every mode.** That includes reads by tools whose name says
   they only read (`get_*`, `list_*`) and plain network GETs. `/firewall status` prints this.
   Tightening it would prompt on every MCP read.

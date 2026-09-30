@@ -94,6 +94,34 @@ const tests = {
     assert.match(jobs.get("npm-publish"), /environment:\s*\n\s+name: npm/, "npm publishing runs in the `npm` environment");
   },
 
+  "nothing releases unless the full gate and the dry-run plan passed for the same commit (the needs: chain)": () => {
+    const jobs = parseJobs(read("release.yml"));
+    const needs = (name) => {
+      const body = jobs.get(name) ?? "";
+      const inline = body.match(/^ {4}needs:\s*\[?([^\]\n]+)\]?\s*$/m);
+      if (inline) return inline[1].split(",").map((s) => s.trim()).filter(Boolean);
+      const block = body.match(/^ {4}needs:\s*\n((?: {6}- .+\n?)+)/m);
+      return block ? block[1].split("\n").map((l) => l.replace(/^\s*-\s*/, "").trim()).filter(Boolean) : [];
+    };
+    assert.match(jobs.get("gate"), /uses:\s*\.\/\.github\/workflows\/ci\.yml/, "the gate is the same CI workflow every pull request runs, by local path (the same commit)");
+    assert.deepEqual(needs("gate"), [], "the gate depends on nothing");
+    assert.deepEqual(needs("plan"), ["gate"], "the plan (dry run) waits for the gate");
+    assert.deepEqual(needs("github-release"), ["plan"], "creating the release waits for the plan");
+    assert.deepEqual(needs("npm-publish"), ["plan"], "publishing waits for the plan");
+    // plan needs gate, so both release jobs transitively need it.
+  },
+
+  "no job releases or publishes through a third-party action (the side-effect scan reads commands, not actions)": () => {
+    // SIDE_EFFECTS matches command lines. A `uses:` of a release, publish or deploy action would slip past it, so none is
+    // allowed anywhere: the release is made with `gh release create` and `npm publish` in the two guarded jobs.
+    const RELEASING_ACTION = /^\s*(?:-\s*)?uses:\s*\S*(?:release|publish|deploy|upload-release|create-pull-request|build-push|pages)\S*/i;
+    for (const file of fs.readdirSync(WORKFLOWS).filter((f) => f.endsWith(".yml"))) {
+      for (const line of read(file).split(/\r?\n/)) {
+        if (isCode(line) && RELEASING_ACTION.test(line)) assert.fail(`${file}: \`${line.trim()}\` is a releasing or publishing action, which the guarded jobs' structure test cannot see`);
+      }
+    }
+  },
+
   "the dry-run job only ever runs npm publish with --dry-run": () => {
     const plan = parseJobs(read("release.yml")).get("plan");
     const publishes = plan.split(/\r?\n/).filter((l) => /\bnpm publish\b/.test(l) && isCode(l));
@@ -140,6 +168,18 @@ const tests = {
         assert.match(m[1], /@[0-9a-f]{40}$/, `${file}: ${m[1]} is not pinned to a commit SHA`);
       }
     }
+  },
+
+  "every container image a job runs in is pinned by digest, and the docs toolchain by version": () => {
+    for (const file of fs.readdirSync(WORKFLOWS).filter((f) => f.endsWith(".yml"))) {
+      for (const line of read(file).split(/\r?\n/)) {
+        const m = isCode(line) ? line.match(/^\s*image:\s*(\S+)/) : null;
+        if (m) assert.match(m[1], /@sha256:[0-9a-f]{64}$/, `${file}: image ${m[1]} is a mutable tag; pin it by digest`);
+      }
+    }
+    const req = fs.readFileSync(path.join(ROOT, "requirements-docs.txt"), "utf8").split(/\r?\n/).filter((l) => l.trim() && !l.startsWith("#"));
+    assert.ok(req.length > 0, "requirements-docs.txt names the docs toolchain");
+    for (const line of req) assert.match(line, /^[A-Za-z0-9_.-]+==[0-9][0-9A-Za-z.+-]*$/, `requirements-docs.txt: "${line}" must be an exact version (the docs build is part of the release gate)`);
   },
 };
 

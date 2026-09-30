@@ -451,6 +451,58 @@ const tests = {
     } finally { w.cleanup(); }
   },
 
+  "a stale lock left by a crashed holder is broken safely: racing waiters cannot both win, and a release never removes someone else's lock": async () => {
+    const w = world();
+    try {
+      const old = (file) => { const t = new Date(Date.now() - 60_000); fs.utimesSync(file, t, t); };
+      // (a) A stale lock is broken and the section runs; the lock is gone afterwards.
+      const solo = path.join(w.agent, "stale-solo.json");
+      fs.writeFileSync(`${solo}.lock`, "999999\n"); old(`${solo}.lock`);
+      assert.equal(ledgerMod.withLock(solo, () => "ran"), "ran");
+      assert.equal(fs.existsSync(`${solo}.lock`), false);
+      // (b) A break lock left by a crash is itself stale and does not wedge the ledger.
+      fs.writeFileSync(`${solo}.lock`, "999999\n"); old(`${solo}.lock`);
+      fs.writeFileSync(`${solo}.lock.break`, "999999\n"); old(`${solo}.lock.break`);
+      assert.equal(ledgerMod.withLock(solo, () => "ran"), "ran");
+      assert.equal(fs.existsSync(`${solo}.lock.break`), false, "the dead break lock was cleared");
+      // (c) A release removes only its own lock: if a stall let someone else take over, theirs stays.
+      const stolen = path.join(w.agent, "stolen.json");
+      ledgerMod.withLock(stolen, () => { fs.writeFileSync(`${stolen}.lock`, "another-holder\n"); });
+      assert.equal(fs.readFileSync(`${stolen}.lock`, "utf8"), "another-holder\n", "a lock that is no longer ours is left alone");
+      fs.rmSync(`${stolen}.lock`);
+      // (d) Many processes see the same stale lock at the same instant: still exactly maxConcurrent slots are granted.
+      const file = path.join(w.agent, "stale-race.json");
+      const limits = { maxConcurrent: 4, maxTotal: 8, maxScouts: 2 };
+      ledgerMod.createLedger(file, { scope: "stale-race", tier: "thorough", limits, recovery: { maxInvocations: 2, maxConcurrent: 1, roles: ["scout"] }, sessionTotalBefore: 0, sessionCeiling: 64, mandatoryMax: 6 });
+      fs.writeFileSync(`${file}.lock`, "999999\n"); old(`${file}.lock`);
+      const ledgerPath = path.join(CACHE, "packages_extensions_src_effort_ledger.mjs");
+      const startAt = Date.now() + 1500;
+      const script = `
+        import(${JSON.stringify("file://" + ledgerPath)}).then((m) => {
+          const file = ${JSON.stringify(file)};
+          const limits = ${JSON.stringify(limits)};
+          const out = [];
+          while (Date.now() < ${startAt}) { /* spin until the barrier */ }
+          for (let i = 0; i < 12; i++) {
+            const r = m.reserve(file, { kind: "discretionary", role: "worker", requesterTier: "thorough", requesterLimits: limits, requesterLabel: "E4 Thorough" });
+            out.push(r.ok ? "ok" : r.code);
+            if (r.ok) m.attach(file, r.id, process.pid);
+          }
+          setTimeout(() => { console.log(JSON.stringify(out)); }, 300);
+        });`;
+      const runs = await Promise.all(Array.from({ length: 12 }, () => new Promise((resolve, reject) => {
+        const p = spawn(process.execPath, ["--input-type=module", "-e", script], { stdio: ["ignore", "pipe", "inherit"] });
+        let out = "";
+        p.stdout.on("data", (c) => (out += c));
+        p.on("close", (code) => (code === 0 ? resolve(JSON.parse(out.trim().split("\n").at(-1))) : reject(new Error(`stale-race child exited ${code}`))));
+      })));
+      const all = runs.flat();
+      assert.equal(all.filter((x) => x === "ok").length, 4, `a stale lock must not let two waiters both in: ${all.filter((x) => x === "ok").length} granted`);
+      assert.equal(ledgerMod.readLedger(file).total, 4);
+      assert.equal(fs.existsSync(`${file}.lock`) || fs.existsSync(`${file}.lock.break`), false, "no lock is left behind");
+    } finally { w.cleanup(); }
+  },
+
   "dead children release their concurrency slot (charge stays); orphaned reservations expire": () => {
     const w = world();
     try {

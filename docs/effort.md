@@ -105,11 +105,20 @@ Three kinds of launch are accounted separately from the discretionary budget abo
 | Kind | Budget | Why it is separate |
 |---|---|---|
 | **Mandatory** verification (completion reviewer, validator) | up to 6 a request | Verification is a safety control, so a minimal effort setting must not switch it off. |
-| **Recovery** | 2 invocations, 1 at a time, read-only scouts only, and only while the trusted recovery extension has recovery active | So a session at E1 can still get help when stuck. The model cannot open this budget itself, and it never adds to the discretionary one. |
+| **Recovery** | 2 invocations, 1 at a time, read-only scout roles only (see below), and only while the trusted recovery extension has recovery active | So a session at E1 can still get help when stuck. The model cannot open this budget itself, and it never adds to the discretionary one. |
 | **User-directed** (`/workflow` and similar commands you run) | the platform ceilings only | You asked for it. |
 
 If the policy or ledger cannot be read, delegation is **refused** rather than allowed without a
 budget; mandatory verification is the one exception, and runs unbudgeted rather than not at all.
+An unbudgeted verification child does not inherit a tier or a ledger, so it starts its own root
+scope; that is harmless only because the reviewer and validator roles have no `subagent` tool.
+
+**What "read-only scout" means.** Recovery accepts a role whose tool list is explicit and names no
+`write`, `edit`, `subagent` or `notebook_edit` tool (`isReadOnlyRole`), and that is named `scout` or
+says `scout: true`. `bash` is allowed by that test, so the built-in `scout` can run shell commands: it
+is a role and a budget, not a sandbox. Every child runs under its parent's firewall and
+protections whatever its role says. (The conductor applies a stricter test, counting `bash` as a
+write tool, for its own specialists.)
 
 ## Autonomous runs
 

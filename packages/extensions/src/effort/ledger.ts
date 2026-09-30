@@ -24,6 +24,7 @@
  * write, so a hostile process with shell access in the same account could tamper with it. The
  * hard boundary is the container or the firewall, never this file (docs/effort.md).
  */
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { TierLimits } from "./policy.ts";
@@ -117,20 +118,57 @@ function processAlive(pid: number): boolean {
   }
 }
 
-/** Run `fn` holding the ledger's exclusive lock (O_EXCL lock file, stale locks broken after 15 s). */
+// A stale lock (its holder crashed or stalled for longer than LOCK_STALE_MS) is broken under a second, short-lived
+// lock, and only after looking at the main lock again while holding it. Without that, two waiters that both saw
+// the same stale lock could each remove "it": the second removal deletes the first waiter's FRESH lock, and both
+// enter the critical section and grant the last slot twice. A break lock left behind by a crash is itself stale
+// after a moment.
+const LOCK_BREAK_STALE_MS = 3_000;
+
+function breakStaleLock(lock: string): void {
+  const breaker = `${lock}.break`;
+  try {
+    fs.writeFileSync(breaker, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
+    try {
+      if (Date.now() - fs.statSync(breaker).mtimeMs > LOCK_BREAK_STALE_MS) fs.rmSync(breaker, { force: true });
+    } catch {
+      /* gone already */
+    }
+    return; // another waiter is breaking it (or we just cleared a dead breaker): the caller looks again
+  }
+  try {
+    let mtimeMs: number;
+    try {
+      mtimeMs = fs.statSync(lock).mtimeMs;
+    } catch {
+      return; // released meanwhile
+    }
+    if (Date.now() - mtimeMs > LOCK_STALE_MS) fs.rmSync(lock, { force: true });
+  } finally {
+    fs.rmSync(breaker, { force: true });
+  }
+}
+
+/**
+ * Run `fn` holding the ledger's exclusive lock (O_EXCL lock file; a lock older than 15 s is stale and is broken
+ * by one waiter at a time). The lock carries this acquisition's own token, and is removed only if it still does.
+ */
 export function withLock<T>(file: string, fn: () => T): T {
   const lock = `${file}.lock`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const deadline = Date.now() + LOCK_WAIT_MS;
+  const token = `${process.pid}:${crypto.randomUUID()}\n`;
   for (;;) {
     try {
-      fs.writeFileSync(lock, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+      fs.writeFileSync(lock, token, { flag: "wx", mode: 0o600 });
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
       try {
         if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) {
-          fs.rmSync(lock, { force: true });
+          breakStaleLock(lock);
           continue;
         }
       } catch {
@@ -143,7 +181,12 @@ export function withLock<T>(file: string, fn: () => T): T {
   try {
     return fn();
   } finally {
-    fs.rmSync(lock, { force: true });
+    // Only our own lock: if a stall let someone break it and take over, theirs is not ours to remove.
+    try {
+      if (fs.readFileSync(lock, "utf8") === token) fs.rmSync(lock, { force: true });
+    } catch {
+      /* already gone */
+    }
   }
 }
 

@@ -19,11 +19,16 @@ import { fileURLToPath } from "node:url";
 // Access token hand-off: the console can drive agents with shell access, so it is not
 // started without a secret. `/console start` generates 256 random bits, writes them to
 // `<webUiRoot>/.runtime/console.token` (mode 0600) and tells the server where that file is
-// via PI_CONSOLE_TOKEN_FILE. The token is never put on a command line or in the server log.
-// `/console` shows it only in the login URL it prints/opens (`http://host:port/#token=...`;
-// a URL fragment never reaches the server or a Referer header). `/console status` hides it
-// unless asked (`--show-token`). An operator can supply their own via PI_CONSOLE_TOKEN or
-// PI_CONSOLE_TOKEN_FILE, or explicitly disable auth on loopback with PI_CONSOLE_AUTH=off.
+// via PI_CONSOLE_TOKEN_FILE. The token is not put on the server's command line or in its log.
+// `/console` shows it in the login URL it prints (`http://host:port/#token=...`; a URL fragment
+// never reaches the server or a Referer header). `/console open` also hands that URL to the
+// system opener as an argument (`xdg-open`, `open`, `start`), so it is briefly visible in the
+// process list, and a browser started by it can keep it in its own command line: prefer
+// `/console` and paste the URL when other users share the machine. The token file is readable by
+// your user, and so by the agent the console drives; the tool firewall classifies reading it as a
+// credential read. `/console status` hides the token unless asked (`--show-token`). An operator
+// can supply their own via PI_CONSOLE_TOKEN or PI_CONSOLE_TOKEN_FILE, or explicitly disable auth
+// on loopback with PI_CONSOLE_AUTH=off.
 //
 // Self-containment rule: import only node:* builtins and pi peers.
 // No sibling imports, no packages/core imports.
