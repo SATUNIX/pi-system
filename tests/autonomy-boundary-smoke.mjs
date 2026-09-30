@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assert, implementRaw, makeChecker, testEffort } from "./autonomy-helpers.mjs";
+import { assert, homeExposure, implementRaw, makeChecker, testEffort } from "./autonomy-helpers.mjs";
 import { loadModule } from "../packages/core/eval/harness.mjs";
 import { resolveContract, workerContract } from "../packages/autonomy/lib/contract.mjs";
 import { authorisationStatus, boundaryDigest, boundaryFields, decideStart, renderBoundary } from "../packages/autonomy/lib/boundary.mjs";
@@ -245,12 +245,21 @@ await check("every container the supervisor starts is hardened, on the right net
     assert.deepEqual(flag(b.args, "--security-opt"), ["no-new-privileges:true"], name);
     assert.notEqual(facts.user.split(":")[0], "0", `${name} does not run as root`);
     assert.ok(!b.args.includes("--privileged") && !b.args.some((a) => a.startsWith("--cap-add") || a.startsWith("--network=host") || a === "--pid" || a === "--ipc" || a === "--device"), name);
-    assert.ok(!b.args.join(" ").includes("docker.sock") && !b.args.join(" ").includes(os.homedir()) && !b.args.join(" ").includes("/.ssh"), name);
+    assert.ok(!b.args.join(" ").includes("docker.sock") && !b.args.join(" ").includes("/.ssh"), name);
+    assert.deepEqual(homeExposure(b.args), [], `${name} must not mount the operator's home or its credential directories`);
     assert.deepEqual(flag(b.args, "--label").filter((l) => l.startsWith("pi-autonomy.run=")), [`pi-autonomy.run=${cfg.run}`], `${name} is labelled with its run for orphan cleanup`);
     assert.ok(b.args.includes(`pi-autonomy.role=${b.role === "deploy-sync" ? "helper" : b.role}`) || b.role === "deploy-sync" || b.role === "bundle" || b.role === "snapshot" || b.role === "setref", `${name} role label`);
   }
   assert.ok(builders.worker.args.includes("--userns=keep-id") && !builders.workerDocker.args.includes("--userns=keep-id"), "keep-id is podman's");
   assert.equal(assertRunArgs(builders.worker.args, inspectOpts(builders.worker)).image, cfg.image);
+});
+
+await check("the home-exposure check detects the operator's home, its parents and its credential directories, and ignores a run directory beneath it", () => {
+  const home = "/home/operator";
+  const mount = (source) => ["--mount", `type=bind,source=${source},target=/x`];
+  for (const source of [home, "/home", "/", `${home}/.ssh`, `${home}/.pi/agent`, `${home}/.aws/credentials`]) assert.equal(homeExposure(mount(source), home).length, 1, source);
+  for (const source of [`${home}/work/_temp/autonomy-run`, "/var/lib/pi-autonomy/run-1", `${home}-other/run`]) assert.deepEqual(homeExposure(mount(source), home), [], source);
+  assert.equal(homeExposure(["-v", "/a:/b"], home).length, 1, "the short volume flag is refused outright");
 });
 
 await check("network placement: workers, services and probes on the internal network only; relay and proxy on the egress network; helpers on none", () => {

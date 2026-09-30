@@ -55,6 +55,22 @@ export function tempDir(prefix = "autonomy-test-") {
 
 export const rm = (dir) => fs.rmSync(dir, { recursive: true, force: true });
 
+/**
+ * The bind-mount sources in a container's argument list that expose the operator's home: the directory itself, a parent of it, or one
+ * of the places credentials live under it. A run directory that merely sits beneath the home directory is not exposure (on GitHub's
+ * hosted runners the temp directory is `~/work/_temp`, so a substring test for the home path fails there for no reason).
+ */
+export function homeExposure(args, home = os.homedir()) {
+  const inside = (parent, child) => {
+    const rel = path.relative(parent, child);
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  };
+  const secretDirs = [".ssh", ".pi", ".aws", ".gnupg", ".config", ".kube", ".docker"].map((d) => path.join(home, d));
+  const sources = args.flatMap((a, i) => (a === "--mount" ? [String(args[i + 1]).split(",").find((kv) => kv.startsWith("source="))?.slice(7)] : [])).filter(Boolean);
+  const volumeFlags = args.filter((a) => a === "-v" || a === "--volume" || a.startsWith("--volume="));
+  return [...volumeFlags, ...sources.filter((src) => inside(src, home) || secretDirs.some((d) => inside(d, src)))];
+}
+
 /** A minimal valid finite-task contract; tests override what they exercise. */
 export function implementRaw(over = {}) {
   return {
