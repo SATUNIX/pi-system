@@ -52,7 +52,7 @@ function makeWorld({ kitSource = "npm:@satunix/pi-system", kitVersion = "0.2.1-b
   };
 }
 
-const GIT_SOURCE = "git:gitlab.home.internal/lab/pi-system";
+const GIT_SOURCE = "git:github.com/SATUNIX/pi-system";
 const SHA_OLD = "1".repeat(40);
 const SHA_MAIN = "2".repeat(40);
 
@@ -60,7 +60,7 @@ const SHA_MAIN = "2".repeat(40);
 function makeGitWorld({ kitSource = `${GIT_SOURCE}@v0.2.1-beta.0`, kitVersion = "0.2.1-beta.0", delivery = "git", marker = { profile: "balanced", scope: "global" } } = {}) {
   const agent = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-update-agent-"));
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kit-update-cwd-"));
-  const kitRoot = path.join(agent, "git", "gitlab.home.internal", "lab", "pi-system");
+  const kitRoot = path.join(agent, "git", "github.com", "SATUNIX", "pi-system");
   writeJson(path.join(kitRoot, "package.json"), { name: "@satunix/pi-system", version: kitVersion });
   fs.mkdirSync(path.join(kitRoot, "packages", "core"), { recursive: true });
   fs.writeFileSync(path.join(kitRoot, "packages", "core", "install.mjs"), "// stub\n");
@@ -269,6 +269,114 @@ const tests = {
     }
   },
 
+  "an update whose command exits 0 but changed nothing is reported as a failure, never as success": async () => {
+    const w = makeWorld();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = fakeRegistry(TAGS).fetchImpl;
+    try {
+      const pi = fakePi();
+      kitUpdate(pi.api);
+      const calls = [];
+      pi.api.exec = async (command, args) => {
+        calls.push(args.join(" "));
+        return { stdout: "Already up to date", stderr: "", code: 0 };
+      };
+      const notes = [];
+      let reloaded = 0;
+      const ctx = {
+        hasUI: true,
+        cwd: w.cwd,
+        ui: { notify: (m, l) => notes.push({ m, l }), setStatus() {}, confirm: async () => true, select: async () => undefined },
+        reload: async () => { reloaded++; },
+      };
+      await pi.commands.get("update").handler("kit", ctx);
+      assert.equal(calls.length, 1, "later steps are not run after a failed verification");
+      assert.equal(reloaded, 0, "no reload after an update that did not happen");
+      const error = notes.find((n) => n.l === "error");
+      assert.ok(error && /did not take effect/.test(error.m) && /still 0\.2\.1-beta\.0|is 0\.2\.1-beta\.0/.test(error.m), error?.m);
+      assert.ok(!notes.some((n) => /Updated/.test(n.m)), "no success message");
+    } finally {
+      globalThis.fetch = realFetch;
+      w.cleanup();
+    }
+  },
+
+  "a session without a UI still gets the outcome, on stderr": async () => {
+    const w = makeWorld();
+    const realFetch = globalThis.fetch;
+    const realWrite = process.stderr.write.bind(process.stderr);
+    globalThis.fetch = fakeRegistry(TAGS).fetchImpl;
+    const written = [];
+    try {
+      const pi = fakePi();
+      kitUpdate(pi.api);
+      pi.api.exec = async () => ({ stdout: "", stderr: "npm ERR! network", code: 1 });
+      process.stderr.write = (chunk) => { written.push(String(chunk)); return true; };
+      const ctx = { hasUI: false, cwd: w.cwd, ui: {}, reload: async () => {} };
+      await pi.commands.get("update").handler("", ctx);
+      await pi.commands.get("update").handler("kit", ctx);
+      await pi.commands.get("update").handler("bogus", ctx);
+      process.stderr.write = realWrite;
+      const text = written.join("");
+      assert.match(text, /pi-system update status/, "no argument prints the status instead of doing nothing");
+      assert.match(text, /Non-interactive session/);
+      assert.match(text, /"update pi-system to [^"]+" failed: exit 1[\s\S]*npm ERR! network/, "a failed step is reported with its output");
+      assert.match(text, /unknown option "bogus"/);
+    } finally {
+      process.stderr.write = realWrite;
+      globalThis.fetch = realFetch;
+      w.cleanup();
+    }
+  },
+
+  "an install registered from the retired private source migrates to the public one without contacting it": async () => {
+    const legacy = "git:gitlab.home.internal/lab/pi-system";
+    const w = makeGitWorld({ kitSource: `${legacy}@v0.2.1-beta.0`, marker: { profile: "balanced", scope: "global", channel: "0.2.1-beta.0", kitSource: `${legacy}@v0.2.1-beta.0` } });
+    const restoreEnv = setEnv("PI_SYSTEM_GIT_SOURCE", "git:git@gitlab.home.internal:lab/pi-system");
+    try {
+      const { git, calls } = fakeGit({ tags: ["0.2.4-beta.0"] });
+      const report = await checkForUpdates(w.cwd, fakeRegistry(TAGS).fetchImpl, "0.87.1", git);
+      assert.equal(report.kit.legacy, true);
+      assert.equal(report.kit.available, true);
+      assert.deepEqual(calls.filter((c) => c.includes("ls-remote")), [], "the retired remote is never contacted");
+      assert.match(report.kit.note, /retired private source/);
+      assert.match(report.kit.note, /PI_SYSTEM_GIT_SOURCE=git:git@gitlab.home.internal:lab\/pi-system names the retired source and is ignored/);
+      assert.match(summaryLine(report), /retired private source/);
+      assert.match(formatReport(report), /retired private source/);
+      const plan = planUpdate(report, "kit");
+      assert.equal(plan.steps.length, 1);
+      const args = plan.steps[0].args.join(" ");
+      assert.match(args, /install\.mjs --mode git --channel latest --profile balanced --yes$/, args);
+      assert.ok(!/gitlab/.test(args), "the plan never names the private host");
+      // A user following main stays on main.
+      writeJson(path.join(w.agent, ".pi-kit.json"), { profile: "balanced", scope: "global", channel: "next", kitSource: legacy });
+      writeJson(path.join(w.agent, "settings.json"), { packages: [{ source: legacy, extensions: [] }] });
+      const next = await checkForUpdates(w.cwd, fakeRegistry(TAGS).fetchImpl, "0.87.1", git);
+      assert.match(planUpdate(next, "kit").steps[0].args.join(" "), /--channel next/);
+    } finally {
+      restoreEnv();
+      w.cleanup();
+    }
+  },
+
+  "a stale PI_SYSTEM_GIT_SOURCE naming the retired source is ignored, other overrides are kept": () => {
+    const restore = setEnv("PI_SYSTEM_GIT_SOURCE", "git:git@gitlab.home.internal:lab/pi-system");
+    try {
+      const d = mod.readDistribution(null);
+      assert.equal(d.gitSource, null, "no source is invented from the retired override");
+      assert.equal(d.ignoredEnvSource, "git:git@gitlab.home.internal:lab/pi-system");
+      assert.ok(mod.isLegacyGitSource("https://gitlab.home.internal/root/pi-system.git"));
+      assert.ok(!mod.isLegacyGitSource("git:github.com/SATUNIX/pi-system"));
+      assert.ok(!mod.isLegacyGitSource("git:github.com/example/pi-system"));
+      process.env.PI_SYSTEM_GIT_SOURCE = "git:github.com/example/pi-system";
+      const fork = mod.readDistribution(null);
+      assert.equal(fork.gitSource, "git:github.com/example/pi-system", "a fork override is the user's choice");
+      assert.equal(fork.ignoredEnvSource, null);
+    } finally {
+      restore();
+    }
+  },
+
   "/update runs the confirmed plan, stops on failure and does not reload": async () => {
     const w = makeWorld({ packages: ["npm:some-tool"], installed: { "some-tool": "1.0.0" } });
     const realFetch = globalThis.fetch;
@@ -298,9 +406,19 @@ const tests = {
 
       failAt = 0;
       calls.length = 0;
+      // A real `pi update` moves the installed package; simulate that effect so the post-update
+      // verification (the update must have taken effect, not merely exited 0) can confirm it.
+      pi.api.exec = async (command, args) => {
+        calls.push(args.join(" "));
+        if (args[0] === "update" && args[1] === "npm:@satunix/pi-system") writeJson(path.join(w.kitRoot, "package.json"), { name: "@satunix/pi-system", version: TAGS["@satunix/pi-system"].latest });
+        // The installer rewrites the install marker when it re-applies the profile.
+        if (String(args[0]).endsWith("install.mjs")) writeJson(path.join(w.agent, ".pi-kit.json"), { profile: "balanced", scope: "global", installedAt: new Date().toISOString() });
+        return { stdout: "", stderr: "", code: 0 };
+      };
       await handler("kit", ctx);
       assert.deepEqual(calls[0], "update npm:@satunix/pi-system");
       assert.equal(reloaded, 1, "a successful kit update reloads");
+      assert.ok(notes.some((n) => /Updated \(verified\)/.test(n.m)), "success says the result was verified");
 
       await handler("status", ctx);
       assert.ok(notes.at(-1).m.includes("pi-system update status"));
@@ -311,8 +429,8 @@ const tests = {
   },
 
   "parses git sources the way pi identifies them": () => {
-    assert.deepEqual(parseGitSource("git:gitlab.home.internal/lab/pi-system@v0.2.1-beta.0"), { repo: "https://gitlab.home.internal/lab/pi-system", host: "gitlab.home.internal", path: "lab/pi-system", ref: "v0.2.1-beta.0" });
-    assert.deepEqual(parseGitSource("git:git@gitlab.home.internal:lab/pi-system"), { repo: "git@gitlab.home.internal:lab/pi-system", host: "gitlab.home.internal", path: "lab/pi-system", ref: null });
+    assert.deepEqual(parseGitSource("git:github.com/SATUNIX/pi-system@v0.2.1-beta.0"), { repo: "https://github.com/SATUNIX/pi-system", host: "github.com", path: "SATUNIX/pi-system", ref: "v0.2.1-beta.0" });
+    assert.deepEqual(parseGitSource("git:git@github.com:SATUNIX/pi-system"), { repo: "git@github.com:SATUNIX/pi-system", host: "github.com", path: "SATUNIX/pi-system", ref: null });
     assert.equal(parseGitSource("npm:x"), null);
     assert.equal(gitSourceWithRef(`${GIT_SOURCE}@v1.0.0`, "v1.1.0"), `${GIT_SOURCE}@v1.1.0`);
     assert.equal(gitSourceWithRef(`${GIT_SOURCE}@v1.0.0`, null), GIT_SOURCE);
@@ -401,7 +519,7 @@ const tests = {
       const report = await checkForUpdates(w.cwd, fakeRegistry(TAGS).fetchImpl, "0.87.1", fakeGit({ reachable: false }).git);
       assert.equal(report.offline, true);
       assert.equal(report.kit.available, false);
-      assert.match(report.kit.note, /could not reach https:\/\/gitlab\.home\.internal\/lab\/pi-system/);
+      assert.match(report.kit.note, /could not reach https:\/\/github\.com\/SATUNIX\/pi-system/);
     } finally {
       w.cleanup();
     }

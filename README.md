@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://gitlab.home.internal/lab/pi-system/-/pipelines?ref=main"><img src="https://gitlab.home.internal/lab/pi-system/badges/main/pipeline.svg" alt="pipeline status"></a>
   <a href="https://gitlab.home.internal/lab/pi-system/-/releases"><img src="https://gitlab.home.internal/lab/pi-system/-/badges/release.svg" alt="latest release"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.1--beta.0-blue" alt="version 0.2.1-beta.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.4--beta.0-blue" alt="version 0.2.1-beta.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="license MIT"></a>
   <a href="docs/ci-security.md"><img src="https://img.shields.io/badge/secrets-gitleaks-informational" alt="secret scanning: gitleaks"></a>
   <a href="docs/ci-security.md"><img src="https://img.shields.io/badge/SAST-semgrep-informational" alt="SAST: semgrep"></a>

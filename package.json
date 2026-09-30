@@ -1,6 +1,6 @@
 {
   "name": "@satunix/pi-system",
-  "version": "0.2.1-beta.0",
+  "version": "0.2.4-beta.0",
   "description": "Safety-first kit for the pi coding agent: tool firewall, secret guard, checkpoints, verification, memory, orchestration, skills and themes. One package; pick a profile with /profile.",
   "type": "module",
   "keywords": [
@@ -12,13 +12,13 @@
   ],
   "license": "MIT",
   "author": "SATUNIX",
-  "homepage": "https://gitlab.home.internal/lab/pi-system",
+  "homepage": "https://github.com/SATUNIX/pi-system#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://gitlab.home.internal/lab/pi-system.git"
+    "url": "git+https://github.com/SATUNIX/pi-system.git"
   },
   "bugs": {
-    "url": "https://gitlab.home.internal/lab/pi-system/-/issues"
+    "url": "https://github.com/SATUNIX/pi-system/issues"
   },
   "engines": {
     "node": ">=20"
@@ -146,6 +146,7 @@
     "smoke:recovery-grounding": "node tests/recovery-grounding-smoke.mjs",
     "smoke:role-runner": "node tests/role-runner-smoke.mjs",
     "smoke:release-lockfile": "node tests/release-lockfile-smoke.mjs",
+    "smoke:release-workflow": "node tests/release-workflow-smoke.mjs",
     "smoke:save": "node tests/save-smoke.mjs",
     "smoke:secret-guard": "node tests/secret-guard-smoke.mjs",
     "smoke:self-improvement": "node tests/self-improvement-smoke.mjs",
@@ -167,7 +168,6 @@
     "smoke:tool-capture": "node tests/tool-capture-smoke.mjs",
     "smoke:kit-update": "node tests/kit-update-smoke.mjs",
     "smoke:distribution": "node tests/distribution-smoke.mjs",
-    "smoke:gitlab-release": "node tests/gitlab-release-smoke.mjs",
     "smoke:trigger-compact-threshold": "node tests/trigger-compact-threshold-smoke.mjs",
     "smoke:verification-lifecycle": "node tests/verification-lifecycle-smoke.mjs",
     "smoke:verifier-board-trust": "node tests/verifier-board-trust-smoke.mjs",
