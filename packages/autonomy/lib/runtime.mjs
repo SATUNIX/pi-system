@@ -8,6 +8,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -154,6 +155,29 @@ export class DockerRuntime {
       if (this.cli(["network", "inspect", args.at(-1)], { allowFail: true }) === null) this.cli(args);
     }
     if (this.cli(["network", "inspect", this.names.net, "--format", "{{.Internal}}"]) !== "true") throw new Error(`network ${this.names.net} exists but is not internal; remove it and resume`);
+    if (this.bin === "docker" && this.cli(["network", "inspect", this.names.net, "--format", `{{index .Options "${dk.HOSTLESS_OPTION}"}}`]) !== "true") throw new Error(`network ${this.names.net} exists without ${dk.HOSTLESS_OPTION}=true, so the host would be reachable from the zone through the bridge address; remove it and resume`);
+  }
+
+  /** The IPv4 addresses on the run's networks that the host itself could answer on (subnet first host, gateways): what a worker must not be able to reach. */
+  zoneHostAddresses() {
+    const found = new Set(["172.17.0.1"]); // the engine's default bridge gateway
+    const walk = (v) => {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") {
+        for (const [k, x] of Object.entries(v)) {
+          if (typeof x === "string" && /^gateway$/i.test(k) && /^\d+\.\d+\.\d+\.\d+$/.test(x)) found.add(x);
+          else if (typeof x === "string" && /^subnet$/i.test(k) && /^\d+\.\d+\.\d+\.\d+\/\d+$/.test(x)) {
+            const o = x.split("/")[0].split(".").map(Number);
+            found.add(`${o[0]}.${o[1]}.${o[2]}.${o[3] + 1}`);
+          } else walk(x);
+        }
+      }
+    };
+    for (const network of [this.names.net, this.names.egress]) {
+      const raw = this.cli(["network", "inspect", network], { allowFail: true });
+      try { walk(JSON.parse(raw ?? "[]")); } catch { /* an unreadable network adds nothing to try */ }
+    }
+    return [...found];
   }
 
   async writeModelSpecs(log) {
@@ -274,9 +298,15 @@ export class DockerRuntime {
     const keyRegex = contract.model.provider === "openrouter" ? "sk-or-v1-[0-9a-f]{32,}" : "[A-Za-z0-9_.-]{24,200}";
     const allow = contract.permissions.network.egress.map((e) => `${e.host}:${e.ports[0]}`).join(",");
     const services = contract.permissions.network.services.map((s) => `${s.name}:${s.port}`).join(",");
-    const probeArgs = [...args.slice(0, at), "--env", `AUTONOMY_KEY_SHA256=${keyHash}`, "--env", `AUTONOMY_KEY_REGEX=${keyRegex}`, "--env", `AUTONOMY_EGRESS_ALLOW=${allow}`, "--env", `AUTONOMY_SERVICES=${services}`,
+    // A canary listener on the host, on every interface: the zone must not reach it at any address the host holds on the run's networks.
+    const canary = net.createServer((s) => s.destroy());
+    await new Promise((resolve) => canary.listen(0, "0.0.0.0", resolve));
+    const canaryPort = canary.address().port;
+    const hostTargets = this.zoneHostAddresses().map((ip) => `${ip}:${canaryPort}`).join(",");
+    const probeArgs = [...args.slice(0, at), "--env", `AUTONOMY_KEY_SHA256=${keyHash}`, "--env", `AUTONOMY_KEY_REGEX=${keyRegex}`, "--env", `AUTONOMY_EGRESS_ALLOW=${allow}`, "--env", `AUTONOMY_SERVICES=${services}`, "--env", `AUTONOMY_HOST_CANARY=${hostTargets}`,
       "--mount", `type=bind,source=${path.join(PKG, "tests", "boundary-probe.mjs")},target=/probe.mjs,readonly`, "--entrypoint", "node", cfg.image, "/probe.mjs"];
-    const r = await this.helper(probeArgs, { role: "worker", networks: [this.names.net], timeoutMs: 180_000 });
+    let r;
+    try { r = await this.helper(probeArgs, { role: "worker", networks: [this.names.net], timeoutMs: 180_000 }); } finally { canary.close(); }
     let report;
     try { report = JSON.parse(r.stdout.trim().split("\n").at(-1)); } catch { throw new Error(`boundary probe gave no report (exit ${r.code}): ${r.stderr.trim().slice(-500)}`); }
     fs.writeFileSync(p.boundary, `${JSON.stringify({ at: new Date().toISOString(), ...report }, null, 2)}\n`);

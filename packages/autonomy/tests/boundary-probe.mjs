@@ -9,6 +9,7 @@
 //   AUTONOMY_KEY_REGEX          how keys of this provider look, to find candidates in mounted files
 //   AUTONOMY_EGRESS_ALLOW       host:port,... the contract lists (empty: no proxy is configured)
 //   AUTONOMY_SERVICES           name:port,... run services (informational)
+//   AUTONOMY_HOST_CANARY        ip:port,... a listener the supervisor holds on the host; none may connect
 //   AUTONOMY_ROOTLESS=1         rootless Docker maps root to the operator; uid 0 is then expected
 import dns from "node:dns/promises";
 import fs from "node:fs";
@@ -39,6 +40,21 @@ for (const host of ["example.com", "registry.npmjs.org", "github.com", "gitlab.c
 for (const [host, port] of [["1.1.1.1", 443], ["8.8.8.8", 53], ["172.17.0.1", 22], ["172.17.0.1", 2375], ["169.254.169.254", 80], ["192.168.1.1", 443]]) {
   await expect(`tcp ${host}:${port} fails`, () => mustFail(connect(host, port), `connecting to ${host}:${port}`));
 }
+// The host itself: Docker's internal networks stop forwarding, not the host answering on the bridge's own
+// address. The supervisor runs a canary listener on every host interface and names the addresses to try
+// (the zone's own first address, each bridge gateway); none may connect.
+const canaries = (process.env.AUTONOMY_HOST_CANARY ?? "").split(",").filter(Boolean);
+if (canaries.length) {
+  await expect(`host services are not reachable (${canaries.length} canary address(es))`, async () => {
+    const reached = [];
+    for (const target of canaries) {
+      const [host, port] = target.split(":");
+      try { await connect(host, Number(port), 3000); reached.push(target); } catch { /* blocked, as it must be */ }
+    }
+    if (reached.length) throw new Error(`the host answered at ${reached.join(", ")}`);
+    return "no canary connected";
+  });
+} else checks.push({ name: "host services are not reachable", ok: false, detail: "the supervisor gave the probe no canary addresses" });
 await expect("relay refuses non-inference paths", async () => {
   for (const [method, path] of [["GET", "/v1/keys"], ["GET", "/api/v1/credits"], ["POST", "/v1/embeddings"], ["GET", "/"]]) {
     const r = await relay(path, { method });
@@ -85,7 +101,8 @@ if (allow.length) {
 
 await expect("no credentials in the environment", () => {
   const ok = new Set(["AUTONOMY_KEY_SHA256", "AUTONOMY_KEY_REGEX", "PI_KIT_UNATTENDED_CONTRACT", "PI_KIT_UNATTENDED_BOUNDARY", "PI_KIT_UNATTENDED"]);
-  const bad = Object.entries(process.env).filter(([k, v]) => (/key|token|secret|passw|auth|credential/i.test(k) && !ok.has(k)) || /sk-or-|sk-ant-|glpat-|ghp_|github_pat_|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY/.test(v ?? ""));
+  // The probe's own parameters (a key HASH, and the shape of keys, which itself contains "sk-or-") are not credentials.
+  const bad = Object.entries(process.env).filter(([k]) => !ok.has(k)).filter(([k, v]) => /key|token|secret|passw|auth|credential/i.test(k) || /sk-or-|sk-ant-|glpat-|ghp_|github_pat_|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY/.test(v ?? ""));
   if (bad.length) throw new Error(`found ${bad.map(([k]) => k).join(", ")}`);
 });
 // The repository itself may hold synthetic keys (test fixtures), so key shapes alone prove nothing.

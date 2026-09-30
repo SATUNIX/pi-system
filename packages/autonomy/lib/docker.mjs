@@ -154,9 +154,20 @@ export function serviceRunArgs(cfg, p, svc) {
   return { args, secretEnv: { ...(svc.credentialEnv ?? {}) } };
 }
 
-/** Network creation: the run network must be internal. */
+/**
+ * Network creation: the run network must be internal. On Docker that is not enough: an internal
+ * network stops FORWARDING off the bridge, but the host itself still answers on the bridge's own
+ * address (that is INPUT, not FORWARD), so any service the host listens on 0.0.0.0 (a database, sshd,
+ * an engine API on TCP) would be reachable from the zone. Docker's `inhibit_ipv4` leaves the bridge
+ * with no address, so there is no host on the network to reach. (Verified on a real engine by
+ * tests/autonomy-container-smoke.mjs, and re-verified before every start by the boundary probe's
+ * canary; Podman's internal networks are checked by the same canary, not assumed.)
+ */
+export const HOSTLESS_OPTION = "com.docker.network.bridge.inhibit_ipv4";
+
 export function networkCreateArgs(cfg) {
-  return [["network", "create", "--internal", names(cfg).net], ["network", "create", names(cfg).egress]];
+  const hostless = cfg.engine === "docker" ? ["--opt", `${HOSTLESS_OPTION}=true`] : [];
+  return [["network", "create", "--internal", ...hostless, names(cfg).net], ["network", "create", names(cfg).egress]];
 }
 
 /** Listing and removal of everything a run created, by label (orphan cleanup after a crash). */

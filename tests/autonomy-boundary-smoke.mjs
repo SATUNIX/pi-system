@@ -199,7 +199,12 @@ await check("network placement: workers, services and probes on the internal net
   assert.deepEqual(flag(builders.proxy.args, "--network"), [N.egress]);
   for (const k of ["bundle", "snapshot", "setref", "check", "deploySync"]) assert.deepEqual(flag(builders[k].args, "--network"), ["none"], k);
   const [internal, egress] = dk.networkCreateArgs(cfg);
-  assert.deepEqual(internal, ["network", "create", "--internal", N.net]);
+  assert.deepEqual(internal, ["network", "create", "--internal", N.net], "podman: nothing extra (its internal network is checked by the probe's canary)");
+  // Docker's internal network stops forwarding, but the host still answers on the bridge's own address; without an address on the bridge there is no host to reach.
+  const dockerNets = dk.networkCreateArgs(cfgDocker);
+  assert.deepEqual(dockerNets[0], ["network", "create", "--internal", "--opt", "com.docker.network.bridge.inhibit_ipv4=true", N.net]);
+  assert.equal(dk.HOSTLESS_OPTION, "com.docker.network.bridge.inhibit_ipv4");
+  assert.ok(!dockerNets[1].includes("--internal") && !dockerNets[1].includes("--opt"), "the outward network is an ordinary bridge");
   assert.equal(egress.at(-1), N.egress);
   assert.ok(!egress.includes("--internal"));
   assert.deepEqual(flag(builders.service.args, "--network-alias"), ["web"], "workers reach services by name");
