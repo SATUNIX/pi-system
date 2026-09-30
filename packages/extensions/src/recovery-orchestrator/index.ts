@@ -287,7 +287,7 @@ export default function (pi: ExtensionAPI) {
     try {
       const reportAbs = path.join(cwd, reportRel!);
       fs.mkdirSync(path.dirname(reportAbs), { recursive: true });
-      if (!fs.existsSync(reportAbs)) fs.writeFileSync(reportAbs, reportScaffold(esc!, attempt!, cwd), "utf8");
+      fs.writeFileSync(reportAbs, reportScaffold(esc!, attempt!, cwd), { encoding: "utf8", flag: "wx" }); // created only if absent, in one step
     } catch {
       /* report is best-effort; the steer is the important part */
     }
@@ -325,7 +325,7 @@ export default function (pi: ExtensionAPI) {
         try {
           const reportAbs = path.join(dir, plan.reportRel!);
           fs.mkdirSync(path.dirname(reportAbs), { recursive: true });
-          if (!fs.existsSync(reportAbs)) fs.writeFileSync(reportAbs, reportScaffold(plan.escalation!, plan.attempt!, dir), "utf8");
+          fs.writeFileSync(reportAbs, reportScaffold(plan.escalation!, plan.attempt!, dir), { encoding: "utf8", flag: "wx" }); // created only if absent, in one step
         } catch { /* ignore */ }
         writeContribution(dir, recoveryContent(plan.escalation!, plan.attempt!, plan.reportRel!));
         clearEscalation(dir);

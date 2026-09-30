@@ -178,11 +178,17 @@ export function evaluateUnattended(o: LoadOptions): UnattendedState {
   let bytes: Buffer;
   let owner: { uid: number };
   try {
-    const st = fs.statSync(file);
-    if (!st.isFile()) return fail(`the contract ${file} is not a regular file`);
-    if (st.size > MAX_CONTRACT_BYTES) return fail(`the contract ${file} is larger than ${MAX_CONTRACT_BYTES} bytes`);
-    bytes = fs.readFileSync(file);
-    owner = { uid: st.uid };
+    // One open file: the owner, the size and the bytes that are judged are those of the same file.
+    const fd = fs.openSync(file, "r");
+    try {
+      const st = fs.fstatSync(fd);
+      if (!st.isFile()) return fail(`the contract ${file} is not a regular file`);
+      if (st.size > MAX_CONTRACT_BYTES) return fail(`the contract ${file} is larger than ${MAX_CONTRACT_BYTES} bytes`);
+      bytes = fs.readFileSync(fd);
+      owner = { uid: st.uid };
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (error) {
     return fail(`the contract ${file} cannot be read (${(error as NodeJS.ErrnoException)?.code ?? String((error as Error)?.message ?? error)})`);
   }

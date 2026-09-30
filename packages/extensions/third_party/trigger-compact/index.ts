@@ -74,19 +74,27 @@ function kitTriggerEnabled(): boolean {
 type CompactionBlock = { enabled?: unknown; reserveTokens?: unknown };
 const settingsCache = new Map<string, { mtimeMs: number; size: number; block: CompactionBlock | undefined }>();
 function readCompactionBlock(file: string): CompactionBlock | undefined {
+  // One open file: the mtime and size that key the cache describe the same file that is parsed.
   let mtimeMs: number;
   let size: number;
+  let text = "";
+  const cached = settingsCache.get(file);
   try {
-    ({ mtimeMs, size } = fs.statSync(file));
+    const fd = fs.openSync(file, "r");
+    try {
+      ({ mtimeMs, size } = fs.fstatSync(fd));
+      if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.block;
+      text = fs.readFileSync(fd, "utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch {
     settingsCache.delete(file);
     return undefined;
   }
-  const cached = settingsCache.get(file);
-  if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.block;
   let block: CompactionBlock | undefined;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, "")) as { compaction?: unknown };
+    const parsed = JSON.parse(text.replace(/^﻿/, "")) as { compaction?: unknown };
     const c = parsed?.compaction;
     block = c !== null && typeof c === "object" && !Array.isArray(c) ? (c as CompactionBlock) : {};
   } catch {

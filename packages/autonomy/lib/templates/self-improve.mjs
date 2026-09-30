@@ -73,7 +73,7 @@ function validate(contract, { err, warn }) {
 }
 
 // --- seeding ----------------------------------------------------------------------------------------
-const backlogRows = (contract) => contract.objective.backlog.map((i) => `| ${i.id} | open | P2 | ${String(i.detail ? `**${i.title}.** ${i.detail}` : i.title).replace(/\|/g, "\\|").replace(/\n/g, " ")} | Operator's brief |`).join("\n");
+const backlogRows = (contract) => contract.objective.backlog.map((i) => `| ${i.id} | open | P2 | ${String(i.detail ? `**${i.title}.** ${i.detail}` : i.title).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ")} | Operator's brief |`).join("\n");
 
 /** Integration branch: adopted from the destination, or created from the base with the seed files; the working branch at its head. */
 async function seed(ctx) {

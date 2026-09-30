@@ -12,6 +12,7 @@
 //   helpers   --network none: bundle/snapshot the worker's refs, update its bare repo, deploy-sync,
 //             run one acceptance check in a clean clone
 import path from "node:path";
+import { randomSuffix } from "./fsutil.mjs";
 import { PROXY_HOST, PROXY_PORT, RELAY_HOST, RELAY_PORT, envArgs, workerEnv } from "./worker-env.mjs";
 
 export function names(cfg) {
@@ -24,7 +25,7 @@ export function names(cfg) {
     proxy: `${p}-proxy`,
     agent: (n, attempt) => `${p}-agent-${String(n).padStart(2, "0")}-${attempt}`,
     service: (name) => `${p}-svc-${name}`,
-    helper: (what) => `${p}-${what}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+    helper: (what) => `${p}-${what}-${Date.now().toString(36)}${randomSuffix(3)}`,
   };
 }
 

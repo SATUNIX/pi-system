@@ -9,9 +9,10 @@ function handoffFilePath(cwd: string): string {
 function appendHandoff(filePath: string, note: string): void {
   const timestamp = new Date().toISOString();
   const entry = `\n## ${timestamp}\n\n${note.trim()}\n`;
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, `# Handoff Notes\n${entry}`);
-  } else {
+  try {
+    fs.writeFileSync(filePath, `# Handoff Notes\n${entry}`, { flag: "wx" }); // created only if absent, in one step
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
     fs.appendFileSync(filePath, entry);
   }
 }

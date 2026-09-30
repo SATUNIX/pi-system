@@ -25,6 +25,7 @@ import { authorisationStatus, boundaryDigest, decideStart, renderBoundary } from
 import { num, parseArgs } from "./lib/cli-args.mjs";
 import { formatProblems, providerIds, resolveContract } from "./lib/contract.mjs";
 import { effortApi } from "./lib/effort.mjs";
+import { randomSuffix } from "./lib/fsutil.mjs";
 import { Engine } from "./lib/engine.mjs";
 import { exportRun } from "./lib/export.mjs";
 import { HostRepo } from "./lib/hostrepo.mjs";
@@ -176,7 +177,7 @@ const commands = {
     if (!TEMPLATES[template]) throw new CliError("usage", `--template must be one of ${Object.keys(TEMPLATES).join(", ")} (see \`pi-autonomy templates\`)`);
     const ask = async (q, given, def) => (given !== undefined ? given : interactive ? await deps.ask(q, def) : def);
     const stamp = deps.now().toISOString().slice(0, 10).replace(/-/g, "");
-    const run = await ask("Run id", opts.run, `${template === "self-improve" ? "improve" : template}-${stamp}-${Math.random().toString(36).slice(2, 6)}`);
+    const run = await ask("Run id", opts.run, `${template === "self-improve" ? "improve" : template}-${stamp}-${randomSuffix(4)}`);
     const title = await ask("Title", opts.title, template === "self-improve" ? "Improve the repository in reviewed cycles" : undefined);
     const raw = { schemaVersion: 1, run, template, objective: { title }, inputs: {}, acceptance: { checks: [], review: !opts["no-review"] }, permissions: { network: {}, unattended: {} }, budget: {}, promotion: { policy: opts.promotion ?? (template === "self-improve" ? "local-branch" : "none") } };
     let spec = opts.spec;
@@ -227,8 +228,8 @@ const commands = {
     const out = path.resolve(opts.out ?? "run.json");
     const r = resolveContract(raw, { baseDir: path.dirname(out), effort: deps.effort, checkFs: false });
     if (!r.ok && !opts.force) throw new CliError("invalid", `the contract is not valid yet:\n${formatProblems(r.problems)}\nFix the flags (or pass --force to write it anyway and edit it by hand).`, { problems: r.problems });
-    if (fs.existsSync(out) && !opts.force) throw new CliError("refused", `${out} exists; pass --force to overwrite it`);
-    fs.writeFileSync(out, `${JSON.stringify(raw, null, 2)}\n`);
+    // "wx" creates the file only if it does not exist, in one step: no window between checking and writing.
+    try { fs.writeFileSync(out, `${JSON.stringify(raw, null, 2)}\n`, { flag: opts.force ? "w" : "wx" }); } catch (e) { if (e?.code === "EEXIST") throw new CliError("refused", `${out} exists; pass --force to overwrite it`); throw e; }
     return { data: { path: out, run, template, valid: r.ok, problems: r.problems, contract: raw, next: [`pi-autonomy plan --config ${out}`, `pi-autonomy start --config ${out}`] }, text: `wrote ${out}${r.problems.length ? `\n${formatProblems(r.problems)}` : ""}\nnext: pi-autonomy plan --config ${out}   (shows exactly what the run may touch, and its digest)` };
   },
 
@@ -457,7 +458,7 @@ export async function supervise(store, deps, { runtime } = {}) {
 /** The live container probe, standalone (`boundary --probe`): networks, relay, proxy, services and the probe, then teardown. */
 async function probeOnly(contract, deps) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-autonomy-probe-"));
-  const probeContract = { ...contract, run: `probe-${Math.random().toString(36).slice(2, 8)}` };
+  const probeContract = { ...contract, run: `probe-${randomSuffix(6)}` };
   try {
     const store = createRun({ contract: probeContract, authorisation: { boundaryDigest: boundaryDigest(probeContract), by: "probe", at: deps.now().toISOString(), via: "probe" }, home, now: deps.now, boundaryEffort: effortFor(deps) });
     const cfg = runtimeConfig(probeContract);

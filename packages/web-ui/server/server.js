@@ -72,13 +72,52 @@ function serveStatic(res, pathname) {
 		sendError(res, 403, "forbidden");
 		return;
 	}
-	fs.stat(resolved, (err, stat) => {
+	// The request only selects an entry in the table of the UI's own files (below); the path that reaches the file
+	// system is the one the directory listing produced, never one built from the request.
+	const known = publicFile(path.relative(root, resolved).split(path.sep).join("/"));
+	if (!known) {
+		sendError(res, 404, "not found");
+		return;
+	}
+	fs.stat(known, (err, stat) => {
 		if (err || !stat.isFile()) {
 			sendError(res, 404, "not found");
 			return;
 		}
-		sendFile(res, resolved, stat);
+		sendFile(res, known, stat);
 	});
+}
+
+// The regular files under public/ (no symlinks, no dot-entries), keyed by their path relative to it. Listed on first use and
+// again, at most once a second, when a request names a file that is not in the table.
+let publicIndex = null;
+let publicIndexedAt = 0;
+function listPublicFiles(root) {
+	const files = new Map();
+	const walk = (dir, prefix) => {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			if (entry.name.startsWith(".")) continue;
+			const abs = path.join(dir, entry.name);
+			const key = prefix ? `${prefix}/${entry.name}` : entry.name;
+			if (entry.isDirectory()) walk(abs, key);
+			else if (entry.isFile()) files.set(key, abs);
+		}
+	};
+	try {
+		walk(root, "");
+	} catch {
+		/* no public directory: nothing is served */
+	}
+	return files;
+}
+function publicFile(key) {
+	if (publicIndex?.has(key)) return publicIndex.get(key);
+	const now = Date.now();
+	if (!publicIndex || now - publicIndexedAt > 1000) {
+		publicIndex = listPublicFiles(path.resolve(PUBLIC_DIR));
+		publicIndexedAt = now;
+	}
+	return publicIndex.get(key);
 }
 
 // Minimal stdout/stderr loggers: stderr only for errors and denials, so write directly.
@@ -169,7 +208,8 @@ const server = http.createServer(async (req, res) => {
 		);
 		if (handled) return;
 	} catch (error) {
-		return sendError(res, 500, String(error && error.message ? error.message : error));
+		err(`pi-console: request failed: ${error && error.message ? error.message : error}`);
+		return sendError(res, 500, "internal error (see the console log)");
 	}
 	if (req.method !== "GET" && req.method !== "HEAD") {
 		return sendError(res, 405, "method not allowed", { Allow: "GET, HEAD" });
@@ -178,8 +218,9 @@ const server = http.createServer(async (req, res) => {
 		serveStatic(res, pathname);
 	} catch (error) {
 		// Defence in depth: a static-serving failure must never take the process down.
+		err(`pi-console: static file failed: ${error && error.message ? error.message : error}`);
 		if (!res.headersSent) {
-			sendError(res, 500, String(error && error.message ? error.message : error));
+			sendError(res, 500, "internal error (see the console log)");
 		}
 	}
 });

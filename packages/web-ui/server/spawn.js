@@ -10,7 +10,7 @@ import * as crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { PI_BIN, RUNTIME_DIR, DEFAULT_CWD } from "./config.js";
 import { agentBody, resolveAgent } from "./agents.js";
-import { sanitizeSpawnConfig } from "./validate.js";
+import { HttpError, sanitizeSpawnConfig } from "./validate.js";
 
 const MAX_REPLAY_EVENTS = 500;
 const RESPONSE_TIMEOUT_MS = 15000;
@@ -84,7 +84,7 @@ export class PiRpcProcess {
 				state: "error",
 				message: String(err && err.message),
 			});
-			this._failPending(new Error(String(err && err.message)));
+			this._failPending(new HttpError(502, "the pi process could not be started or failed"));
 			this._cleanup();
 		});
 		this.child.on("exit", (code, signal) => {
@@ -92,7 +92,7 @@ export class PiRpcProcess {
 			this.exitCode = code;
 			this.status = "exited";
 			this._failPending(
-				new Error(`pi child exited (code=${code}, signal=${signal})`),
+				new HttpError(502, `pi child exited (code=${code}, signal=${signal})`),
 			);
 			this._emit({
 				type: "lifecycle",
@@ -143,7 +143,7 @@ export class PiRpcProcess {
 		if (!entry) return;
 		if (entry.timer) clearTimeout(entry.timer);
 		if (obj.success === false)
-			entry.reject(new Error(obj.error || `command failed: ${obj.command}`));
+			entry.reject(new HttpError(400, String(obj.error || `command failed: ${obj.command}`).slice(0, 500)));
 		else entry.resolve(obj.data ?? obj);
 	}
 
@@ -193,18 +193,19 @@ export class PiRpcProcess {
 		return new Promise((resolve, reject) => {
 			if (!command || !ALLOWED_RPC_COMMANDS.has(command.type)) {
 				return reject(
-					new Error(
+					new HttpError(
+						403,
 						`rpc command not allowed: ${String(command && command.type).slice(0, 40)}`,
 					),
 				);
 			}
-			if (this.exited) return reject(new Error("pi child has exited"));
+			if (this.exited) return reject(new HttpError(409, "pi child has exited"));
 			const id = `c${this.nextId++}`;
 			// The server-assigned id wins over anything a caller put in the command.
 			const payload = { ...command, id };
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
-				reject(new Error(`timeout waiting for response to ${command.type}`));
+				reject(new HttpError(504, `timeout waiting for response to ${command.type}`));
 			}, timeoutMs);
 			this.pending.set(id, { resolve, reject, timer, command: command.type });
 			const line = `${JSON.stringify(payload)}\n`;
@@ -308,7 +309,7 @@ export async function createSession(input) {
 
 	if (config.agent) {
 		const agent = resolveAgent(config.agent, config.agentSource);
-		if (!agent) throw new Error(`unknown agent: ${config.agent}`);
+		if (!agent) throw new HttpError(400, `unknown agent: ${config.agent}`);
 		const body = agentBody(fs.readFileSync(agent.path, "utf8"));
 		fs.mkdirSync(RUNTIME_DIR, { recursive: true });
 		agentFile = path.join(

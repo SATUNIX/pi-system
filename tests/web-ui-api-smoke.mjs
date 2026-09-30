@@ -90,6 +90,43 @@ try {
     assert.equal(fs.existsSync(projectAgentPath), false, "project file must be deleted");
     assert.equal(fs.existsSync(userAgentPath), true, "user file must survive");
   });
+
+  // An unexpected failure (an fs error, a bug) must not put its text, which can hold paths and internals, in the response:
+  // the client gets a generic 500 and the detail goes to the server's log. A deliberate HttpError keeps its message.
+  const secret = "EACCES: permission denied, open '/home/operator/.ssh/id_rsa'";
+  const boomRes = fakeRes();
+  const realStderr = process.stderr.write.bind(process.stderr);
+  let logged = "";
+  process.stderr.write = (chunk) => ((logged += String(chunk)), true);
+  try {
+    await handleApi(
+      { method: "POST", url: "/api/agents", headers: { "content-type": "application/json" }, on() { throw new Error(secret); } },
+      boomRes,
+      { pathname: "/api/agents" },
+    );
+  } finally {
+    process.stderr.write = realStderr;
+  }
+  check("an unexpected error is a generic 500 with no internals in the response, and is logged", () => {
+    assert.equal(boomRes.statusCode, 500);
+    assert.equal(JSON.parse(boomRes.body).error, "internal error (see the console log)");
+    assert.ok(!boomRes.body.includes("id_rsa") && !boomRes.body.includes("/home/operator"), boomRes.body);
+    assert.ok(logged.includes(secret), "the detail is in the server's own log");
+  });
+  const { createAgent, deleteAgent } = await import("../packages/web-ui/server/agentstore.js");
+  const { HttpError } = await import("../packages/web-ui/server/validate.js");
+  check("client-facing agent failures are HttpErrors with their status", () => {
+    const attempts = [
+      ["an invalid name", () => createAgent({ name: "Bad Name", body: "x" }), 400],
+      ["a missing agent", () => deleteAgent("nosuch-agent", "user"), 404],
+    ];
+    for (const [label, attempt, status] of attempts) {
+      let error = null;
+      try { attempt(); } catch (e) { error = e; }
+      assert.ok(error instanceof HttpError, `${label}: ${error}`);
+      assert.equal(error.statusCode, status, label);
+    }
+  });
 } finally {
   fs.rmSync(homeDir, { recursive: true, force: true });
   fs.rmSync(projectDir, { recursive: true, force: true });

@@ -428,7 +428,7 @@ if (fs.existsSync(sourcesPath)) {
     };
     const regexSources = (block) => {
       const out = [];
-      const re = /\/((?:\\.|[^/\n])+)\/[gimsuy]*/g;
+      const re = /\/((?:\\.|[^/\\\n])+)\/[gimsuy]*/g; // [^/\\\n]: a backslash is only ever matched by the escape alternative, so this cannot backtrack exponentially
       let m = re.exec(block);
       while (m) {
         out.push(m[1]);

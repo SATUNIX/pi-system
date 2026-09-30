@@ -37,8 +37,9 @@ const results = [
   }),
   check("release commit stages package-lock.json alongside package.json", () => {
     assert.match(src, /\["package\.json", "package-lock\.json", \.\.\.workspaceManifests/, "the release commit must include package-lock.json and every workspace manifest");
-    assert.match(src, /run\("git add README\.md"\)/, "the release commit must include README.md (its version badge moves with the version)");
-    assert.match(src, /git add \$\{manifests\.join/, "the release commit must stage those manifests");
+    assert.match(src, /git\(\["add", "README\.md"\]\)/, "the release commit must include README.md (its version badge moves with the version)");
+    assert.match(src, /git\(\["add", \.\.\.manifests\]\)/, "the release commit must stage those manifests");
+    assert.doesNotMatch(src, /run\(`git (?:add|commit|tag)[^`]*\$\{/, "git commands that carry the version or a path are argv arrays, never shell strings");
   }),
 
   // H-08: release-cutter safety.

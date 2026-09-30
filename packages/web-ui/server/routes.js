@@ -163,11 +163,10 @@ async function ensureLive(id) {
 	if (!summary) return null;
 	if (summary.sessionFile && !fs.existsSync(summary.sessionFile)) return null;
 	if (summary.sessionFile && isFileActive(summary.sessionFile)) {
-		const err = new Error(
+		throw new HttpError(
+			409,
 			"session is active in another process (CLI) — watch it here, or wait for it to finish",
 		);
-		err.statusCode = 409;
-		throw err;
 	}
 	return createSession({
 		cwd: summary.cwd || DEFAULT_CWD,
@@ -442,12 +441,18 @@ export async function handleApi(req, res, url, ctx = {}) {
 			sendJson(res, 404, { error: `no route for ${method} ${pathname}` }), true
 		);
 	} catch (err) {
-		const status = Number(err && err.statusCode) || 400;
+		// Only an HttpError carries a message written for the client. Anything else is unexpected: its text can hold file
+		// paths and internals, so the client gets a generic answer and the detail goes to the server's own log.
+		if (!(err instanceof HttpError)) {
+			process.stderr.write(`pi-console: request failed: ${err && err.message ? err.message : err}\n`);
+			return sendJson(res, 500, { error: "internal error (see the console log)" }), true;
+		}
+		const status = err.statusCode || 400;
 		return (
 			sendJson(
 				res,
 				status,
-				{ error: String(err && err.message ? err.message : err) },
+				{ error: err.message },
 				// An oversized body may still be arriving: do not keep the connection for reuse.
 				status === 413 ? { Connection: "close" } : {},
 			),

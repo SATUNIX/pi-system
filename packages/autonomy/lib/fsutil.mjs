@@ -1,13 +1,16 @@
 // Small, dependency-free helpers shared by the run engine: atomic JSON files, canonical JSON
 // (stable key order, so digests do not depend on how a file was written) and hashing.
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
+/** A short unpredictable suffix for temp files, container names and default run ids (crypto, not Math.random: a name that is guessable can be pre-created). */
+export const randomSuffix = (chars = 6) => randomBytes(Math.ceil(chars / 2)).toString("hex").slice(0, chars);
 
 /** Atomic JSON write (temp file + rename), so a crash never leaves half a state file. */
 export function writeJsonAtomic(file, value, { mode } = {}) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  const tmp = `${file}.${process.pid}.${randomSuffix(6)}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, mode ? { mode } : undefined);
   fs.renameSync(tmp, file);
 }

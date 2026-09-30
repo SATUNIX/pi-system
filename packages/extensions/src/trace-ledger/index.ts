@@ -88,9 +88,13 @@ function appendEntry(cwd: string, entry: Entry): void {
 
 function readEntries(cwd: string, tail: number): { entries: Entry[]; corrupt: number } {
   const p = ledgerPath(cwd);
-  if (!fs.existsSync(p)) return { entries: [], corrupt: 0 };
   // Read a bounded byte tail rather than the whole operator-retained file.
-  const fd = fs.openSync(p, "r");
+  let fd: number;
+  try {
+    fd = fs.openSync(p, "r");
+  } catch {
+    return { entries: [], corrupt: 0 }; // no ledger yet
+  }
   try {
     const size = fs.fstatSync(fd).size;
     const start = Math.max(0, size - 1024 * 1024);

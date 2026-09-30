@@ -366,7 +366,7 @@ export async function fetchDistTags(name: string, fetchImpl: FetchLike): Promise
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const url = `${registryBase()}/-/package/${name.replace("/", "%2f")}/dist-tags`;
+    const url = `${registryBase()}/-/package/${name.replace(/\//g, "%2f")}/dist-tags`;
     const res = await fetchImpl(url, { signal: controller.signal, headers: { accept: "application/json" } });
     if (!res.ok) return null;
     const tags = await res.json();

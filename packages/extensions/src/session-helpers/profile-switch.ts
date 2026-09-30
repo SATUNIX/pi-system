@@ -36,9 +36,15 @@ export function snapshotFiles(paths: string[]): FileSnapshot[] {
     if (seen.has(abs)) continue;
     seen.add(abs);
     try {
-      const stat = fs.statSync(abs);
-      if (!stat.isFile()) throw new Error(`${abs} exists but is not a regular file`);
-      out.push({ path: abs, existed: true, bytes: fs.readFileSync(abs), mode: stat.mode & 0o7777 });
+      // One open file: the mode recorded and the bytes captured are those of the same file.
+      const fd = fs.openSync(abs, "r");
+      try {
+        const stat = fs.fstatSync(fd);
+        if (!stat.isFile()) throw new Error(`${abs} exists but is not a regular file`);
+        out.push({ path: abs, existed: true, bytes: fs.readFileSync(fd), mode: stat.mode & 0o7777 });
+      } finally {
+        fs.closeSync(fd);
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code === "ENOENT") out.push({ path: abs, existed: false, bytes: null, mode: null });
       else throw error;

@@ -445,14 +445,23 @@ async function stopServer(webUiRoot: string): Promise<StopResult> {
   }
 }
 
-function openBrowser(url: string): void {
+// Only a plain http(s) login URL is handed to the system opener. The host and port come from the environment and the
+// token may be operator-supplied; on Windows the opener is `cmd /c start`, where a `&` or `^` in the argument would
+// be a shell metacharacter, and elsewhere an argument that begins with `-` would be read as an option. The URL is always
+// printed as well, so a URL that is not opened automatically costs one paste.
+const OPENABLE_URL = /^https?:\/\/(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])(?::\d{1,5})?\/(?:#token=[A-Za-z0-9_-]+)?$/;
+
+export function openBrowser(url: string): boolean {
+  if (!OPENABLE_URL.test(url)) return false;
   const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   try {
     const child = spawn(opener, args, { detached: true, stdio: "ignore" });
     child.unref();
+    return true;
   } catch {
     /* best effort; the URL is always printed too */
+    return false;
   }
 }
 
@@ -556,7 +565,8 @@ async function handleConsole(args: string, ctx: ExtensionCommandContext): Promis
   const usable = result.token !== null && result.tokenAccepted !== false ? result.token : null;
   const link = loginUrl(result.url, usable);
   // Open only a page that can actually be used: never pass a stale or unknown token to the browser.
-  if (sub === "open" && result.healthy && !result.exited) openBrowser(link);
+  let notOpened = false;
+  if (sub === "open" && result.healthy && !result.exited) notOpened = !openBrowser(link);
 
   const lines: string[] = [];
   if (result.exited) {
@@ -584,6 +594,7 @@ async function handleConsole(args: string, ctx: ExtensionCommandContext): Promis
     lines.push(`Check the log: ${logFile(webUiRoot)}`);
   }
 
+  if (notOpened) lines.push("The browser was not opened automatically (the URL has characters a system opener is not trusted with); paste the URL above.");
   if (authDisabled()) {
     lines.push("AUTHENTICATION IS OFF (PI_CONSOLE_AUTH=off): loopback development only; anything that can reach the port can run shell commands as you.");
   } else if (result.alreadyRunning && result.healthy && result.token && result.tokenAccepted === false) {

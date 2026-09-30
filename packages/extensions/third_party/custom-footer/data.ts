@@ -173,9 +173,16 @@ export function readBranch(cwd: string): string | undefined {
     let dir = path.resolve(cwd);
     for (let i = 0; i < 40; i++) {
       const dotGit = path.join(dir, ".git");
-      if (fs.existsSync(dotGit)) {
+      // Ask the file system once instead of "does it exist" and then "what is it": a missing .git is the normal case.
+      let dotGitStat: fs.Stats | undefined;
+      try {
+        dotGitStat = fs.statSync(dotGit);
+      } catch {
+        dotGitStat = undefined;
+      }
+      if (dotGitStat) {
         let gitDir = dotGit;
-        if (fs.statSync(dotGit).isFile()) {
+        if (dotGitStat.isFile()) {
           const pointer = fs.readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+)\s*$/m)?.[1];
           if (!pointer) return undefined;
           gitDir = path.resolve(dir, pointer);

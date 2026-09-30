@@ -65,17 +65,24 @@ export class SessionTailer {
 	/** Prime the offset so we replay only the recent tail, not the whole file. */
 	prime() {
 		try {
-			const stat = fs.statSync(this.file);
-			this.offset = Math.max(0, stat.size - HISTORY_BYTES);
-			this.lastActivity = stat.mtimeMs;
-			// Replay recent history so an attaching viewer sees context.
-			const start = this.offset;
-			const length = stat.size - start;
-			if (length > 0) {
-				const fd = fs.openSync(this.file, "r");
-				const buffer = Buffer.alloc(length);
-				fs.readSync(fd, buffer, 0, length, start);
+			// One open file: the size that decides how much to read is the size of the file that is read.
+			const fd = fs.openSync(this.file, "r");
+			let stat;
+			let buffer = null;
+			try {
+				stat = fs.fstatSync(fd);
+				this.offset = Math.max(0, stat.size - HISTORY_BYTES);
+				this.lastActivity = stat.mtimeMs;
+				// Replay recent history so an attaching viewer sees context.
+				const length = stat.size - this.offset;
+				if (length > 0) {
+					buffer = Buffer.alloc(length);
+					fs.readSync(fd, buffer, 0, length, this.offset);
+				}
+			} finally {
 				fs.closeSync(fd);
+			}
+			if (buffer) {
 				const lines = buffer.toString("utf8").split("\n");
 				lines.shift(); // may be a partial line from the seek point
 				for (const line of lines) {
@@ -105,27 +112,25 @@ export class SessionTailer {
 
 	poll() {
 		if (this.closed) return;
-		let stat;
-		try {
-			stat = fs.statSync(this.file);
-		} catch {
-			return;
-		}
-		if (stat.size < this.offset) {
-			this.offset = 0; // truncated or rotated
-			this.pending = "";
-		}
-		if (stat.size === this.offset) return;
-
+		// One open file: the size that decides how much to read is the size of the file that is read.
 		let chunk = "";
 		try {
 			const fd = fs.openSync(this.file, "r");
-			const length = stat.size - this.offset;
-			const buffer = Buffer.alloc(length);
-			fs.readSync(fd, buffer, 0, length, this.offset);
-			fs.closeSync(fd);
-			chunk = buffer.toString("utf8");
-			this.offset = stat.size;
+			try {
+				const stat = fs.fstatSync(fd);
+				if (stat.size < this.offset) {
+					this.offset = 0; // truncated or rotated
+					this.pending = "";
+				}
+				if (stat.size === this.offset) return;
+				const length = stat.size - this.offset;
+				const buffer = Buffer.alloc(length);
+				fs.readSync(fd, buffer, 0, length, this.offset);
+				chunk = buffer.toString("utf8");
+				this.offset = stat.size;
+			} finally {
+				fs.closeSync(fd);
+			}
 		} catch {
 			return;
 		}

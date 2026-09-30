@@ -66,15 +66,23 @@ let cache: { mtime: number; size: number; records: FeedbackRecord[] } | null = n
 
 export function readFeedback(): FeedbackRecord[] {
   const file = feedbackPath();
+  // One open file: the stat that keys the cache and the text that is parsed describe the same file.
   let st: fs.Stats;
+  let text: string;
   try {
-    st = fs.statSync(file);
+    const fd = fs.openSync(file, "r");
+    try {
+      st = fs.fstatSync(fd);
+      if (cache && cache.mtime === st.mtimeMs && cache.size === st.size) return cache.records;
+      text = fs.readFileSync(fd, "utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch {
     return [];
   }
-  if (cache && cache.mtime === st.mtimeMs && cache.size === st.size) return cache.records;
   const records: FeedbackRecord[] = [];
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+  for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const r = JSON.parse(line);

@@ -202,6 +202,7 @@
     "smoke:wiring": "node tests/wiring-smoke.mjs",
     "smoke:mermaid-check": "node tests/mermaid-check-smoke.mjs",
     "smoke:web-console": "node tests/web-console-smoke.mjs",
+    "smoke:web-console-open": "node tests/web-console-open-smoke.mjs",
     "smoke:web-ui-server": "node tests/web-ui-server-smoke.mjs",
     "smoke:web-ui-static": "node tests/web-ui-static-smoke.mjs",
     "smoke:web-ui-api": "node tests/web-ui-api-smoke.mjs",

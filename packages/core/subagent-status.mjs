@@ -92,17 +92,22 @@ if (id) {
     process.stderr.write(`--- following ${logPath} (Ctrl-C to stop) ---\n`);
     let pos = fs.statSync(logPath).size;
     setInterval(() => {
+      // One open file: the size that decides how much to read is the size of the file that is read.
+      let buf;
       let size;
       try {
-        size = fs.statSync(logPath).size;
+        const fd = fs.openSync(logPath, "r");
+        try {
+          size = fs.fstatSync(fd).size;
+          if (size <= pos) return;
+          buf = Buffer.alloc(size - pos);
+          fs.readSync(fd, buf, 0, size - pos, pos);
+        } finally {
+          fs.closeSync(fd);
+        }
       } catch {
         return;
       }
-      if (size <= pos) return;
-      const fd = fs.openSync(logPath, "r");
-      const buf = Buffer.alloc(size - pos);
-      fs.readSync(fd, buf, 0, size - pos, pos);
-      fs.closeSync(fd);
       process.stdout.write(buf.toString());
       pos = size;
     }, 500);

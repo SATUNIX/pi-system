@@ -107,8 +107,13 @@ function currentMtimeNs(file: string): bigint {
 // window (or newer) and are included, regardless of extension load order and coarse
 // filesystem timestamps.
 function readContributions(dir: string): Contribution[] {
-  if (!fs.existsSync(dir)) return [];
-  const files = fs.readdirSync(dir).filter(f => f.endsWith(".json"));
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return []; // no contributions directory yet
+  }
+  const files = names.filter(f => f.endsWith(".json"));
   const result: Contribution[] = [];
   for (const f of files) {
     if (f === "sieve-budget.json") continue;
@@ -117,8 +122,15 @@ function readContributions(dir: string): Contribution[] {
       // Older than process start minus the grace/tolerance -> a prior-session leftover, skip it.
       // The grace keeps same-session writes (mtime possibly lagging the wall clock) included.
       if (currentMtimeNs(file) < SESSION_EPOCH_NS) continue;
-      if (fs.statSync(file).size > MAX_CONTRIBUTION_BYTES) continue;
-      const raw = fs.readFileSync(file, "utf8");
+      // One open file: the size that is checked is the size of the file that is read.
+      const fd = fs.openSync(file, "r");
+      let raw: string;
+      try {
+        if (fs.fstatSync(fd).size > MAX_CONTRIBUTION_BYTES) continue;
+        raw = fs.readFileSync(fd, "utf8");
+      } finally {
+        fs.closeSync(fd);
+      }
       const parsed: unknown = JSON.parse(raw);
       const contribution = normalizeContribution(parsed);
       if (contribution) result.push(contribution);

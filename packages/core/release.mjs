@@ -20,7 +20,7 @@
  * tree, and it creates no commit and no tag. The operator later runs the full command, which
  * (finding every version field already at <version> and no earlier tag) only gates and tags.
  */
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { WORKSPACE_ROOT, PACKAGES_DIR } from "./lib/paths.mjs";
@@ -59,6 +59,8 @@ function gitLines(command) {
   }
 }
 
+// A fixed command line is a string. Anything that carries the version or a path goes through git() as an argv array to a
+// literal `git`, never through a shell.
 function run(cmd, opts = {}) {
   console.log(`[release] > ${cmd}`);
   if (!dryRun || opts.always) {
@@ -70,6 +72,19 @@ function run(cmd, opts = {}) {
   }
 }
 
+function git(args) {
+  const shown = `git ${args.map((a) => (/^[\w@:/.+=,-]+$/.test(a) ? a : JSON.stringify(a))).join(" ")}`;
+  console.log(`[release] > ${shown}`);
+  if (dryRun) return;
+  try {
+    execFileSync("git", args, { cwd: ROOT, stdio: "inherit" });
+  } catch (error) {
+    fail(`command failed: ${shown} (${error instanceof Error ? error.message : String(error)})`);
+  }
+}
+
+const escapeRegExp = (text) => text.replace(/[\\^$.*+?()[\]{}|/-]/g, "\\$&");
+
 if (!version) fail("missing <version> (expected X.Y.Z or X.Y.Z-pre.N)");
 if (/(^|[.-])next\./.test(version)) fail("snapshot (next) versions are published from main by CI, not released");
 
@@ -77,7 +92,7 @@ if (/(^|[.-])next\./.test(version)) fail("snapshot (next) versions are published
 const changelogPath = path.join(ROOT, "CHANGELOG.md");
 if (!fs.existsSync(changelogPath)) fail("CHANGELOG.md missing");
 const changelog = fs.readFileSync(changelogPath, "utf8");
-if (!new RegExp(`^##\\s*\\[${version.replace(/\./g, "\\.")}\\]`, "m").test(changelog)) {
+if (!new RegExp(`^##\\s*\\[${escapeRegExp(version)}\\]`, "m").test(changelog)) {
   fail(`CHANGELOG.md has no "## [${version}]" section — document the release first`);
 }
 
@@ -154,11 +169,11 @@ run("node packages/core/pack-check.mjs", { always: true });
 // 8. One reviewable commit + annotated tag. NO push.
 if (!firstRelease) {
   const manifests = ["package.json", "package-lock.json", ...workspaceManifests.map((f) => path.relative(ROOT, f))];
-  run(`git add ${manifests.join(" ")}`);
-  run("git add README.md"); // its version badge moves with the version
-  run(`git commit -m "chore(release): ${version}"`);
+  git(["add", ...manifests]);
+  git(["add", "README.md"]); // its version badge moves with the version
+  git(["commit", "-m", `chore(release): ${version}`]);
 }
-run(`git tag -a v${version} -m "Release ${version}"`);
+git(["tag", "-a", `v${version}`, "-m", `Release ${version}`]);
 
 console.log(`\n[release] Done: ${firstRelease ? "" : "committed + "}tagged v${version} (local only).`);
 console.log(`[release] NOT pushed. To publish after review: git push origin main --follow-tags`);
