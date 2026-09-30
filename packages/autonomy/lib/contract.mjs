@@ -313,7 +313,7 @@ function readServices(raw, images, c) {
   for (const [i, s] of arr(raw, "permissions.network.services", c, { max: 10 }).entries()) {
     const where = `permissions.network.services[${i}]`;
     if (!isPlainObject(s)) { c.err(where, "must be an object"); continue; }
-    checkKeys(s, where, ["name", "image", "env", "credentialEnv", "port", "command", "workspaceMounts", "tmpfs", "user", "health", "memory", "cpus"], { strict: true }, c);
+    checkKeys(s, where, ["name", "image", "env", "credentialEnv", "port", "command", "workspaceMounts", "restartOnDeploy", "tmpfs", "user", "health", "memory", "cpus"], { strict: true }, c);
     const name = str(s.name, `${where}.name`, c, { re: SERVICE_NAME, what: "must be a lowercase DNS label (2-31 characters)" }) ?? "";
     if (RESERVED_HOSTNAMES.has(name)) c.err(`${where}.name`, `"${name}" is reserved`);
     if (seen.has(name)) c.err(`${where}.name`, `duplicate service name "${name}"`);
@@ -349,6 +349,7 @@ function readServices(raw, images, c) {
       if (typeof m.target !== "string" || !m.target.startsWith("/") || m.target.includes("..") || /[\0-\x1f]/.test(m.target)) c.err(`${mw}.target`, "must be an absolute path inside the service container");
       if (!sp && typeof m.target === "string" && m.target.startsWith("/")) entry.workspaceMounts.push({ source: m.source.replace(/^\.\//, ""), target: m.target });
     }
+    entry.restartOnDeploy = bool(s.restartOnDeploy, `${where}.restartOnDeploy`, c, false);
     entry.tmpfs = [];
     for (const [j, t] of arr(s.tmpfs, `${where}.tmpfs`, c, { max: 5 }).entries()) {
       if (typeof t !== "string" || !t.startsWith("/") || t.includes("..") || t.includes(",") || /[\0-\x1f]/.test(t)) c.err(`${where}.tmpfs[${j}]`, "must be an absolute path inside the service container (a size-limited tmpfs; the root filesystem stays read-only)");

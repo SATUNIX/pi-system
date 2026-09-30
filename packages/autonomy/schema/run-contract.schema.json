@@ -129,6 +129,7 @@
                   "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
                   "command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
                   "workspaceMounts": { "type": "array", "maxItems": 5, "items": { "type": "object", "additionalProperties": false, "required": ["source", "target"], "properties": { "source": { "type": "string", "minLength": 1 }, "target": { "type": "string", "pattern": "^/" } } }, "description": "Paths from the worker's workspace, mounted read-only into the service: how a build is deployed in the zone." },
+                  "restartOnDeploy": { "type": "boolean", "default": false, "description": "Restart the service after each refresh of its workspace mounts (for servers that read their code at start)." },
                   "tmpfs": { "type": "array", "maxItems": 5, "items": { "type": "string", "pattern": "^/" }, "description": "Writable size-limited tmpfs paths inside the service container; its root filesystem stays read-only." },
                   "user": { "type": "string", "pattern": "^\\d+:\\d+$", "description": "uid:gid the service runs as (never root). Defaults to the run's container user." },
                   "health": {

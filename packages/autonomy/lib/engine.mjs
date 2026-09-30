@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { runAcceptance, summariseEvaluation } from "./acceptance.mjs";
 import { buildBriefing } from "./briefing.mjs";
-import { contractDigest } from "./contract.mjs";
+import { contractDigest, workerContract } from "./contract.mjs";
 import { applyResultsToBoard, resumeAction, transition } from "./lifecycle.mjs";
 import { runPromotions } from "./promotion.mjs";
 import { activityLine, operatorDecision } from "./rpc.mjs";
@@ -169,7 +169,14 @@ export class Engine {
     this.go("ready", { reason: "setup complete" });
   }
 
+  /** The worker's read-only copy of the contract carries the run's CURRENT effort and budgets (state), so a reconfigure and the boundary probe agree. */
+  publishWorkerContract() {
+    const effective = { ...this.contract, effort: this.state.effort, budget: this.state.limits.budget };
+    writeJsonAtomic(path.join(this.store.p.public, "contract.json"), workerContract(effective), { mode: 0o444 });
+  }
+
   async bringUp() {
+    this.publishWorkerContract();
     const report = await this.rt.bringUp({ contract: this.contract, cfg: this.cfg, state: this.state, log: this.log });
     if (report && report.pass === false) {
       const bad = (report.checks ?? []).filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`).slice(0, 6);
@@ -275,6 +282,7 @@ export class Engine {
     this.state.reconfigurations = [...this.state.reconfigurations, { at, by: p.by ?? "operator", before: plan.before, after: plan.after, reason: p.reason ?? null }].slice(-200);
     this.state.effort = plan.next.effort;
     this.state.limits = plan.next.limits;
+    this.publishWorkerContract();
     this.log(`reconfigured: ${Object.keys(p.changes).join(", ")}`);
     if (this.status === "budget_exhausted") this.go("paused", { reason: "limits raised", by: "reconfigure" });
   }

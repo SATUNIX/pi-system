@@ -285,7 +285,7 @@ const ajv = new Ajv({ allErrors: true, strict: false });
 const validateSchema = ajv.compile(schema);
 const svc = { name: "web", image: "nginxinc/nginx-unprivileged:1.27-alpine", port: 8080, health: { path: "/" } };
 const deployBase = { ...implementRaw({ permissions: { network: { serviceImages: [svc.image], services: [svc] } } }), template: "deploy" };
-const selfBase = { schemaVersion: 1, run: "improve-1", template: "self-improve", objective: { title: "Improve" }, inputs: { repository: { path: "/repo", ref: "main" } } };
+const selfBase = { schemaVersion: 1, run: "improve-1", template: "self-improve", objective: { title: "Improve" }, inputs: { repository: { path: "/repo", ref: "main" } }, acceptance: { checks: [{ id: "tests", run: ["npm", "test"] }] } };
 
 // [name, document, structural]: `structural` failures are ones JSON Schema can express, so both
 // validators must reject them; the rest are semantic (cross-field, catalogue or filesystem
@@ -321,7 +321,7 @@ const BAD_SEMANTIC = [
   ["egress to loopback", implementRaw({ permissions: { network: { egress: [{ host: "127.0.0.1", ports: [80] }] } } })], ["egress to a local name", implementRaw({ permissions: { network: { egress: [{ host: "db.internal", ports: [5432] }] } } })],
   ["write area escapes", implementRaw({ permissions: { writeAreas: ["../x"] } })], ["protected branch promotion", implementRaw({ promotion: { policy: "push", destinations: [{ kind: "git-remote", url: "https://git.example.org/a.git", branch: "main" }] } })],
   ["autoApprove without authorised", implementRaw({ permissions: { unattended: { authorised: false, autoApprove: true } } })], ["finite task without a check", implementRaw({ acceptance: { checks: [] } })],
-  ["self-improve without a repository", { ...selfBase, inputs: { repository: null } }], ["services outside deploy", implementRaw({ permissions: { network: { serviceImages: [svc.image], services: [svc] } } })],
+  ["self-improve without a repository", { ...selfBase, inputs: { repository: null } }], ["self-improve without a check", { ...selfBase, acceptance: undefined }], ["services outside deploy", implementRaw({ permissions: { network: { serviceImages: [svc.image], services: [svc] } } })],
 ];
 
 await check("JSON Schema (ajv) and the hand validator agree on good and structurally bad documents; semantic rules are the hand validator's", () => {

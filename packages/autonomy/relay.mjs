@@ -4,7 +4,9 @@
 // real API key) over stdin only, and a small allowlist of inference paths. The agent holds a
 // synthetic key. Added here: per-response usage metering to /meter/usage.jsonl, which the
 // supervisor sums for the budget, a hard spending stop as a backstop to the supervisor's, and a
-// model allowlist that also refuses OpenRouter's web-search features (screen()).
+// model allowlist that also refuses OpenRouter's web-search features (screen()). The provider is
+// configuration, not code: OpenRouter reports cost in every response; any other
+// OpenAI-compatible provider is metered from token counts and the contract's price table.
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
@@ -32,28 +34,32 @@ export function withUsage(body) {
  * needs, so it is refused or removed. With an allowlist, only the run's models are served.
  * Returns { body } or { error }.
  */
-export function screen(body, models = []) {
+export function screen(body, models = [], { provider = "openrouter" } = {}) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { error: "Request body must be a JSON object" };
   const model = String(body.model ?? "");
   if (/:online\b/i.test(model)) return { error: "Online model variants are not allowed" };
   if (models.length && !models.includes(model)) return { error: `Model ${JSON.stringify(model)} is not allowed for this run` };
   const { plugins, web_search_options: _web, ...rest } = body;
   const kept = Array.isArray(plugins) ? plugins.filter((p) => p && p.id !== "web") : undefined;
-  return { body: withUsage(kept?.length ? { ...rest, plugins: kept } : rest) };
+  const cleaned = kept?.length ? { ...rest, plugins: kept } : rest;
+  if (provider === "openrouter") return { body: withUsage(cleaned) };
+  // Other OpenAI-compatible providers report token counts (streaming ones only when asked).
+  return { body: cleaned.stream ? { ...cleaned, stream_options: { ...(cleaned.stream_options ?? {}), include_usage: true } } : cleaned };
 }
 
 /** Usage records from a response body: SSE `data:` lines or one JSON document. */
-export function usageFrom(text) {
+export function usageFrom(text, pricing = {}) {
   const found = [];
   const take = (obj) => {
     if (obj?.usage && typeof obj.usage === "object") {
       const u = obj.usage;
-      found.push({
-        model: obj.model ?? null,
-        promptTokens: num(u.prompt_tokens),
-        completionTokens: num(u.completion_tokens),
-        costUsd: num(u.cost),
-      });
+      const promptTokens = num(u.prompt_tokens);
+      const completionTokens = num(u.completion_tokens);
+      const price = pricing[obj.model];
+      // Reported cost wins; otherwise tokens times the contract's price. Neither: unmetered, and it says so.
+      const computed = price && promptTokens !== null && completionTokens !== null ? (promptTokens * price.inputPerMTok + completionTokens * price.outputPerMTok) / 1e6 : null;
+      const costUsd = num(u.cost) ?? computed;
+      found.push({ model: obj.model ?? null, promptTokens, completionTokens, costUsd, ...(costUsd === null ? { unmetered: true } : {}) });
     }
   };
   const s = String(text ?? "");
@@ -91,6 +97,8 @@ async function main() {
   const config = JSON.parse(configText);
   const upstream = config.upstream.replace(/\/$/, "");
   const meterFile = config.meterFile ?? "/meter/usage.jsonl";
+  const provider = config.provider ?? "openrouter";
+  const pricing = config.pricing ?? {};
   let spent = fs.existsSync(meterFile) ? meteredUsd(fs.readFileSync(meterFile, "utf8")) : 0;
 
   const server = http.createServer(async (req, res) => {
@@ -107,7 +115,7 @@ async function main() {
     if (req.method === "POST") {
       let parsed;
       try { parsed = JSON.parse(body.toString()); } catch { res.writeHead(400).end("Request body must be JSON"); return; }
-      const screened = screen(parsed, config.models ?? []);
+      const screened = screen(parsed, config.models ?? [], { provider });
       if (screened.error) { res.writeHead(403).end(screened.error); return; }
       body = Buffer.from(JSON.stringify(screened.body));
     }
@@ -120,7 +128,7 @@ async function main() {
       reply.on("data", (c) => { res.write(c); if (seen.length < 8 * 1024 * 1024) seen += c; });
       reply.on("end", () => {
         res.end();
-        for (const u of usageFrom(seen)) {
+        for (const u of usageFrom(seen, pricing)) {
           spent += u.costUsd ?? 0;
           fs.appendFileSync(meterFile, JSON.stringify({ at: new Date().toISOString(), status: reply.statusCode, ...u }) + "\n");
         }

@@ -2,22 +2,72 @@
   "schemaVersion": 1,
   "run": "improve-20260930",
   "template": "self-improve",
-  "objective": { "title": "Improve the repository in reviewed cycles" },
+  "objective": {
+    "title": "Improve the repository in reviewed cycles"
+  },
   "inputs": {
-    "repository": { "path": "/path/to/your/repository", "ref": "main" },
+    "repository": {
+      "path": "/path/to/your/repository",
+      "ref": "main"
+    },
     "references": {}
   },
-  "permissions": { "unattended": { "authorised": true, "autoApprove": true } },
-  "model": { "provider": "openrouter", "worker": "deepseek/deepseek-v4.1-flash", "manager": "deepseek/deepseek-v4.1-flash" },
+  "acceptance": {
+    "checks": [
+      {
+        "id": "gate",
+        "run": [
+          "/opt/autonomy/gate.sh"
+        ],
+        "timeoutMinutes": 60,
+        "required": true,
+        "description": "the gate script baked into the default image (this kit's own offline checks); replace it with your repository's checks"
+      }
+    ],
+    "review": true
+  },
+  "permissions": {
+    "unattended": {
+      "authorised": true,
+      "autoApprove": true
+    }
+  },
+  "model": {
+    "provider": "openrouter",
+    "worker": "deepseek/deepseek-v4.1-flash",
+    "manager": "deepseek/deepseek-v4.1-flash"
+  },
   "effort": "standard",
-  "budget": { "totalUsd": 100, "perStepUsd": 5, "maxSteps": 50, "maxMinutes": 14400 },
+  "budget": {
+    "totalUsd": 100,
+    "perStepUsd": 5,
+    "maxSteps": 50,
+    "maxMinutes": 14400
+  },
   "promotion": {
     "policy": "local-branch",
-    "destinations": [{ "kind": "local-branch", "repo": "/path/to/your/repository", "branch": "pi-autonomy/integration" }]
+    "destinations": [
+      {
+        "kind": "local-branch",
+        "repo": "/path/to/your/repository",
+        "branch": "pi-autonomy/integration"
+      }
+    ]
   },
-  "runtime": { "engine": "podman", "image": "pi-autonomy:local" },
+  "runtime": {
+    "engine": "podman",
+    "image": "pi-autonomy:local"
+  },
   "templateOptions": {
-    "integration": { "branch": "pi-autonomy/integration", "review": true },
-    "limits": { "softMinutes": 180, "hardMinutes": 300, "idleMinutes": 20, "noCommitMinutes": 90 }
+    "integration": {
+      "branch": "pi-autonomy/integration",
+      "review": true
+    },
+    "limits": {
+      "softMinutes": 180,
+      "hardMinutes": 300,
+      "idleMinutes": 20,
+      "noCommitMinutes": 90
+    }
   }
 }

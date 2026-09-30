@@ -293,6 +293,9 @@ await check("the effort tier is a snapshot: workers get it from state; a reconfi
   assert.equal(state.reconfigurations[1].before.effort.tier, "standard");
   assert.equal(JSON.parse(fs.readFileSync(h.store.p.contract, "utf8")).effort.tier, "standard", "the contract still says what was authorised; the change is a logged, explicit reconfigure");
   assert.equal(state.reconfigurations.length, 2);
+  const published = JSON.parse(fs.readFileSync(path.join(h.store.p.public, "contract.json"), "utf8"));
+  assert.deepEqual([published.effort.tier, published.effort.cap], ["exhaustive", "exhaustive"], "the sanitised contract a worker reads at /run/contract.json follows the run's current effort");
+  assert.equal(published.effort.cap, published.effort.tier, "and the boundary part of it is unchanged");
   assert.match(state.reconfigurations[0].refused[0], /above its cap/, "a bare tier above the run's cap is refused; raising the cap is an explicit part of the change");
 });
 

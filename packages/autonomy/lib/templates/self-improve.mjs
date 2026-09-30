@@ -39,7 +39,8 @@ const describe = () => ({
 
 const defaults = () => ({
   objective: { title: "Autonomous improvement", spec: "Find and fix real, evidenced problems in this repository, and improve it where the need is demonstrated." },
-  acceptance: { review: true, checks: [{ id: "gate", run: ["/opt/autonomy/gate.sh"], timeoutMinutes: 60, required: true, description: "the repository's offline gate" }], overlay: [] },
+  // No default check: what "good" means is the operator's to define for their repository (the kit's own gate script is /opt/autonomy/gate.sh in the default image).
+  acceptance: { review: true, checks: [], overlay: [] },
   permissions: { writeAreas: ["**"], network: { egress: [], services: [], serviceImages: [] }, credentials: { names: [] }, outputs: { destinations: [] }, unattended: { authorised: false, autoApprove: false } },
   model: { provider: "openrouter" },
   effort: "standard",
@@ -68,7 +69,7 @@ function validate(contract, { err, warn }) {
   if (p.policy === "none") warn("promotion.policy", 'policy "none": merged cycles stay in the run\'s own mirror; use `export` to take them out. A later run cannot continue this run\'s integration branch.');
   if (p.policy === "local-branch") for (const d of p.destinations) if (d.branch !== ib) err("promotion.destinations", `a self-improve local-branch destination must be the integration branch "${ib}"`);
   if (p.policy === "push") for (const d of p.destinations) if (d.branch !== ib) err("promotion.destinations", `a self-improve push destination must be the integration branch "${ib}" (the working branch is never published)`);
-  if (!contract.acceptance.checks.some((k) => k.required)) err("acceptance.checks", "needs at least one required check (the gate every cycle must pass)");
+  if (!contract.acceptance.checks.some((k) => k.required)) err("acceptance.checks", "needs at least one required check: the gate every cycle must pass (for example { \"id\": \"tests\", \"run\": [\"npm\", \"test\"] })");
 }
 
 // --- seeding ----------------------------------------------------------------------------------------
