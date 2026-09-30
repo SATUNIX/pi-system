@@ -50,6 +50,23 @@ run per profile. It also fails on a test file that no script runs or that assert
 - Scanner binaries are either pinned container images or downloads verified against a pinned
   SHA-256.
 
+## Repository settings the workflows depend on
+
+Workflows cannot switch these on, and nothing in this repository changes them; someone with
+administrator rights sets them once (Settings, Code security).
+
+| Setting | Needed by | Without it |
+|---|---|---|
+| **Dependency graph** | `dependency-review` (pull requests) | The job fails at once with "Dependency review is not supported on this repository" |
+| **Code scanning** (SARIF upload) | CodeQL, Semgrep, OSV-Scanner, zizmor and Scorecard results | The upload step fails, or the results have nowhere to go |
+| **Secret scanning and push protection** | the "GitHub secret scanning" row above | A pushed secret is not blocked at the push |
+| **Private vulnerability reporting** | `SECURITY.md`, which asks reporters to use it | Reporters have no private channel |
+| **Branch protection on `main`** with the checks above as required | the whole gate | A red check does not stop a merge |
+| **The `npm` environment and npm trusted publisher** | the optional npm publish in `release.yml` | The publish job cannot run (by design, nothing else is affected) |
+
+`scorecard.yml` publishes its result to the OpenSSF Scorecard service (`publish_results: true`) on
+pushes to `main` and weekly. Set that to `false`, or remove the workflow, if that is not wanted.
+
 ## Running the checks locally
 
 ```sh
