@@ -89,16 +89,24 @@
     - The subagent tool now drives a persistent TUI footer status (`ui.setStatus("subagent", …)`) for
       the duration of a delegation and clears it on finish; each update carries agent, step, turn
       count, elapsed time, last tool+target, and run id.
-  - **Overhaul (2026-09-23)** — see `docs/review-2026-09-23.md`:
+  - **Overhaul (2026-09-23):**
     - Built-in roles resolve from `packages/kit/agents` (trusted "kit" source) under user and
       project roles; the default scope finds them, headless children included. Role
       frontmatter gains `thinking`, `skills` (preloaded), `extensions`, `max_runtime`; a role's
       `model:` is honoured unless `PI_KIT_SUBAGENT_INHERIT_MODEL=1`.
-    - Children are isolated: `--no-extensions` plus an allowlist of enabled safety extensions
-      (`isolation.ts`); the task goes over stdin; stdout/stderr decode as UTF-8 streams.
+    - Children are isolated (`--no-extensions` plus an allowlist); the task goes over stdin;
+      stdout/stderr decode as UTF-8 streams.
     - Esc kills children (`background: true` opts into detached runs, delivered back as a
       session message); live children stop on session shutdown.
     - Run ids carry a random suffix; `runs.jsonl` is compacted; dead runs show `orphaned`.
     - Chain `{previous}` substitution is literal; chain returns the unbounded final output.
     - Workflows (`workflow.ts`, `workflow-tools.ts`): declarative step chains with a run
       directory, parallel groups, gates, resume.
+  - **Single governed launch contract (0.2.4-beta.0):** `isolation.ts` is gone and `launch.ts` is new.
+    Every child, at any depth, is started through the `delegation-guard` extension
+    (`packages/extensions/src/delegation-guard`), which decides the child's extensions (the parent's
+    protections first, then companions), reserves a slot in the shared effort ledger and verifies the
+    protections inside the child, failing closed. `runner.ts` reserves a slot per attempt and settles
+    it; `result.ts` treats a denied or misconfigured launch (exit 78) as fatal, not retryable; role
+    frontmatter gains `effort` and `scout`; `/workflow` launches are kind "user". The
+    `PI_KIT_SUBAGENT_ISOLATE` switch no longer disables isolation. See `docs/agent-orchestration.md`.

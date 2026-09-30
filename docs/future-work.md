@@ -16,7 +16,8 @@ it.
 | Not verified | Why | Who can close it |
 |---|---|---|
 | Behaviour against real model providers: the effort prompts, the auto-mode judge's verdicts, the completion reviewer, delegation quality | The release was prepared without provider credentials; every suite uses deterministic fakes or the real pi runtime without a model | An operator with a provider, running a representative task at each effort tier |
-| The autonomous runner's container boundary | It needs a container engine; the boundary probe (`packages/autonomy/tests/boundary-probe.mjs`) is manual-only | An operator, per [Autonomous runs](autonomy.md) |
+| The autonomous runner on rootless Podman, on macOS and Windows, and in a run of hours or days | `smoke:autonomy-container` ran on Docker only, in a disposable sandbox; the in-container boundary probe (`packages/autonomy/tests/boundary-probe.mjs`) is manual-only | An operator, per [Autonomous runs](autonomy.md) |
+| A full autonomous run against a real model provider | The relay talks to a local fake upstream in every test | An operator with a provider key and a small budget |
 | The web console's Content-Security-Policy in a browser | No browser was used | Anyone with a browser: open the console and check the progress bars render |
 | The full check suite on Windows and on Node 24 | CI runs the suite on Linux with Node 22; Windows runs the per-profile install check only | CI matrix extension |
 | `git` and `npm` delivery for `/profile` and for the update path against the real public repository | No release tag exists yet, and local mode is what the suites can exercise | The first release, then a run of `/update` from an install of it |

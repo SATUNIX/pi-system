@@ -43,4 +43,8 @@ none of them for `templates`, `init` and `plan`. Details: `docs/autonomy.md`.
 `PI_AUTONOMY_CLI` overrides the CLI path (tests); `PI_AUTONOMY_HOME` is the CLI's state directory
 (default `~/.local/state/pi-autonomy`).
 
+A git install of the kit includes `packages/autonomy`; the npm package deliberately does not ship the
+runner (`packages/core/pack-check.mjs` forbids it), so under npm delivery `/autonomy` says the CLI is
+not installed.
+
 Ships in the `autonomous` profile only.

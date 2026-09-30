@@ -31,6 +31,7 @@ plainly.
 | `npm run verify` | Manifests, profiles, catalogues and policy parity are consistent; extensions are self-contained; the type-check passes | Behaviour |
 | Deterministic suites (`npm run check:all`) | Each feature's behaviour against fakes, including the tool firewall, approvals, delegation governance, effort ledger, profile transactions, update verification, web console security, footer rendering and the autonomous run engine | That a real provider or container behaves the same |
 | Clean install with the real pi runtime (`smoke:clean-install`) | The packed release installs for every profile into an empty home, and the real pi loads all of it with no extension error | A conversation with a model |
+| Real container engine (`smoke:autonomy-container`) | The autonomous runner's boundary on Docker 29 in a disposable sandbox: internal network, hardened workers, the relay and egress proxy, git plumbing, acceptance in clean containers, cleanup | Rootless Podman, a real model provider, long runs |
 | Real-terminal spot checks | The status bar in a real terminal, and each candidate companion package loading in a real pi | Long sessions |
 | Hosted CI | The same suite on GitHub's runners, at the pi floor, and (advisory) the newest pi | |
 
@@ -44,9 +45,9 @@ In short:
 - **No real model provider was used.** The effort prompts, the auto-mode judge, the completion
   reviewer and delegation quality are tested with deterministic fakes. Try a representative task at
   a couple of effort tiers before relying on them.
-- **The autonomous runner's container boundary was not exercised** (no container engine). The
-  boundary probe is manual-only; run it before an unattended run
-  ([Autonomous runs](autonomy.md)).
+- **The autonomous runner has not made a full run against a real model provider**, and its
+  container test used Docker, not the default rootless Podman. Run the boundary probe on your own
+  engine and start with a small budget before an unattended run ([Autonomous runs](autonomy.md)).
 - **The web console has not been run in a browser**, so the Content-Security-Policy is untested.
 - **Windows, macOS and Node 24** are not covered beyond what is stated above.
 

@@ -21,8 +21,8 @@ In rough priority order:
 
 1. **Cut the first release** and run the operator checks the beta could not:
    an `/update` from an install of the tag, a representative task at more than one effort tier
-   with a real provider, the autonomous runner's container boundary probe, and the web console in
-   a browser. Results feed back into [Future work](future-work.md).
+   with a real provider, a small autonomous run with a real provider on the default rootless
+   Podman engine, and the web console in a browser. Results feed back into [Future work](future-work.md).
 2. **pi 0.99.** Review the newest pi against the whole suite, decide whether to widen the peer
    range, and move the pinned test version.
 3. **Companion packages.** Review `pi-lens` 4.x, `pi-readseek` 0.10.x and `pi-mcp-adapter` 3.x each

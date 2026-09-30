@@ -140,9 +140,15 @@ whole state is treated as corrupt.
 - A run is capped at 60 step executions, counting loops.
 - Resuming re-runs the interrupted step (in a parallel group, only the members that hadn't
   passed) and continues from there. `inputs` and finished outputs are kept.
-- Subagents in a workflow get the same isolation as any subagent: `--no-extensions` plus
-  the enabled safety extensions and the step's `extensions`. A subagent can't start another
-  workflow.
+- Subagents in a workflow get the same governed launch as any subagent: `--no-extensions` plus
+  the parent's protections, the companions and the step's `extensions`, with the child's own
+  protection check (see [Agent orchestration](agent-orchestration.md#child-governance)). A subagent
+  can't start another workflow.
+- **Effort budgets apply.** `/workflow run` and `/workflow resume` are user-directed launches, limited
+  only by the platform ceilings. The `workflow_run` tool, which the model calls, spends the
+  discretionary [effort](effort.md) budget like any delegation and is hidden at E1. The `research`
+  workflow starts three scouts at once, so as a model-started workflow it needs an effort tier that
+  allows three scouts (E5); use `/workflow run research` at lower tiers.
 
 ## Shipped workflows
 

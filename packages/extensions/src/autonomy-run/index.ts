@@ -35,7 +35,7 @@ export interface CliResult {
 export function runCli(args: string[], { json = true, cwd, timeoutMs = 120_000, env = process.env }: { json?: boolean; cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<CliResult> {
   const cli = cliPath(env);
   return new Promise((resolve) => {
-    if (!fs.existsSync(cli)) return resolve({ code: null, json: null, stdout: "", stderr: `the autonomy CLI is not installed at ${cli} (it ships with the kit's packages/autonomy directory)` });
+    if (!fs.existsSync(cli)) return resolve({ code: null, json: null, stdout: "", stderr: `the autonomy CLI is not installed at ${cli} (a git install of the kit includes packages/autonomy; the npm package does not ship the runner)` });
     const child = spawn(process.execPath, [cli, ...args, ...(json ? ["--json"] : [])], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
