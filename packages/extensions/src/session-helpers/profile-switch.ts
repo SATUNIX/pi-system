@@ -52,7 +52,9 @@ export function snapshotFiles(paths: string[]): FileSnapshot[] {
 function transientSiblings(file: string): string[] {
   const dir = path.dirname(file);
   const base = path.basename(file);
-  const out = [`${file}.pi-kit.lock`];
+  // Only files that exist now: the "before" set must hold what was already there, so that
+  // anything the switch adds (and only that) is removed on rollback.
+  const out = fs.existsSync(`${file}.pi-kit.lock`) ? [`${file}.pi-kit.lock`] : [];
   try {
     for (const name of fs.readdirSync(dir)) if (name.startsWith(`${base}.`) && /\.\d+\.tmp$/.test(name)) out.push(path.join(dir, name));
   } catch {
