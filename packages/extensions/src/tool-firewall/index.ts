@@ -402,6 +402,28 @@ function modelCompleter(ctx: any, cfg: FirewallConfig): Completer | null {
 
 const JUDGE_SAFE_STRICT = new Set(["read", "network_read"]);
 
+// Protections registry (shared, in-process). Each mandatory protection (tool-firewall,
+// secret-guard, protected-paths) records its name in globalThis[Symbol.for("pi-kit.protections")]
+// once its factory has installed its hooks: a Set of names with `has(name)` and `list()` (sorted),
+// so a trusted launcher can check that a session loaded what it must have loaded. Extensions are
+// self-contained, so each carries this same small helper; whichever loads first creates the
+// registry. It is a consistency check, not a boundary against code running in the same process.
+const PROTECTIONS_KEY = Symbol.for("pi-kit.protections");
+function registerProtection(name: string): void {
+  try {
+    const g = globalThis as unknown as Record<symbol, any>;
+    let reg = g[PROTECTIONS_KEY];
+    if (!reg || typeof reg.add !== "function" || typeof reg.has !== "function") {
+      reg = new (class ProtectionRegistry extends Set<string> {})();
+      g[PROTECTIONS_KEY] = reg;
+    }
+    reg.add(name);
+    if (typeof reg.list !== "function") Object.defineProperty(reg, "list", { value: () => [...reg].map(String).sort(), enumerable: false, configurable: true });
+  } catch {
+    /* the registry must never break the protection itself */
+  }
+}
+
 export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((...args: any[]) => any) = {}) {
   const d: FirewallDeps = typeof deps === "function" ? {} : deps;
   let session: SessionState | null = null;
@@ -783,5 +805,7 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
 
   pi.registerCommand("auto", { description: "Auto mode: /auto [status|on|off|explain [n]|learned|forget <sig>|learn on|off|stats|profile [rebuild|reset]|check <command>]", handler: autoCommand });
   pi.registerCommand("auto-mode", { description: "Alias of /auto", handler: autoCommand });
+  // Only once every hook is installed: a factory that failed earlier never registers.
+  registerProtection("tool-firewall");
 }
 

@@ -199,6 +199,28 @@ function looksLikeInlineProgram(rawToken: string, stripped: string): boolean {
   return false;
 }
 
+// Protections registry (shared, in-process; see tool-firewall/README.md). Each mandatory protection
+// (tool-firewall, secret-guard, protected-paths) records its name here when its factory has
+// installed its hooks, so a trusted launcher can check that a session loaded what it must have
+// loaded. Extensions are self-contained, so every one carries this same small helper: whichever
+// loads first creates the registry, the others add to it. It is a consistency check, not a
+// boundary against code running in the same process.
+const PROTECTIONS_KEY = Symbol.for("pi-kit.protections");
+function registerProtection(name: string): void {
+  try {
+    const g = globalThis as unknown as Record<symbol, any>;
+    let reg = g[PROTECTIONS_KEY];
+    if (!reg || typeof reg.add !== "function" || typeof reg.has !== "function") {
+      reg = new (class ProtectionRegistry extends Set<string> {})();
+      g[PROTECTIONS_KEY] = reg;
+    }
+    reg.add(name);
+    if (typeof reg.list !== "function") Object.defineProperty(reg, "list", { value: () => [...reg].map(String).sort(), enumerable: false, configurable: true });
+  } catch {
+    /* the registry must never break the protection itself */
+  }
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const toolName = event.toolName;
@@ -234,4 +256,6 @@ export default function (pi: ExtensionAPI) {
 
     return undefined;
   });
+  // Only once the hook is installed: a factory that failed earlier never registers.
+  registerProtection("protected-paths");
 }
