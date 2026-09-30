@@ -7,10 +7,11 @@
 //   startAgent({ attempt, onEvent }) -> { send(msg), stop(): Promise, exited: Promise<{code}> },
 //   headSha(), reportExists(), meterUsd(), totalUsd(), stopRequested(),
 //   manager(bundle) -> decision, extras() -> { gitLog, plan, handoff }, gates() -> ["green"|"red"...],
-//   resetToLastGood(abandonedSha) -> Promise, publish() -> Promise, log(line)
+//   resetToLastGood(abandonedSha) -> Promise, publish() -> Promise, log(line),
+//   uiPolicy? -> permissions.unattended: dialogs are then answered per the contract and a question ends the cycle as "blocked"
 // }
 import { evaluate } from "./triggers.mjs";
-import { uiResponse, activityLine, isGuardEscalation } from "./rpc.mjs";
+import { uiResponse, activityLine, isGuardEscalation, operatorDecision } from "./rpc.mjs";
 
 const FOLLOW_UP = [
   "You stopped before the cycle was recorded. Continue from where you are: finish the remaining phases (verify, then record {{DIR}}/report.md, update BACKLOG.md and HANDOFF.md), commit and push.",
@@ -34,14 +35,21 @@ export async function runCycle({ n, cfg, rt, prompt, restartBriefing, cycleDir }
   let settled = false;
   let followUps = 0;
   let pendingTrigger = null;
+  let blocker = null;
 
   const onEvent = (ev) => {
     s.lastEventAt = rt.now();
     if (ev.type === "agent_start") settled = false;
     if (ev.type === "agent_settled") settled = true;
     if (ev.type === "extension_ui_request") {
-      const reply = uiResponse(ev);
-      if (reply) agent?.send(reply);
+      if (rt.uiPolicy) {
+        const d = operatorDecision(ev, rt.uiPolicy);
+        if (d.action === "reply") { agent?.send(d.reply); rt.onAutoAnswer?.(ev); }
+        else if (d.action === "block" && !blocker) blocker = d.blocker;
+      } else {
+        const reply = uiResponse(ev);
+        if (reply) agent?.send(reply);
+      }
     }
     if (isGuardEscalation(ev)) s.guardEscalations++;
     const line = activityLine({ ...ev, at: rt.now() });
@@ -63,7 +71,7 @@ export async function runCycle({ n, cfg, rt, prompt, restartBriefing, cycleDir }
     await agent?.stop();
     await rt.publish();
     rt.log(`cycle ${NN} closed: ${outcome} (${reason})`);
-    return { outcome, reason, attempts: attempt, decisions, costUsd: s.costUsd, head: await rt.headSha() };
+    return { outcome, reason, attempts: attempt, decisions, costUsd: s.costUsd, head: await rt.headSha(), ...(blocker ? { blocker } : {}) };
   };
 
   launch(restartBriefing ? `${restartBriefing}\n\n${prompt}` : prompt);
@@ -76,7 +84,8 @@ export async function runCycle({ n, cfg, rt, prompt, restartBriefing, cycleDir }
     if (sha !== head) { head = sha; s.lastCommitAt = now; }
     s.costUsd = (await rt.meterUsd()) - startMeter;
 
-    if (rt.stopRequested() || (await rt.totalUsd()) >= cfg.budget.totalUsd) return close("aborted", "run stop (STOP file or total budget)");
+    if (blocker) return close("blocked", "a question needs a person");
+    if (rt.stopRequested() || (await rt.totalUsd()) >= cfg.budget.totalUsd) return close("aborted", "run stop (a control command, a signal or the total budget)");
 
     // The agent finished its turn: done if the report is on the branch, otherwise ask it to finish.
     if (settled && !s.exited && !pendingTrigger) {

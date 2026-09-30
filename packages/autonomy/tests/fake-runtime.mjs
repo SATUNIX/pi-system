@@ -106,6 +106,7 @@ export class FakeRuntime {
       else if (msg.type === "abort") agent.aborted = true;
     };
     agent.stop = async () => { if (!agent.alive) return; agent.alive = false; this.engine.containers.delete(name); resolveExit({ code: 143 }); };
+    if (resetWorkspace) this.resetWork();
     this.agents.set(name, agent);
     this.engine.containers.add(name);
     this.calls.workers.push({ name, step, attempt, effort });
@@ -251,6 +252,22 @@ export class FakeRuntime {
     return this.reviewFn(bundle);
   }
 
-  /** Model calls the manager makes (self-improve): scripted. */
-  complete() { return async (system, user) => this.managerFn(system, user); }
+  /** Host-side model calls (the manager and the merge review of self-improve): scripted, told which model was asked. */
+  complete(model) { return async (system, user) => this.managerFn(system, user, model); }
+
+  /** Point the worker's repository and workspace at the mirror's working branch (a new cycle, or a reset); unmerged cycles' tags become attempts/<run>/cycle-NN. */
+  async setWorkerBranch(_sha, extraRefs = []) {
+    const { branch, run } = this.cfg;
+    spawnSync("git", ["--git-dir", this.p.remote, "fetch", "--quiet", "--no-tags", this.p.mirror, `+refs/heads/${branch}:refs/heads/${branch}`], { encoding: "utf8" });
+    for (const ref of extraRefs) spawnSync("git", ["--git-dir", this.p.remote, "fetch", "--quiet", "--no-tags", this.p.mirror, `+${ref}:refs/heads/attempts/${run}/${ref.split("/").pop()}`], { encoding: "utf8" });
+    this.resetWork();
+  }
+
+  resetWork() {
+    const { branch } = this.cfg;
+    git(this.p.work, ["fetch", "--quiet", "origin"]);
+    git(this.p.work, ["checkout", "--quiet", "-B", branch, `origin/${branch}`]);
+    git(this.p.work, ["reset", "--quiet", "--hard", `origin/${branch}`]);
+    git(this.p.work, ["clean", "-fdq"]);
+  }
 }

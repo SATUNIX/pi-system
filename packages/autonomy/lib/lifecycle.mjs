@@ -32,7 +32,7 @@ export const TRANSITIONS = {
 };
 
 export const BUDGET_REASONS = ["total_usd", "max_steps", "max_minutes"];
-export const FAILURE_REASONS = ["boundary_violation", "recovery_exhausted", "step_attempts_exhausted", "review_rejected", "setup_failed", "worker_unavailable", "lock_lost", "internal_error", "operator_failed", "promotion_failed"];
+export const FAILURE_REASONS = ["boundary_violation", "recovery_exhausted", "step_attempts_exhausted", "review_rejected", "setup_failed", "worker_unavailable", "lock_lost", "internal_error", "operator_failed", "promotion_failed", "integration_diverged", "final_gate_red"];
 
 export class IllegalTransition extends Error {
   constructor(from, to, why) {

@@ -25,17 +25,14 @@ import { activityLine, operatorDecision } from "./rpc.mjs";
 import { currentTarget, decideRecovery, newlyPassing } from "./recovery.mjs";
 import { planReconfigure } from "./reconfigure.mjs";
 import { clip } from "./templates/common.mjs";
+import { BoundaryError, LockLost } from "./errors.mjs";
 import { writeJsonAtomic } from "./fsutil.mjs";
 
 export const IDLE_MINUTES = 20; // a worker session that emits nothing for this long is treated as stalled
 export const MAX_ACTIVITY_LINES = 60;
 const TERMINAL = ["succeeded", "failed", "cancelled"];
 
-/** Thrown when the boundary cannot be verified or has been tampered with. Ends the run as failed / boundary_violation. */
-export class BoundaryError extends Error {
-  constructor(message) { super(message); this.code = "boundary_violation"; }
-}
-export class LockLost extends Error { constructor() { super("the run lock is no longer held by this supervisor"); this.code = "lock_lost"; } }
+export { BoundaryError, LockLost };
 
 export class Engine {
   /**
@@ -219,8 +216,9 @@ export class Engine {
   }
 
   // --- control commands -------------------------------------------------------------------------
-  async applyControl() {
+  async applyControl({ only } = {}) {
     for (const msg of this.store.pending()) {
+      if (only && !only.includes(msg.kind)) continue;
       const p = msg.payload ?? {};
       try {
         switch (msg.kind) {
@@ -255,7 +253,7 @@ export class Engine {
   steer(message) {
     if (!message.trim()) return;
     this.state.steers = [...(this.state.steers ?? []), { at: new Date(this.rt.now()).toISOString(), message }].slice(-50);
-    if (this.session && !this.session.dead && this.active) this.session.say(`Operator steering (authoritative): ${message}`);
+    if (this.session && !this.session.dead && this.active && this.session.say) this.session.say(`Operator steering (authoritative): ${message}`);
     else this.pendingFeedback.push(`Operator steering (authoritative): ${message}`);
     this.log(`steer recorded (${message.length} characters)`);
   }
@@ -307,6 +305,14 @@ export class Engine {
     this.save((s) => { s.worker = { container: session.agent.name, attempt, step, startedAt: new Date(this.rt.now()).toISOString() }; });
     this.session = session;
     return session;
+  }
+
+  /** Register a session that a template drives itself (self-improve's cycle loop), so pause, cancel and exit can stop it. */
+  adoptAgent(agent) {
+    this.session = { attempt: this.state.sessions ?? 0, agent, settled: false, exited: null, blocker: null, dead: false, lastEventAt: this.rt.now(), activity: [], say: null };
+    agent.exited.then(() => { if (this.session?.agent === agent) this.session.dead = true; });
+    this.save((s) => { s.worker = { container: agent.name, attempt: s.sessions ?? 0, step: s.step, startedAt: new Date(this.rt.now()).toISOString() }; });
+    return this.session;
   }
 
   async stopWorker(why) {

@@ -35,6 +35,7 @@ export async function runAcceptance({ rt, contract, sha, step, dir, runRoot, log
       seconds: raw.seconds ?? Math.round((rt.now() - started) / 1000),
       definitionDigest: sha256(canonicalJson(check)),
       tail: clip(raw.tail ?? raw.detail ?? "", 4000),
+      ...(Array.isArray(raw.steps) ? { steps: raw.steps.slice(0, 20).map((x) => ({ name: String(x.name).slice(0, 60), code: Number(x.code), seconds: Number(x.seconds) || 0 })) } : {}),
       at: new Date(rt.now()).toISOString(),
     };
     const file = path.join(dir, `${check.id}.json`);

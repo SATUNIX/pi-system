@@ -20,7 +20,9 @@ export function promotionTargets(contract, cfg, sha) {
       const repo = d.repo ?? contract.inputs.repository?.path ?? null;
       return { key: `local-branch|${repo ?? "mirror"}|${d.branch}|${sha}`, kind: "local-branch", repo, branch: d.branch, sha, description: repo ? `fast-forward branch ${d.branch} in ${repo}` : `branch ${d.branch} in the run's own mirror` };
     }
-    return { key: `git-remote|${d.url}|${d.branch}|${sha}`, kind: "git-remote", url: d.url, branch: d.branch, tags: d.tags, sha, description: `push ${d.branch}${d.tags ? " and the run's tags" : ""} to ${d.url} (fast-forward only)` };
+    // cfg.integrationRemote is derived from this very destination (lib/runcfg.mjs); it is the one place the runtime may point at a resolved address.
+    const url = cfg?.integrationRemote && p.destinations.filter((x) => x.kind === "git-remote").length === 1 ? cfg.integrationRemote : d.url;
+    return { key: `git-remote|${url}|${d.branch}|${sha}`, kind: "git-remote", url, branch: d.branch, tags: d.tags, sha, description: `push ${d.branch}${d.tags ? " and the run's tags" : ""} to ${url} (fast-forward only)` };
   });
 }
 
