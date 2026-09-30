@@ -7,13 +7,13 @@
 
 | Profile | Task class | Tiers | Extensions |
 |---|---|---|---|
-| `lite` | Low-context / small local models | T0–T1 | 19 |
-| `quick` | Quick fix | T0–T1 | 23 |
-| `balanced` | Daily coding | T0–T2 | 32 |
-| `long-horizon` | Multi-hour / multi-day | T0–T3 | 39 |
-| `autonomous` | Set-and-walk-away | T0–T3 | 39 |
-| `self-improving` | Full / self-improving (experimental) | T0–T4 | 46 |
-| `pentest` | Security engagement (strict) | T0–T3+ | 41 |
+| `lite` | Low-context / small local models | T0–T1 | 21 |
+| `quick` | Quick fix | T0–T1 | 25 |
+| `balanced` | Daily coding | T0–T2 | 34 |
+| `long-horizon` | Multi-hour / multi-day | T0–T3 | 41 |
+| `autonomous` | Set-and-walk-away | T0–T3 | 41 |
+| `self-improving` | Full / self-improving (experimental) | T0–T4 | 48 |
+| `pentest` | Security engagement (strict) | T0–T3+ | 43 |
 
 ## Extension × profile
 
@@ -45,6 +45,7 @@
 | `spec-plan` | planning | stable | · | · | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `subagent` | planning | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `task-graph` | planning | beta | · | · | · | ✓ | ✓ | ✓ | ✓ |
+| `delegation-guard` | safety | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `dirty-repo-guard` | safety | stable | · | · | · | · | · | ✓ | · |
 | `finish-reason-retry` | safety | beta | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `pentest-governance-domain` | safety | beta | · | · | · | · | · | · | ✓ |
@@ -60,6 +61,7 @@
 | `caveman` | workflow | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `compress` | workflow | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `custom-compaction` | workflow | stable | · | · | ✓ | · | · | · | · |
+| `effort` | workflow | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `guidelines` | workflow | stable | · | · | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `handoff` | workflow | stable | · | · | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `progress-guard` | workflow | beta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

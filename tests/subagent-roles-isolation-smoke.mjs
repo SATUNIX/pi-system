@@ -19,6 +19,11 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { loadModule, tmpWorkspace, rmWorkspace, setEnv } from "../packages/core/eval/harness.mjs";
+import { installDelegation } from "../packages/core/eval/delegation.mjs";
+
+// Launches go through delegation-guard (mandatory protections + effort budget); fake children still need it in place.
+const __delegation = await installDelegation();
+process.on("exit", () => __delegation.cleanup());
 
 const ws = tmpWorkspace("pi-kit-subagent-roles-");
 const restoreAgentDir = setEnv("PI_CODING_AGENT_DIR", path.join(ws, "agent"));
@@ -30,7 +35,6 @@ try {
   const resultMod = await loadModule("vendor/subagent/result.ts");
   const logging = await loadModule("vendor/subagent/logging.ts");
   const status = await loadModule("vendor/subagent/status.ts");
-  const isolation = await loadModule("vendor/subagent/isolation.ts");
 
   // 1. Kit roles.
   {
@@ -158,14 +162,22 @@ try {
     const agentDir = path.join(ws, "agent");
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [{ source: "../kit", extensions: ["packages/extensions/src/secret-guard/index.ts", "packages/extensions/src/memory-local/index.ts", "packages/extensions/third_party/todo/index.ts"] }] }));
-    const plan = isolation.childExtensionArgs(ws, [], false);
+    // The parent runs the firewall, path protection and (enabled by the operator) secret-guard.
+    globalThis[Symbol.for("pi-kit.protections")].add("secret-guard");
+    const guard = __delegation.guard;
+    const plan = guard.prepareChild({ cwd: ws, kind: "discretionary", role: "scout" });
+    assert.equal(plan.ok, true, plan.reason);
     assert.equal(plan.args[0], "--no-extensions");
-    assert.deepEqual(plan.loaded.sort(), ["secret-guard", "todo"], "only enabled safety extensions load; memory/orchestrator never do");
-    const delegator = isolation.childExtensionArgs(ws, [], true);
+    plan.slot.settle("test");
+    assert.deepEqual([...plan.loaded].sort(), ["delegation-guard", "effort", "protected-paths", "secret-guard", "todo", "tool-firewall"], "protections the parent runs, effort and enabled companions load; memory/orchestrator never do");
+    const delegator = guard.prepareChild({ cwd: ws, kind: "discretionary", role: "delegator", needsSubagent: true });
     assert.ok(delegator.loaded.includes("subagent"), "a delegator child gets the subagent tool");
+    delegator.slot.settle("test");
     const restore = setEnv("PI_KIT_SUBAGENT_ISOLATE", "0");
     try {
-      assert.deepEqual(isolation.childExtensionArgs(ws, [], false).args, [], "isolation can be disabled");
+      const forced = guard.prepareChild({ cwd: ws, kind: "discretionary", role: "scout" });
+      assert.equal(forced.args[0], "--no-extensions", "isolation can no longer be disabled: a child never inherits an unknown extension set");
+      forced.slot.settle("test");
     } finally { restore(); }
     fs.rmSync(path.join(agentDir, "settings.json"));
     ok("children load --no-extensions plus enabled safety extensions only");

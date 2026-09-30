@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../core/schema/extension.schema.json",
+  "name": "delegation-guard",
+  "summary": "The single launch contract for child pi sessions. Every delegation path (subagents, workflows, completion review, conductor specialists and validators) gets its extension arguments and environment here: mandatory protections and task governance always load, a missing protection refuses the launch, the launch reserves against the shared effort budget, and the child verifies before any tool runs that everything required registered itself, otherwise it blocks all tools and exits.",
+  "category": "safety",
+  "tier": "T1",
+  "layer": 4,
+  "entry": "index.ts",
+  "hooks": ["session_start", "session_shutdown", "tool_call"],
+  "registers": { "tools": [], "commands": [] },
+  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "enabledByDefault": true,
+  "platforms": ["windows", "linux", "darwin"],
+  "runtime": {
+    "nodeBuiltins": ["fs", "os", "path", "url"],
+    "npm": [],
+    "piPeers": ["@earendil-works/pi-coding-agent"],
+    "services": [],
+    "models": []
+  },
+  "pulls": [],
+  "env": ["PI_KIT_CHILD_REQUIRE", "PI_KIT_SUBAGENT_EXTENSIONS", "PI_KIT_EXTENSIONS_ROOT"],
+  "provenance": { "origin": "custom" },
+  "homeRepo": null,
+  "status": "beta",
+  "childGovernance": true
+}

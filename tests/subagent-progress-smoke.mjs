@@ -7,6 +7,11 @@ import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { loadModule, fakePi, tmpWorkspace, rmWorkspace, setEnv } from "../packages/core/eval/harness.mjs";
+import { installDelegation } from "../packages/core/eval/delegation.mjs";
+
+// Launches go through delegation-guard (mandatory protections + effort budget); fake children still need it in place.
+const __delegation = await installDelegation();
+process.on("exit", () => __delegation.cleanup());
 
 const ws = tmpWorkspace("pi-kit-subagent-progress-");
 try {

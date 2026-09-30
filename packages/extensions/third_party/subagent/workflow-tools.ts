@@ -71,7 +71,7 @@ async function start(
   ctx: ToolContext,
   name: string,
   inputsGiven: Record<string, string>,
-  opts: { resume?: RunState; signal?: AbortSignal; onProgress?: (t: string) => void },
+  opts: { resume?: RunState; signal?: AbortSignal; onProgress?: (t: string) => void; launchKind?: "discretionary" | "user" },
 ): Promise<{ state?: RunState; error?: string; workflow?: WorkflowDef }> {
   const cwd = ctx.cwd ?? process.cwd();
   const { workflows } = discoverWorkflows(cwd);
@@ -91,7 +91,7 @@ async function start(
   active.set(state.id, controller);
   try {
     const agents = discoverAgents(cwd, "user").agents;
-    const final = await executeWorkflow(w, state, { cwd, agents, signal: controller.signal, parentModel: parentModelOf(ctx), onProgress: opts.onProgress });
+    const final = await executeWorkflow(w, state, { cwd, agents, signal: controller.signal, parentModel: parentModelOf(ctx), onProgress: opts.onProgress, launchKind: opts.launchKind });
     return { state: final, workflow: w };
   } finally {
     active.delete(state.id);
@@ -225,7 +225,7 @@ export function registerWorkflowTools(pi: ExtensionAPI): void {
         // Commands run outside a turn: the workflow runs in the background, drives the footer,
         // and posts its summary into the session when done so the agent can pick it up.
         notify(`workflow ${name}: started${resume ? ` (resuming ${resume.id})` : ""}. /workflow status to follow, /workflow stop <id> to stop.`);
-        void start(pi, ctx, name, inputs, { resume, onProgress: (t) => ctx.ui?.setStatus?.("workflow", t.slice(0, 120)) })
+        void start(pi, ctx, name, inputs, { resume, launchKind: "user", onProgress: (t) => ctx.ui?.setStatus?.("workflow", t.slice(0, 120)) })
           .then((r) => {
             try {
               ctx.ui?.setStatus?.("workflow", undefined);

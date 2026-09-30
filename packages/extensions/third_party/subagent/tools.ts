@@ -28,6 +28,7 @@ const TaskItem = Type.Object({
   agent: Type.String({ description: "Name of the agent to invoke" }),
   task: Type.String({ description: "Task to delegate to the agent" }),
   cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+  effort: Type.Optional(Type.String({ description: "Effort tier for this child (minimal|focused|standard|thorough|exhaustive); never above yours" })),
 });
 
 const SubagentParams = Type.Object({
@@ -39,6 +40,7 @@ const SubagentParams = Type.Object({
   background: Type.Optional(Type.Boolean({ description: "Single/parallel only: return immediately and let the child run in the background; you are notified when it finishes. Use only for long work you do not need in this turn." })),
   confirmProjectAgents: Type.Optional(Type.Boolean({ description: "Deprecated and ignored. Project-local agents always need interactive operator approval or an exact PI_KIT_TRUSTED_PROJECT_ROLES digest grant." })),
   cwd: Type.Optional(Type.String({ description: "Working directory (single mode)" })),
+  effort: Type.Optional(Type.String({ description: "Effort tier for the child (single mode); never above yours" })),
 });
 
 const SubagentStatusParams = Type.Object({
@@ -206,7 +208,7 @@ async function projectTrustError(
 
 async function runChainMode(
   pi: ExtensionAPI,
-  chain: Array<{ agent: string; task: string; cwd?: string }>,
+  chain: Array<{ agent: string; task: string; cwd?: string; effort?: string }>,
   ctx: ToolContext,
   agents: AgentConfig[],
   signal: AbortSignal | undefined,
@@ -219,7 +221,7 @@ async function runChainMode(
   for (let i = 0; i < chain.length; i++) {
     const step = chain[i];
     const task = substitutePrevious(step.task, previous);
-    const r = await runAgent({ defaultCwd: ctx.cwd ?? process.cwd(), agents, agentName: step.agent, task, cwd: step.cwd, step: i + 1, signal, onUpdate: reportUpdate, onSettled: settledNotifier(pi, ctx), parentModel, inheritParentModel });
+    const r = await runAgent({ defaultCwd: ctx.cwd ?? process.cwd(), agents, agentName: step.agent, task, cwd: step.cwd, step: i + 1, signal, overrides: step.effort ? { effort: step.effort } : undefined, onUpdate: reportUpdate, onSettled: settledNotifier(pi, ctx), parentModel, inheritParentModel });
     results.push(r);
     if (r.detached) {
       return textResult(`Chain detached at step ${i + 1} (${step.agent}): running in the background (run ${r.runId ?? "?"}). Follow it with subagent_status id=${r.runId ?? "<run>"}.`);
@@ -235,7 +237,7 @@ async function runChainMode(
 
 async function runParallelMode(
   pi: ExtensionAPI,
-  tasks: Array<{ agent: string; task: string; cwd?: string }>,
+  tasks: Array<{ agent: string; task: string; cwd?: string; effort?: string }>,
   ctx: ToolContext,
   agents: AgentConfig[],
   signal: AbortSignal | undefined,
@@ -251,7 +253,7 @@ async function runParallelMode(
   // Background tasks all launch at once (each returns immediately); the concurrency limit only
   // bounds tasks the parent actually waits on.
   const results = await mapWithConcurrencyLimit(tasks, background ? tasks.length : concurrency, (t) =>
-    runAgent({ defaultCwd: ctx.cwd ?? process.cwd(), agents, agentName: t.agent, task: t.task, cwd: t.cwd, signal, onUpdate: reportUpdate, onSettled: settledNotifier(pi, ctx), parentModel, inheritParentModel, background }),
+    runAgent({ defaultCwd: ctx.cwd ?? process.cwd(), agents, agentName: t.agent, task: t.task, cwd: t.cwd, signal, overrides: t.effort ? { effort: t.effort } : undefined, onUpdate: reportUpdate, onSettled: settledNotifier(pi, ctx), parentModel, inheritParentModel, background }),
   );
   const detachedCount = results.filter((r) => r.detached).length;
   const successCount = results.filter((r) => !r.detached && !isFailedResult(r)).length;
@@ -333,7 +335,7 @@ export function registerSubagentTools(pi: ExtensionAPI): void {
         if (params.tasks && params.tasks.length > 0) {
           return await runParallelMode(pi, params.tasks, ctx, agents, signal, reportUpdate, parentModel, inheritParentModel, background);
         }
-        const r = await runAgent({ defaultCwd: ctx.cwd ?? process.cwd(), agents, agentName: params.agent as string, task: params.task as string, cwd: params.cwd, signal, onUpdate: reportUpdate, onSettled: settledNotifier(pi, ctx), parentModel, inheritParentModel, background });
+        const r = await runAgent({ defaultCwd: ctx.cwd ?? process.cwd(), agents, agentName: params.agent as string, task: params.task as string, cwd: params.cwd, signal, overrides: params.effort ? { effort: String(params.effort) } : undefined, onUpdate: reportUpdate, onSettled: settledNotifier(pi, ctx), parentModel, inheritParentModel, background });
         if (r.detached) {
           return textResult(`Subagent ${r.agent} running in the background (detached). run: ${r.runId ?? "?"}\nFollow with subagent_status id=${r.runId ?? "<run>"}; stop with subagent_stop id=${r.runId ?? "<run>"}.`);
         }

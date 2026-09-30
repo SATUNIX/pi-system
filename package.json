@@ -116,6 +116,8 @@
     "smoke:ctx-contributions": "node tests/ctx-contributions-smoke.mjs",
     "smoke:docs": "node tests/docs-smoke.mjs",
     "smoke:dual-review": "node tests/dual-review-smoke.mjs",
+    "smoke:delegation-guard": "node tests/delegation-guard-smoke.mjs",
+    "smoke:effort": "node tests/effort-smoke.mjs",
     "smoke:env-isolation": "node tests/env-isolation-smoke.mjs",
     "smoke:epic1": "node tests/epic1-smoke.mjs",
     "smoke:epic2": "node tests/epic2-smoke.mjs",

@@ -26,9 +26,13 @@ export function getFinalOutput(messages: Msg[]): string {
   return "";
 }
 
+// A child that fails its own governance check exits with EX_CONFIG (delegation-guard).
+export const EX_CONFIG = 78;
+
 export function isFailedResult(result: SingleResult): boolean {
   return (
     result.exitCode !== 0 ||
+    result.stopReason === "denied" ||
     result.stopReason === "error" ||
     result.stopReason === "aborted" ||
     result.stopReason === "stream-cap" ||
@@ -48,6 +52,10 @@ export function classifyFailure(result: SingleResult): FailureClass {
   if (!isFailedResult(result)) return "none";
   const hasWork = Boolean(result.finalOutput) || result.messages.length > 0;
   if (result.stopReason === "aborted" || result.stopReason === "stopped") return "fatal";
+  // A refused launch (no budget, missing protection, guard not loaded) or a child that failed its
+  // governance check is a policy outcome, never a transient fault: retrying cannot help and, for a
+  // budget denial, would only burn attempts.
+  if (result.stopReason === "denied" || result.exitCode === EX_CONFIG) return "fatal";
   // `timeout`, `stream-cap` and `wall-clock` are all budget/watchdog kills: they must never be
   // auto-retried. Before this, `wall-clock` fell through to the generic tail and a kill with no
   // output was reported `transient`, so the runner re-ran a task the ceiling had just stopped,
@@ -60,6 +68,8 @@ export function classifyFailure(result: SingleResult): FailureClass {
 
 // Actionable next step for a failed child, so a bare "failed" is never a dead end.
 function failureHint(result: SingleResult): string {
+  if (result.stopReason === "denied") return "The launch was refused before any child started; the message says why (effort budget, missing protection or guard). Do the work directly or change the effort tier with /effort.";
+  if (result.exitCode === EX_CONFIG) return "The child refused to run because a required protection was not loaded in it (delegation-guard). Reinstall the kit or re-apply the profile with /profile.";
   if (result.stopReason === "aborted") return "The parent cancelled (Esc). Pass background: true for work that should outlive the turn.";
   if (result.stopReason === "timeout") return "Raise PI_KIT_SUBAGENT_IDLE_TIMEOUT_MS, or set it to 0 to disable the idle watchdog.";
   if (result.stopReason === "wall-clock") return "Raise or unset PI_KIT_SUBAGENT_MAX_RUNTIME_MS for longer tasks.";

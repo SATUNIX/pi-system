@@ -34,6 +34,11 @@ export interface AgentConfig {
 	extensions?: string[];
 	// Per-role wall-clock ceiling, overriding PI_KIT_SUBAGENT_MAX_RUNTIME_MS.
 	maxRuntimeMs?: number;
+	// Effort tier the child works at (minimal..exhaustive, E1..E5). Clamped to the parent's tier at launch:
+	// a child never runs above its parent. Effort never grants permissions.
+	effort?: string;
+	// Counts against the scout limit of the effort budget (the built-in `scout` role always does).
+	scout?: boolean;
 	systemPrompt: string;
 	source: AgentSource;
 	filePath: string;
@@ -92,6 +97,8 @@ export function parseAgentFile(content: string, source: AgentSource, filePath: s
 		skills: list(str("skills")),
 		extensions: list(str("extensions")),
 		maxRuntimeMs: parseDuration(str("max_runtime") ?? str("maxRuntime")),
+		effort: str("effort")?.trim() || undefined,
+		scout: /^(true|yes|1)$/i.test(str("scout")?.trim() ?? "") || undefined,
 		systemPrompt: body,
 		source,
 		filePath,

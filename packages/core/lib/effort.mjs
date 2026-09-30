@@ -1,25 +1,27 @@
 /**
  * Effort policy for toolchain code (the autonomy runner, verify, docs generation, tests).
  *
- * The single source of truth is packages/core/policies/effort.json plus the prompt templates
- * under packages/core/policies/effort/. The runtime copy of this logic lives in the `effort`
- * extension (extensions may not import toolchain code); tests/effort-smoke.mjs checks that the
- * two agree on aliases, clamping and limits so they cannot drift.
+ * The single source of truth is packages/extensions/src/effort/policy/effort.json plus the
+ * prompt templates beside it. The runtime copy of this logic lives in the `effort` extension
+ * (extensions may not import toolchain code); tests/effort-smoke.mjs checks that the two agree
+ * on aliases, clamping and limits so they cannot drift.
  *
  * Effort is an execution policy only: it never selects a model, a thinking level, a profile or
  * a permission. See docs/effort.md.
  */
 import fs from "node:fs";
 import path from "node:path";
-import { POLICIES_DIR } from "./paths.mjs";
+import { FIRST_PARTY_DIR } from "./paths.mjs";
 
-export const EFFORT_POLICY_PATH = path.join(POLICIES_DIR, "effort.json");
+// The policy lives inside the effort extension (self-contained, extractable); the toolchain reads it in place.
+export const EFFORT_POLICY_DIR = path.join(FIRST_PARTY_DIR, "effort", "policy");
+export const EFFORT_POLICY_PATH = path.join(EFFORT_POLICY_DIR, "effort.json");
 
 const LIMIT_KEYS = ["maxConcurrent", "maxTotal", "maxScouts"];
 const isCount = (v) => Number.isInteger(v) && v >= 0;
 
 /** Validate the policy shape. Returns a list of problems (empty when valid). */
-export function validateEffortPolicy(policy, baseDir = POLICIES_DIR) {
+export function validateEffortPolicy(policy, baseDir = EFFORT_POLICY_DIR) {
   const problems = [];
   if (!policy || typeof policy !== "object" || Array.isArray(policy)) return ["effort policy is not an object"];
   if (policy.schemaVersion !== 1) problems.push(`schemaVersion must be 1 (got ${JSON.stringify(policy.schemaVersion)})`);
@@ -108,7 +110,7 @@ export function tierLimits(id, policy = loadEffortPolicy(), overrides = {}) {
 }
 
 /** The text injected for a tier: the shared policy, then the tier's own contribution. */
-export function renderEffortPrompt(id, policy = loadEffortPolicy(), baseDir = POLICIES_DIR) {
+export function renderEffortPrompt(id, policy = loadEffortPolicy(), baseDir = EFFORT_POLICY_DIR) {
   const tier = tierOf(id, policy) ?? tierOf(policy.default, policy);
   const read = (file) => fs.readFileSync(path.join(baseDir, file), "utf8").trim();
   return `${read(policy.sharedPromptFile)}\n\n${read(tier.promptFile)}`;

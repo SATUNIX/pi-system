@@ -177,15 +177,21 @@ for (const { dir, avenue } of EXT_AVENUES) {
       }
     }
 
-    // 5b. context-sieve injection monopoly lint
-    // Only extensions/context-sieve/index.ts may return { systemPrompt from before_agent_start.
+    // 5b. system-prompt injection monopoly lint
+    // Only extensions/context-sieve/index.ts may return { systemPrompt } from before_agent_start:
+    // several extensions each rewriting the whole prompt fight over it. The one exception is the
+    // effort extension, whose contribution must reach EVERY profile (context-sieve is not in
+    // `quick`) and must apply at the user-turn boundary; it may only return the prompt through
+    // withEffortBlock(), which replaces its own marked block and so can never duplicate or
+    // clobber anything else.
     const ctxSieveEntry = extensionEntryPath("context-sieve");
     for (const tsFile of tsFiles) {
       const fullPath = path.join(extDir, tsFile);
       if (ctxSieveEntry && fullPath === ctxSieveEntry) continue;
       const src = fs.readFileSync(fullPath, "utf8");
       if (/return\s*\{\s*systemPrompt/.test(src)) {
-        fail(`self-injection violation in ${avenue}/${name}/${tsFile}: only context-sieve may return { systemPrompt } from before_agent_start`);
+        if (meta.name === "effort" && /return\s*\{\s*systemPrompt:\s*withEffortBlock\(/.test(src)) continue;
+        fail(`self-injection violation in ${avenue}/${name}/${tsFile}: only context-sieve may return { systemPrompt } from before_agent_start (effort may, via withEffortBlock only)`);
       }
     }
 

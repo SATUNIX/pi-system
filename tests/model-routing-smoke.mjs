@@ -12,6 +12,11 @@ import path from "node:path";
 import { ROOT, loadExtension, loadModule, fakePi, tmpWorkspace, rmWorkspace, setEnv, isolateKitEnv } from "../packages/core/eval/harness.mjs";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { installDelegation } from "../packages/core/eval/delegation.mjs";
+
+// Launches go through delegation-guard (mandatory protections + effort budget); fake children still need it in place.
+const __delegation = await installDelegation();
+process.on("exit", () => __delegation.cleanup());
 
 async function loadOrchestrator() {
   const register = await loadExtension("extensions/orchestrator/index.ts");

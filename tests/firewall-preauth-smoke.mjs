@@ -311,11 +311,20 @@ try {
     const EARLY_OK = new Set(["tool-capture", "custom-footer"]);
     const early = [...manifests].filter(([, m]) => (m.hooks ?? []).some((h) => h === "tool_execution_start" || h === "message_update")).map(([n]) => n);
     assert.deepEqual(early.filter((n) => !EARLY_OK.has(n)), [], `new pre-gate listeners need review: ${early}`);
-    // (c) Subagent children load the gate first.
-    const iso = fs.readFileSync(path.join(ROOT, "packages", "extensions", "third_party", "subagent", "isolation.ts"), "utf8");
-    const defaults = JSON.parse(/DEFAULT_CHILD_EXTENSIONS = (\[[^\]]*\])/.exec(iso)[1]);
-    assert.ok(defaults.indexOf("protected-paths") >= 0 && defaults.indexOf("tool-firewall") >= 0);
-    assert.ok(defaults.slice(0, defaults.indexOf("tool-firewall")).every((n) => BEFORE_GATE_OK.has(n)), `child extensions before the firewall: ${defaults}`);
+    // (c) Subagent children load the gate first: delegation-guard orders every child's extensions
+    // exactly as a profile does (guard, path/secret guards, firewall, then the rest).
+    const guardMod = await loadModule("extensions/delegation-guard/index.ts");
+    const PROTECTIONS = Symbol.for("pi-kit.protections");
+    globalThis[PROTECTIONS] = new Set(["tool-firewall", "protected-paths", "secret-guard", "delegation-guard", "effort"]);
+    try {
+      const prepared = guardMod.prepareChild({ cwd: ROOT, kind: "mandatory", role: "reviewer" });
+      assert.equal(prepared.ok, true, prepared.reason);
+      const order = prepared.args.filter((_, i) => prepared.args[i - 1] === "-e").map((f) => path.basename(path.dirname(f)));
+      const at = order.indexOf("tool-firewall");
+      assert.ok(at >= 0 && order.indexOf("protected-paths") >= 0, `child extensions: ${order}`);
+      assert.ok(order.slice(0, at).every((n) => BEFORE_GATE_OK.has(n) || n === "delegation-guard"), `child extensions before the firewall: ${order}`);
+      assert.equal(order[0], "delegation-guard");
+    } finally { delete globalThis[PROTECTIONS]; }
     // (d) pi's wiring: the firewall sees the very object that executes, after prepareArguments and
     // validation, and parallel batches execute only after every call is decided.
     const session = fs.readFileSync(path.join(PCA, "dist", "core", "agent-session.js"), "utf8");

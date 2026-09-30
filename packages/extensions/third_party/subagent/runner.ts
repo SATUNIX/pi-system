@@ -17,7 +17,7 @@ import { runChildProcess } from "./child-process.ts";
 import { boundMessage, classifyFailure } from "./result.ts";
 import { createRunLog, subagentStateDir } from "./logging.ts";
 import { registerLive, unregisterLive } from "./live.ts";
-import { childExtensionArgs } from "./isolation.ts";
+import { isReadOnlyRole, isScoutRole, prepareChildLaunch } from "./launch.ts";
 import { skillPreamble } from "./skills.ts";
 import {
   DEFAULT_CHILD_APPROVAL_TIMEOUT_MS,
@@ -112,6 +112,9 @@ export interface RunAgentOptions {
   background?: boolean;
   // Per-call overrides (workflow steps), applied over the role definition.
   overrides?: RunOverrides;
+  // "discretionary" (default): the agent's own delegation, bounded by the effort tier.
+  // "user": a launch the person typed (a /workflow command), bounded only by the platform ceilings.
+  launchKind?: "discretionary" | "user";
 }
 
 export interface RunOverrides {
@@ -122,6 +125,8 @@ export interface RunOverrides {
   // Extra kit extensions for the isolated child (e.g. memory-vault for memory_save).
   extensions?: string[];
   maxRuntimeMs?: number;
+  // Requested effort tier for the child; clamped to the parent's tier.
+  effort?: string;
   // Appended to the role's system prompt (e.g. workflow blackboard conventions).
   appendSystemPrompt?: string;
 }
@@ -142,6 +147,7 @@ export async function runAgent(options: RunAgentOptions): Promise<SingleResult> 
     inheritParentModel = false,
     background = false,
     overrides = {},
+    launchKind = "discretionary",
   } = options;
 
   // Deeper children receive PI_KIT_SUBAGENT_DEPTH+1; the tool layer refuses to spawn once
@@ -183,8 +189,8 @@ export async function runAgent(options: RunAgentOptions): Promise<SingleResult> 
   if (selectedModel) baseArgs.push("--model", selectedModel);
   if (thinking) baseArgs.push("--thinking", thinking);
   if (tools && tools.length > 0) baseArgs.push("--tools", tools.join(","));
-  const isolation = childExtensionArgs(childCwd, [...(agent.extensions ?? []), ...(overrides.extensions ?? [])], tools?.includes("subagent") ?? false);
-  baseArgs.push(...isolation.args);
+  // The extension arguments and environment come from delegation-guard per attempt (below): every
+  // attempt is a new child execution, so it reserves against the effort budget again.
 
   const skills = [...new Set([...(agent.skills ?? []), ...(overrides.skills ?? [])])];
   const preload = skillPreamble(skills, childCwd);
@@ -192,7 +198,6 @@ export async function runAgent(options: RunAgentOptions): Promise<SingleResult> 
 
   const runLog = createRunLog(defaultCwd, agentName, task, childDepth - 1);
   runLog.write(`# model=${selectedModel ?? "(parent default)"}${thinking ? ` thinking=${thinking}` : ""}`);
-  runLog.write(`# extensions=${isolation.isolated ? isolation.loaded.join(",") || "(none)" : "(inherited: isolation disabled)"}`);
   if (skills.length) runLog.write(`# skills=${skills.join(",")}${preload.missing.length ? ` missing=${preload.missing.join(",")}` : ""}`);
 
   const streamCap = envInt("PI_KIT_SUBAGENT_STREAM_CAP_BYTES", DEFAULT_CHILD_STREAM_CAP, 64 * 1024, Number.MAX_SAFE_INTEGER);
@@ -215,7 +220,26 @@ export async function runAgent(options: RunAgentOptions): Promise<SingleResult> 
       runId: runLog.id,
       model: selectedModel,
     };
-    const args = [...baseArgs];
+    // Reserve the launch: mandatory protections, effort budget and the child's environment.
+    // Refused launches never spawn and are never retried.
+    const prepared = prepareChildLaunch({
+      cwd: childCwd,
+      kind: launchKind,
+      role: agentName,
+      scout: isScoutRole(agent),
+      readOnly: isReadOnlyRole(agent, tools),
+      requestedTier: overrides.effort ?? agent.effort,
+      extraExtensions: [...(agent.extensions ?? []), ...(overrides.extensions ?? [])],
+      needsSubagent: tools?.includes("subagent") ?? false,
+      baseEnv: { ...process.env },
+    });
+    if (!prepared.ok) {
+      runLog.write(`# launch refused (${prepared.code}): ${prepared.reason}`);
+      return { ...result, exitCode: 1, stopReason: "denied", errorMessage: `Subagent not started: ${prepared.reason}` };
+    }
+    runLog.write(`# extensions=${prepared.loaded.join(",")} tier=${prepared.childTier}${prepared.slot.id ? ` slot=${prepared.slot.id}` : ""}`);
+    const args = [...baseArgs, ...prepared.args];
+    let outcomeLabel = "error";
     let tmpDir: string | null = null;
     let tmpPath: string | null = null;
     const startedAt = Date.now();
@@ -300,7 +324,7 @@ export async function runAgent(options: RunAgentOptions): Promise<SingleResult> 
       runLog.write(`# args=${args.join(" ")}`);
 
       const childEnv: Record<string, string | undefined> = {
-        ...process.env,
+        ...prepared.env,
         PI_KIT_INTERNAL_CHILD: "1",
         PI_KIT_SUBAGENT_DEPTH: String(childDepth),
         PI_KIT_SUBAGENT_STATE_DIR: subagentStateDir(defaultCwd),
@@ -323,6 +347,7 @@ export async function runAgent(options: RunAgentOptions): Promise<SingleResult> 
         heartbeatMs,
         spawnChild,
         onSpawn: (handle) => {
+          prepared.slot.attach(handle.pid);
           runLog.attachPid(handle.pid);
           registerLive({
             id: runLog.id,
@@ -344,6 +369,7 @@ export async function runAgent(options: RunAgentOptions): Promise<SingleResult> 
       });
 
       result.exitCode = outcome.exitCode;
+      outcomeLabel = outcome.killReason ?? (outcome.spawnFailure ? "spawn-failed" : outcome.exitCode === 0 ? "ok" : `exit-${outcome.exitCode}`);
       if (outcome.spawnFailure) {
         result.stopReason = "error";
         result.errorMessage = `Subagent launch failed: ${outcome.spawnFailure}`;
@@ -369,6 +395,9 @@ export async function runAgent(options: RunAgentOptions): Promise<SingleResult> 
     } catch (error) {
       return { ...result, exitCode: 1, errorMessage: `Subagent launch failed: ${String(error)}` };
     } finally {
+      // Release the concurrency slot. The charge stays whatever happened: a failed, killed or
+      // never-started child is not refunded.
+      prepared.slot.settle(outcomeLabel);
       unregisterLive(runLog.id);
       if (tmpPath) try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
       if (tmpDir) try { fs.rmdirSync(tmpDir); } catch { /* ignore */ }

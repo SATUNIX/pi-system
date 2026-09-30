@@ -68,6 +68,10 @@
       "description": "NORTH_STAR §7 profiles the extension ships in. quick=T0-T1, balanced=T0-T3 core, long-horizon=T0-T3 full, autonomous=T0-T3+loop, self-improving=T0-T4, pentest=security-engagement-optimised Conductor composition, lite=low-context set for small local models. Empty [] means quarantined (status stub) — kept in-repo but shipped in no profile. verify.mjs cross-checks this list against profiles/*.json exactly."
     },
     "enabledByDefault": { "type": "boolean" },
+    "childGovernance": {
+      "type": "boolean",
+      "description": "true = the extension is a mandatory protection or task governance that every child session (subagent, reviewer, validator, grandchild) must load whenever the parent session has it enabled. Read by delegation-guard; a child that cannot load one fails closed."
+    },
     "platforms": {
       "type": "array",
       "items": { "type": "string", "enum": ["windows", "linux", "darwin"] },
