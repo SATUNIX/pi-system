@@ -28,7 +28,7 @@ import { appendJudgement, computeStats, distillInBackground, profileFor, readPro
 import { isUncertainBlock, runJudge, type Completer, type Verdict } from "./judge.ts";
 import { loadSession, recordAction, rootSessionId, saveSession, trajectoryFindings, type SessionGrant, type SessionState } from "./trajectory.ts";
 import { addApproval, approvalsPath, describeScope, findExact, floorFor, readApprovals, reportProblems, revokeApprovals, sessionApprovals, similarApprovals, LEARNED_APPROVAL_TTL_MS, SESSION_APPROVAL_TTL_MS, type Approval, type ApprovalsView } from "./approvals.ts";
-import { createUnattended, unattendedDenial, type UnattendedState } from "./unattended.ts";
+import { createUnattended, unattendedDenial, type ProvenanceIo, type UnattendedState } from "./unattended.ts";
 import { buildCard, buildDetail, CARD_MAX_LINES, CHOICE_ALLOW_ONCE, CHOICE_DENY_TELL, choicesFor, isSessionChoice } from "./card.ts";
 
 type Decision = "allow" | "ask" | "deny";
@@ -485,7 +485,10 @@ export default function toolFirewall(pi: ExtensionAPI, deps: FirewallDeps | ((..
   // Unattended mode is decided once, here, from the environment the supervisor built and the read-only
   // contract it names: nothing that happens later (a config file, /auto, a tool call, a changed variable)
   // can switch it on, and a changed contract switches it off (unattended.ts).
-  const unattended = createUnattended({ workspace: workspaceRoot(process.cwd()), cwd: process.cwd(), agentDir: agentDir(), policy: resolvePolicy(readConfig()).policy });
+  // The provenance facts (mount table, owner) come from the OS; tests present their own through a global
+  // that only code inside this process can set (a variable in the environment could be set by an agent).
+  const provenanceIo = (globalThis as unknown as Record<symbol, ProvenanceIo | undefined>)[Symbol.for("pi-kit.test.unattended-provenance")];
+  const unattended = createUnattended({ workspace: workspaceRoot(process.cwd()), cwd: process.cwd(), agentDir: agentDir(), policy: resolvePolicy(readConfig()).policy, io: provenanceIo });
   {
     const st = unattended.state();
     try {

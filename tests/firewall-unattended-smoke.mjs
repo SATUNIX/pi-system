@@ -63,6 +63,17 @@ function writeContract(obj, name = `contract-${++contractNo}.json`, dir = contra
 }
 const envFor = (contract, over = {}) => ({ PI_KIT_UNATTENDED: "1", PI_KIT_UNATTENDED_BOUNDARY: "container", PI_KIT_UNATTENDED_CONTRACT: contract, ...over });
 
+// The provenance rule reads the OS mount table. The tests present their own (a global only code inside the
+// process can set; the environment cannot), in which `contractDir` is a read-only mount as the supervisor's /run is.
+const PROVENANCE = Symbol.for("pi-kit.test.unattended-provenance");
+const mountEntry = (point, options, superOptions = options.split(",")[0]) => `${100 + point.length} 1 0:${point.length} / ${point.replace(/ /g, "\\040")} ${options} - tmpfs tmpfs ${superOptions}`;
+const baseTable = () => [mountEntry("/", "rw,relatime"), mountEntry(fs.realpathSync(contractDir), "ro,relatime", "rw")];
+let mountTable = baseTable();
+const presentOs = (extra = {}) => {
+  globalThis[PROVENANCE] = { mountinfo: () => mountTable.join("\n"), ...extra };
+};
+presentOs();
+
 function captureStderr(fn) {
   const chunks = [];
   const write = process.stderr.write;
@@ -319,6 +330,9 @@ try {
     b.close();
     // (d) starting the firewall with the env but a contract the agent could have forged (inside the workspace / agent dir).
     for (const [where, dir] of [["the workspace", path.join(ws, "sub")], ["the agent directory", path.join(agentDir, "pi-kit")]]) {
+      // Even on a read-only mount (so provenance is satisfied), a contract where the agent works proves nothing.
+      fs.mkdirSync(dir, { recursive: true });
+      mountTable = [...baseTable(), mountEntry(fs.realpathSync(dir), "ro,relatime", "ro")];
       const forgedContract = writeContract(CONTRACT, "forged.json", dir);
       const f = await boot({ env: envFor(forgedContract) });
       assert.equal(globalThis[SYM].active, false, `a contract inside ${where} proves nothing`);
@@ -327,6 +341,7 @@ try {
       assert.equal((await bash(f, "sudo systemctl restart nginx-d", fv.ctx))?.block, true);
       f.close();
     }
+    mountTable = baseTable();
     // (e) launching an unattended child from a tool call is a safety-setting override: asked (attended) / denied (unattended).
     const attended = await boot({});
     const av = interactive(attended, [undefined]);
@@ -340,13 +355,51 @@ try {
     assert.deepEqual(TAGS(wr.reason), ["HARD DENY"]);
     assert.match(wr.reason, /overrides a safety setting via PI_KIT_UNATTENDED/);
     worker.close();
+    // (e2) The same forgery from an interpreter or `env`, where the variable is not an assignment prefix on the
+    // command line the shell parses: also a safety-setting override (asked; a worker is hard-denied).
+    const forgeries = {
+      "python -c": `python3 -c "import os,subprocess; os.environ['PI_KIT_UNATTENDED']='1'; subprocess.run(['pi','-p','go'])"`,
+      "node -e": `node -e "process.env.PI_KIT_UNATTENDED_CONTRACT='/tmp/c.json'; require('child_process').spawnSync('pi',['-p','go'])"`,
+      "env": "env PI_KIT_UNATTENDED=1 PI_KIT_UNATTENDED_BOUNDARY=container pi -p go",
+      "bash -c": `bash -c 'PI_KIT_UNATTENDED=1 pi -p go'`,
+    };
+    const askingFirewall = await boot({});
+    for (const [label, command] of Object.entries(forgeries)) {
+      const v = interactive(askingFirewall, [undefined]);
+      assert.equal((await bash(askingFirewall, command, v.ctx))?.block, true, `${label}: not run unasked`);
+      assert.equal(v.seen.length, 1, `${label}: the operator is asked`);
+      assert.match(v.seen[0].t, /safety setting/, `${label}: named as a safety override`);
+    }
+    askingFirewall.close();
+    const zone = await boot({ env: envFor(contract) });
+    for (const [label, command] of Object.entries(forgeries)) {
+      const r = await bash(zone, command, headless(zone));
+      assert.deepEqual(TAGS(r.reason), ["HARD DENY"], `${label}: hard-denied in a worker`);
+    }
+    zone.close();
+    // (e3) The autonomy CLI: whoever runs start / plan --authorise / promote authorises the boundary and spends the
+    // budget, so from an agent's shell that is the operator's call (asked, never learned), and a worker may not at all.
+    const controls = ["pi-autonomy start --config run.json --yes", "node packages/autonomy/cli.mjs plan --config run.json --authorise --yes", "node ./packages/autonomy/cli.mjs promote --run r1 --yes", "bash -c 'pi-autonomy resume --run r1 --detach'", "pi-autonomy reconfigure --run r1 --budget-usd 500 --yes"];
+    const reads = ["pi-autonomy templates", "node packages/autonomy/cli.mjs status", "node packages/autonomy/cli.mjs plan --config run.json", "pi-autonomy init --template implement --out run.json"];
+    const cli = await boot({});
+    for (const command of controls) {
+      const v = interactive(cli, [undefined]);
+      assert.equal((await bash(cli, command, v.ctx))?.block, true, `${command}: not run unasked`);
+      assert.equal(v.seen.length, 1, `${command}: asks the operator`);
+    }
+    for (const command of reads) assert.equal(await bash(cli, command, interactive(cli, []).ctx), undefined, `${command}: routine`);
+    cli.close();
+    const zoneCli = await boot({ env: envFor(contract) });
+    for (const command of controls) assert.deepEqual(TAGS((await bash(zoneCli, command, headless(zoneCli))).reason), ["HARD DENY"], `${command}: hard-denied in a worker`);
+    for (const command of reads) assert.equal(await bash(zoneCli, command, headless(zoneCli)), undefined, `${command}: routine in a worker`);
+    zoneCli.close();
     // (f) /auto off cannot end it either: only the supervisor's environment decides.
     const w2 = await boot({ env: envFor(contract) });
     await w2.pi.commands.get("auto").handler("off", interactive(w2).ctx);
     assert.equal(globalThis[SYM].active, true);
     assert.equal(await bash(w2, "npm install left-pad", headless(w2)), undefined);
     w2.close();
-    ok("a config file, /auto, an env change after load, a forged global, a forged contract or launching a child cannot enable or change it");
+    ok("a config file, /auto, an env change after load or a forged global cannot enable or change it; a contract inside the workspace or agent dir is refused; launching a child with the variables (prefix, env, interpreter) and running the autonomy CLI's control commands are asked (attended) or hard-denied (worker)");
   }
 
   // 7. Missing, malformed, contradictory or unknown: NOT unattended, loudly, and the normal rules apply. --------
@@ -415,46 +468,64 @@ try {
     o.close();
     ok(`${Object.keys(variants).length} missing/malformed/contradictory contracts and the pentest policy: NOT unattended, loud warning, normal rules (asks; headless fails closed and bounded), no judge`);
   }
-  // A contract the process can rewrite is not a read-only copy. root can write any file that is not on a read-only
-  // mount, so the refusal applies to every other user: it is exercised here for a non-root uid whatever user runs the
-  // test, by presenting the file as writable or as read-only through fs.accessSync (as a read-only mount would).
+  // Provenance. A contract a process running as this user could have written is not the supervisor's read-only
+  // copy, whatever its mode bits: an agent can write a file outside the workspace, chmod it 0444 and start a nested
+  // `pi` with the three variables. Only a read-only mount, or a file another user owns that this process cannot
+  // write, is proof it did not.
   {
-    const file = writeContract(CONTRACT, "writability.json");
-    const realGetuid = process.getuid;
-    const realAccess = fs.accessSync;
-    const asNonRoot = (writable) => {
-      process.getuid = () => 1000;
-      fs.accessSync = (f, mode) => {
-        if (String(f) === fs.realpathSync(file) && mode === fs.constants.W_OK) {
-          if (writable) return undefined;
-          const e = new Error("EROFS: read-only file system");
-          e.code = "EROFS";
-          throw e;
-        }
-        return realAccess(f, mode);
-      };
+    const refused = async (label, env, why = /neither on a read-only mount nor owned by another user/) => {
+      const b = await boot({ env });
+      assert.equal(globalThis[SYM].active, false, `${label}: refused`);
+      assert.match(b.stderr, why, `${label}: says why`);
+      b.close();
     };
-    try {
-      asNonRoot(true);
-      const w = await boot({ env: envFor(file) });
-      assert.equal(globalThis[SYM].active, false, "a contract this (non-root) process could rewrite is refused");
-      assert.match(w.stderr, /is writable by this process: it must be read-only/);
-      w.close();
-      asNonRoot(false);
-      const r = await boot({ env: envFor(file) });
-      assert.equal(globalThis[SYM].active, true, "the same contract on a read-only mount is accepted");
-      r.close();
-      // As root the check cannot tell and does not apply: a plain (writable) file is accepted.
-      process.getuid = () => 0;
-      fs.accessSync = (f, mode) => (String(f) === fs.realpathSync(file) && mode === fs.constants.W_OK ? undefined : realAccess(f, mode));
-      const root0 = await boot({ env: envFor(file) });
-      assert.equal(globalThis[SYM].active, true);
-      root0.close();
-    } finally {
-      process.getuid = realGetuid;
-      fs.accessSync = realAccess;
-    }
-    ok("a contract the (non-root) process could rewrite is refused; the same file read-only is accepted; root is exempt");
+    const accepted = async (label, env) => {
+      const b = await boot({ env });
+      assert.equal(globalThis[SYM].active, true, `${label}: accepted`);
+      b.close();
+    };
+    const elsewhere = mk("elsewhere");
+    const forged = writeContract(CONTRACT, "forged-tmp.json", elsewhere); // same user, 0444, outside the workspace: what an agent can make
+    assert.equal(fs.statSync(forged).mode & 0o222, 0, "the forged file is read-only by mode");
+    await refused("a same-user 0444 file outside the workspace", envFor(forged));
+    // Without the test's mount table the real /proc/self/mountinfo decides: an ordinary file is refused on any machine.
+    delete globalThis[PROVENANCE];
+    await refused("a same-user file, real mount table", envFor(forged));
+    await refused("even one in the directory the tests call read-only", envFor(contract));
+    presentOs();
+    // A read-only mount holds it: accepted. A mount stacked over that one, listed later, wins.
+    const point = fs.realpathSync(elsewhere);
+    mountTable = [...baseTable(), mountEntry(point, "ro,relatime", "rw")];
+    await accepted("under a read-only mount", envFor(forged));
+    mountTable = [...mountTable, mountEntry(point, "rw,relatime")];
+    await refused("a read-write mount stacked over the read-only one", envFor(forged));
+    // A read-write bind mount of a read-only filesystem is read-only: the superblock counts.
+    mountTable = [...baseTable(), mountEntry(point, "rw,relatime", "ro")];
+    await accepted("a read-write mount of a read-only filesystem", envFor(forged));
+    // The longest mount point wins: a read-write mount nested in a read-only one is read-write.
+    mountTable = [...baseTable(), mountEntry(fs.realpathSync(mk("ro-parent")), "ro,relatime", "ro"), mountEntry(fs.realpathSync(mk("ro-parent", "rw-child")), "rw,relatime", "rw")];
+    await refused("a read-write mount nested under a read-only one", envFor(writeContract(CONTRACT, "nested.json", path.join(root, "ro-parent", "rw-child"))));
+    await accepted("a read-only mount that contains the directory", envFor(writeContract(CONTRACT, "parent.json", path.join(root, "ro-parent", "plain"))));
+    // A mount point with a space is octal-escaped in the table.
+    const spaced = mk("ro dir");
+    mountTable = [...baseTable(), mountEntry(fs.realpathSync(spaced), "ro,relatime", "rw")];
+    await accepted("a mount point containing a space", envFor(writeContract(CONTRACT, "spaced.json", spaced)));
+    // A mount is not evidence for a path outside it, and a table that cannot be read proves nothing.
+    mountTable = [...baseTable(), mountEntry(`${point}-other`, "ro,relatime", "ro")];
+    await refused("a read-only mount of a sibling directory", envFor(forged));
+    presentOs({ mountinfo: () => null });
+    await refused("no mount table", envFor(forged));
+    // Another user's file this process cannot write is accepted; one it can write is not; without getuid nothing is.
+    const owner = fs.statSync(forged).uid;
+    presentOs({ mountinfo: () => baseTable().slice(0, 1).join("\n"), getuid: () => owner + 1000, writable: () => false });
+    await accepted("a file another user owns and this process cannot write", envFor(forged));
+    presentOs({ mountinfo: () => baseTable().slice(0, 1).join("\n"), getuid: () => owner + 1000, writable: () => true });
+    await refused("a file another user owns but this process can write", envFor(forged));
+    presentOs({ mountinfo: () => null, getuid: () => -1, writable: () => false });
+    await refused("no way to tell who owns it (no getuid)", envFor(forged));
+    mountTable = baseTable();
+    presentOs();
+    ok("provenance: a same-user 0444 file is refused (with and without a mount table, root included); accepted only on a read-only mount (nested, stacked, superblock, escaped mount points) or as another user's unwritable file");
   }
 
   // 8. A changed or vanished contract turns the mode off for the rest of the process. --------------------------

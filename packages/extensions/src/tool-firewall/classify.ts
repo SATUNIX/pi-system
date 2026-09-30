@@ -489,6 +489,11 @@ function classifySegment(c: Ctx): void {
     else if (r.op === "<" && r.target) readPath(c, r.target);
   }
 
+  // The autonomous-run CLI: whoever runs `start`, `plan --authorise`, `promote` and the like is the person who
+  // authorises the run's boundary and spends its budget, so from an agent's shell that is the operator's call.
+  const autonomyAt = exe === "pi-autonomy" ? 0 : INTERPRETERS.has(exe) ? argv.findIndex((a, i) => i > 0 && /(?:^|\/)(?:autonomy\/cli\.mjs|pi-autonomy)$/.test(a)) : -1;
+  if (autonomyAt >= 0) return autonomyCli(c, argv.slice(autonomyAt + 1));
+
   // Executable given by path: workspace scripts are ordinary development.
   if (argv[0].includes("/") && !/^\/(?:usr\/)?(?:local\/)?s?bin\//.test(argv[0]) && !/^\/opt\/|^\/nix\/|^\/home\/[^/]+\/\.local\/share\/mise\//.test(argv[0])) {
     const r = pathOf(c, argv[0]);
@@ -602,8 +607,25 @@ function stdinExec(c: Ctx): void {
   add(c, "medium", "code_exec", "stdin_exec", `${exe} executes its piped input`, `pipe|${exe}`);
 }
 
+const AUTONOMY_CONTROL = new Set(["start", "supervise", "resume", "steer", "cancel", "pause", "promote", "reconfigure"]);
+
+// `pi-autonomy <command>`: commands that authorise, start, steer or promote a run are high and never learned
+// (each one asks the operator); an unattended worker may not run them at all. Reading or preparing is routine.
+function autonomyCli(c: Ctx, args: string[]): void {
+  const sub = args.find((a) => !a.startsWith("-"));
+  const authorising = args.some((a) => a === "--authorise" || a === "--authorize");
+  if (sub && (AUTONOMY_CONTROL.has(sub) || (sub === "plan" && authorising))) {
+    return add(c, "high", "security_control", "autonomy_control", `pi-autonomy ${sub}${authorising ? " --authorise" : ""} authorises, starts, steers or promotes an autonomous run: only the operator does that`, `autonomy ${sub}${authorising ? " authorise" : ""}`);
+  }
+  add(c, sub === "boundary" && args.includes("--probe") ? "medium" : "low", "code_exec", "autonomy_cli", `pi-autonomy ${sub ?? ""}`.trim());
+}
+
 function inlineCode(c: Ctx, code: string): void {
   const { exe } = c;
+  // Inline code that names one of this kit's safety settings is how a launch is forged from an interpreter
+  // (`python -c "os.environ['PI_KIT_UNATTENDED']=..."`): the same override as an env prefix or `export`.
+  const safetyName = /PI_KIT_(?:FIREWALL|AUTO_MODE|PROTECTED|WRITE_ALLOWLIST|INTERNAL_CHILD|HUMAN_CONSOLE|CAPTURE|UNATTENDED)\w*/.exec(code);
+  if (safetyName) add(c, "high", "security_control", "safety_env_override", `${exe} inline code names a safety setting (${safetyName[0]})`, `inline ${safetyName[0]}`);
   const decode = /b64decode|base64|fromCharCode|atob\(|Buffer\.from\([^)]*['"](?:base64|hex)['"]|codecs\.decode|zlib\.decompress|marshal\.loads|pickle\.loads|bytes\.fromhex|unhexlify|\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}.*\\x[0-9a-f]{2}/i.test(code);
   const execy = /\bexec\s*\(|\beval\s*\(|new\s+Function\s*\(|\bFunction\s*\(|\bcompile\s*\(|__import__\s*\(|child_process|subprocess|os\.system|os\.popen|os\.exec|spawnSync|execSync|execFileSync|\bspawn\s*\(|`[^`]+`|\bsystem\s*\(|Kernel\.exec|IO\.popen|proc_open|shell_exec|passthru/.test(code);
   if (decode && execy) return add(c, "high", "obfuscated_exec", "decoded_exec", `${exe} decodes data and executes it`, `${exe} decode+exec`);

@@ -76,10 +76,16 @@ from MCP-only mode: they do not touch a pentest target and are already gated by 
    only with the protections the parent registered; inside the child it checks that they loaded
    and otherwise blocks every tool and exits with code 78. This applies to grandchildren and to
    every launch path (the `subagent` tool, workflows, verification reviewers, validators).
-8. **Unattended mode can only come from the supervisor.** It is active only when the process
-   environment and a read-only contract file, both built by the autonomous runner, say so and
-   agree; it cannot be enabled from inside a session, and any inconsistency means the normal
-   rules apply. See [Autonomous runs](autonomy.md).
+8. **Unattended mode needs what the supervisor builds, and a contract an agent cannot fake.** It
+   is active only when the process environment and a contract file say so and agree, and the
+   contract is not in the workspace, the working directory or the agent directory and sits on a
+   **read-only mount** (the runner mounts `/run` read-only) or is owned by another user and unwritable
+   by this process. A file the same user wrote and then made read-only is refused, root included.
+   Any inconsistency means the normal rules apply. Starting a child with the variables from an agent's
+   shell (an env prefix, `export`, `env`, or an interpreter's inline code that names them) is a
+   safety-setting override: asked, and hard-denied inside a worker. A script the agent wrote
+   earlier that sets them is not visible to the classifier; the provenance rule is what stops it.
+   See [Autonomous runs](autonomy.md). Pinned by `tests/firewall-unattended-smoke.mjs`.
 9. **Every firewall decision is audited** to `.pi/tool-firewall-audit.jsonl` (tier, effects,
    reason codes, redacted command, action hash, and the decider: analyser, policy, learned
    precedent, judge or human). Every tool call and output is also captured by `tool-capture`. The
@@ -115,9 +121,11 @@ from MCP-only mode: they do not touch a pentest target and are already gated by 
   unknown tool (`ask`), not as a shell command, and `secret-guard` matches the built-in tool names.
 - **Effort is not a boundary.** It budgets delegation and shapes behaviour; the ledger and its
   environment are owned by your user. A hostile process could edit them. See [Effort](effort.md).
-- **Unattended mode trusts the supervisor.** The firewall checks the contract and environment
-  but cannot verify that the container boundary the supervisor describes actually exists. A
-  forged contract elsewhere on disk is possible through paths that spawn pi without a shell.
+- **Unattended mode trusts the supervisor's claim of a boundary.** The firewall checks the
+  environment, the contract and where it lives (a read-only mount, or another user's file), but it
+  cannot verify that the container the supervisor describes exists. Someone who can mount
+  filesystems or run code inside the pi process, or root on the host, can still present a
+  contract. The container, not this check, is the boundary.
 - **A custom policy can widen the boundary.** `PI_KIT_FIREWALL_POLICY` pointing at a permissive
   file (for example `{ "defaults": { "unknown": "allow" } }`) re-opens the gate. `verify.mjs`
   only guarantees the *shipped* policy is default-deny. Such overrides, and `PI_KIT_UNATTENDED*`,

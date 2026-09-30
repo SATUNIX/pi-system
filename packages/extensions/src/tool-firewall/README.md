@@ -21,7 +21,11 @@ revocable entry in `firewall-approvals.json` (`/firewall list`, `/firewall revok
 A worker that the autonomy supervisor starts inside a container boundary runs in **unattended
 mode** (`PI_KIT_UNATTENDED=1`, `PI_KIT_UNATTENDED_BOUNDARY=container` and a read-only
 `PI_KIT_UNATTENDED_CONTRACT`): no prompts and no judge inside the zone; critical, hard classes
-and anything outside the zone are refused. Nothing in a session can enable it.
+and anything outside the zone are refused. The contract must be on a read-only mount (or be another
+user's unwritable file) and outside the workspace, so a file the agent wrote and `chmod`-ed does not
+count, and launching a child with those variables from a shell is a safety-setting override. The
+autonomy CLI's control commands (`start`, `plan --authorise`, `promote`, `resume`, `reconfigure` and
+the like) are high and never learned from an agent's shell.
 
 The full description is in `docs/autonomy-gate.md`.
 

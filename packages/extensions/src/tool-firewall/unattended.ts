@@ -24,10 +24,18 @@
 //     a loud warning: the normal interactive / headless rules apply (fail closed, never permissive);
 //   - the contract is re-read on every call and any change to its content turns the mode off for the rest
 //     of the process (it cannot be broadened by editing it);
-//   - the contract must not live where the agent writes (the workspace or the agent directory) and, for a
-//     process that is not root, must not be writable by it.
+//   - the contract must not live where the agent writes (the workspace, the working directory or the agent
+//     directory) and must have a provenance a process running as this user cannot fake: it is on a
+//     read-only mount (the supervisor mounts /run read-only) or it is owned by another user and this
+//     process cannot write it. A file the same user created and then `chmod 0444`-ed proves nothing, so
+//     it is refused, for root too.
 // Children (subagents, grandchildren) are separate processes that inherit the environment, read the same
 // contract and validate it themselves: a child that cannot read the contract is not unattended.
+//
+// What this does not stop: an actor that can run code inside the pi process itself, or root on the host,
+// which can mount or own anything. The mode's protection against a forged launch from an agent shell is
+// this provenance rule plus the firewall's classification of `PI_KIT_UNATTENDED*` overrides; it is a
+// guard rail, and the container (not this file) is the boundary.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -100,7 +108,58 @@ function normaliseRemotes(raw: unknown, warnings: string[]): string[] {
   return [...new Set(out)];
 }
 
-export type LoadOptions = { env?: NodeJS.ProcessEnv; workspace: string; cwd: string; agentDir: string; policy: string };
+// The facts the provenance rule reads, injectable so a test can present a mount table or an owner
+// without root. Only code running inside the pi process can supply them: the environment cannot.
+export type ProvenanceIo = { getuid?: () => number; mountinfo?: () => string | null; writable?: (file: string) => boolean };
+
+// Mount points are octal-escaped in /proc/self/mountinfo (a space is \040).
+const unescapeMount = (s: string): string => s.replace(/\\([0-7]{3})/g, (_, o: string) => String.fromCharCode(parseInt(o, 8)));
+
+// The mount that holds `file`: the longest mount point that contains it (the last one listed wins where
+// mounts are stacked). `ro` is true when the mount, or the filesystem under it, is read-only.
+export function mountHolding(file: string, mountinfo: string): { point: string; ro: boolean } | null {
+  let best: { point: string; ro: boolean } | null = null;
+  for (const line of mountinfo.split("\n")) {
+    const parts = line.split(" ");
+    const dash = parts.indexOf("-");
+    if (dash < 6 || parts.length < dash + 4) continue;
+    const point = unescapeMount(parts[4]);
+    if (!within(file, point)) continue;
+    if (best && point.length < best.point.length) continue;
+    best = { point, ro: parts[5].split(",").includes("ro") || parts[dash + 3].split(",").includes("ro") };
+  }
+  return best;
+}
+
+const readMountinfo = (): string | null => {
+  try {
+    return fs.readFileSync("/proc/self/mountinfo", "utf8");
+  } catch {
+    return null; // not Linux, or /proc is hidden: only the "owned by another user" route is left
+  }
+};
+
+const canWrite = (file: string): boolean => {
+  try {
+    fs.accessSync(file, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Could a process running as this user have written the contract? Only a read-only mount, or a file
+// another user owns and this process cannot write, is proof that it did not.
+export function contractProvenance(file: string, st: { uid: number }, io: ProvenanceIo = {}): { ok: true; via: string } | { ok: false; why: string } {
+  const info = (io.mountinfo ?? readMountinfo)();
+  const held = info ? mountHolding(file, info) : null;
+  if (held?.ro) return { ok: true, via: `the read-only mount ${held.point}` };
+  const uid = (io.getuid ?? (() => (typeof process.getuid === "function" ? process.getuid() : -1)))();
+  if (uid !== -1 && st.uid !== uid && !(io.writable ?? canWrite)(file)) return { ok: true, via: "a file owned by another user that this process cannot write" };
+  return { ok: false, why: `the contract ${file} is neither on a read-only mount nor owned by another user, so a process running as this user could have written it (the supervisor mounts /run read-only)` };
+}
+
+export type LoadOptions = { env?: NodeJS.ProcessEnv; workspace: string; cwd: string; agentDir: string; policy: string; io?: ProvenanceIo };
 
 // Decides once whether this process is an unattended worker. Pure apart from reading the contract file.
 export function evaluateUnattended(o: LoadOptions): UnattendedState {
@@ -117,11 +176,13 @@ export function evaluateUnattended(o: LoadOptions): UnattendedState {
   if (!path.isAbsolute(contractEnv)) return fail(`PI_KIT_UNATTENDED_CONTRACT must be an absolute path (got ${JSON.stringify(contractEnv)})`);
   const file = real(contractEnv);
   let bytes: Buffer;
+  let owner: { uid: number };
   try {
     const st = fs.statSync(file);
     if (!st.isFile()) return fail(`the contract ${file} is not a regular file`);
     if (st.size > MAX_CONTRACT_BYTES) return fail(`the contract ${file} is larger than ${MAX_CONTRACT_BYTES} bytes`);
     bytes = fs.readFileSync(file);
+    owner = { uid: st.uid };
   } catch (error) {
     return fail(`the contract ${file} cannot be read (${(error as NodeJS.ErrnoException)?.code ?? String((error as Error)?.message ?? error)})`);
   }
@@ -129,15 +190,9 @@ export function evaluateUnattended(o: LoadOptions): UnattendedState {
   for (const [what, dir] of [["the workspace", o.workspace], ["the working directory", o.cwd], ["the agent directory", o.agentDir]] as const) {
     if (dir && within(file, real(dir))) return fail(`the contract ${file} is inside ${what} (${dir}), which the agent can write: a contract there proves nothing`);
   }
-  let writable = false;
-  try {
-    fs.accessSync(file, fs.constants.W_OK);
-    writable = true;
-  } catch {
-    /* read-only: as it must be */
-  }
-  // root can write any file that is not on a read-only mount, so the check cannot tell for root: it applies to every other user.
-  if (writable && typeof process.getuid === "function" && process.getuid() !== 0) return fail(`the contract ${file} is writable by this process: it must be read-only (mount it read-only or chmod 0444)`);
+  // Anywhere else the same user can write, the agent could have forged it (write, then chmod 0444).
+  const provenance = contractProvenance(file, owner, o.io);
+  if (!provenance.ok) return fail(provenance.why);
   let contract: unknown;
   try {
     contract = JSON.parse(bytes.toString("utf8"));
@@ -162,7 +217,8 @@ export function evaluateUnattended(o: LoadOptions): UnattendedState {
   if (!isObj(perms)) return fail("permissions is not an object");
   const egress = normaliseEgress(perms.egress ?? (isObj(perms.network) ? perms.network.egress : undefined), warnings);
   const remotes = normaliseRemotes(perms.remotes ?? (isObj(perms.git) ? perms.git.remotes : undefined), warnings);
-  const known = new Set(["egress", "network", "remotes", "git"]);
+  // writeAreas and unattended sit in the supervisor's copy for the worker's own reading (and the boundary probe).
+  const known = new Set(["egress", "network", "remotes", "git", "writeAreas", "unattended"]);
   const ignored = Object.keys(perms).filter((k) => !known.has(k));
   if (ignored.length) warnings.push(`permissions keys not used by the firewall: ${ignored.slice(0, 8).join(", ")}`);
   const autoApprove = u.autoApprove === true;
