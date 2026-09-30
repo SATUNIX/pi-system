@@ -78,6 +78,33 @@ semgrep scan --config p/javascript --config p/typescript --config p/nodejs --con
 zizmor .github/workflows                          # pipx install zizmor
 ```
 
+## What CodeQL and zizmor leave out
+
+Both read a config file, so the exclusions are reviewed with the code and stay narrow.
+
+**CodeQL** (`.github/codeql/codeql-config.yml`, read by the `init` step of the `codeql` job):
+
+- *Paths ignored*: the test suites (`tests/`, `packages/*/tests/`, `packages/*/scripts/`, `packages/core/eval/`), the built
+  `site/` and `node_modules/`. The tests do on purpose what the queries look for (fake upstreams that write what they receive,
+  a probe that turns certificate checks off to test a TLS tunnel, temp files, synthetic credentials), and none of it is in the
+  package or the git install's runtime path. Everything that ships stays in scope.
+- *Queries switched off*, each with one known site and a reason in the file:
+  `js/insufficient-password-hash` (a SHA-256 of an environment variable's name, and a fingerprint of a random provider key that
+  an in-container probe compares against; neither is a stored password),
+  `js/file-access-to-http` (the web console's authenticated probe sends the console's own token to the console's own address) and
+  `js/http-to-file-access` (the web console's agent editor writes the agent file its authenticated user asked for, under a
+  validated name inside the agents directory). Switching a query off hides a new instance of it too, so revisit these when
+  either site changes.
+
+**zizmor** (`.github/zizmor.yml` and one inline comment):
+
+- `adhoc-packages` on the `pi-compat` install step in `ci.yml`: installing a pi version outside the lockfile is what that job is
+  for. The version is a literal from the job's matrix and reaches the command through an environment variable.
+- `self-repository` on the release workflow's `uses: ./.github/workflows/ci.yml`: the `./` form is the one GitHub documents for a
+  reusable workflow in the same repository.
+
+No test pins these exclusions: the `codeql` and `zizmor` jobs apply them, and a change to either file shows in the diff.
+
 ## Not run in CI
 
 The container-boundary probe for autonomous runs (`packages/autonomy/tests/boundary-probe.mjs`)

@@ -1,0 +1,33 @@
+name: pi-system CodeQL configuration
+
+# Referenced by the `codeql` job in .github/workflows/security.yml (docs/ci-security.md explains each choice).
+#
+# Shipped code stays fully in scope. Only what is not shipped, or is a generated copy, is left out.
+
+paths-ignore:
+  # Test suites, in-container probes and fixtures. They deliberately do the things the queries look for: fake upstreams that
+  # write what they receive, probes that turn certificate checks off to test a TLS tunnel, temp files, files checked then
+  # read, synthetic credentials. None of it is in the npm package or the git install's runtime path.
+  - tests
+  - packages/*/tests
+  - packages/*/scripts
+  - packages/core/eval
+  # Generated or vendored: the built documentation site and installed dependencies.
+  - site
+  - node_modules
+
+# Three queries are switched off because what they describe is the product's purpose here, not a flaw. Each has one known site; the
+# threat each guards against is handled where the code is, and the reason is written next to it in docs/ci-security.md.
+query-filters:
+  # Reports every SHA-256 of a value whose name contains "key" or "password". The two sites hash an environment variable's NAME (part
+  # of the boundary digest) and a random, high-entropy provider key so an in-container probe can prove the key is absent without being
+  # handed it. Neither is a stored password; a slow password hash would make that probe pointless.
+  - exclude:
+      id: js/insufficient-password-hash
+  # The web console's authenticated loopback probe sends the console's own token to the console's own address. That is what the probe is.
+  - exclude:
+      id: js/file-access-to-http
+  # The web console's agent editor writes the agent file its authenticated user asked for. The name is validated to a fixed pattern and
+  # resolved inside the agents directory; the file content is the feature.
+  - exclude:
+      id: js/http-to-file-access
