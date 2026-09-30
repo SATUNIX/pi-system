@@ -15,6 +15,7 @@ import {
 	PolicyError,
 	applySecurityHeaders,
 	buildAuthorities,
+	constantTimeEqual,
 	evaluateRequest,
 	isLoopbackHost,
 	normalizeHost,
@@ -111,9 +112,10 @@ let denyWindowCount = 0;
 let denySuppressed = 0;
 
 function safePath(pathname) {
-	return String(pathname)
-		.replace(/[^\x20-\x7e]/g, "?")
-		.slice(0, 120);
+	let text = String(pathname);
+	// A client that put the token in the URL path must not get it copied into the log.
+	if (policy.token) text = text.split(policy.token).join("[redacted]");
+	return text.replace(/[^\x20-\x7e]/g, "?").slice(0, 120);
 }
 
 function logRequest(req, pathname, status, reason) {
@@ -207,7 +209,9 @@ function writeTokenFile() {
 function removeTokenFile() {
 	if (!wroteTokenFile) return;
 	try {
-		if (fs.readFileSync(TOKEN_FILE, "utf8").trim() === policy.token) fs.rmSync(TOKEN_FILE, { force: true });
+		if (constantTimeEqual(fs.readFileSync(TOKEN_FILE, "utf8").trim(), policy.token)) {
+			fs.rmSync(TOKEN_FILE, { force: true });
+		}
 	} catch {
 		/* already gone */
 	}
