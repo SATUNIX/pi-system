@@ -1,6 +1,12 @@
-// Run configuration for the autonomous improvement runner (packages/autonomy). One JSON file per
-// run; everything not given falls back to DEFAULTS. Durations are minutes, money is USD.
+// The flat configuration of the deprecated v0 shape (cycles / integration / limits ...), kept
+// for the pure modules that still read it (lib/triggers.mjs, lib/cycle.mjs, lib/gitmirror.mjs)
+// and their tests. A real run reads a schemaVersion 1 contract (lib/contract.mjs), which maps
+// the v0 shape onto the self-improve template and derives the flat config with
+// lib/runcfg.mjs. There is no default remote: v0's built-in private one is gone.
+// Durations are minutes, money is USD.
 import fs from "node:fs";
+import { isProtectedBranch } from "./contract.mjs";
+export { writeJsonAtomic } from "./fsutil.mjs";
 
 export const DEFAULTS = {
   cycles: 50,
@@ -11,12 +17,12 @@ export const DEFAULTS = {
   image: "pi-autonomy:local",
   // Container engine: "podman" (rootless; no daemon, no docker group) or "docker".
   engine: "podman",
-  gitRemote: "https://gitlab.home.internal/lab/pi-system.git",
+  gitRemote: null, // required by the contract mapping; the pure modules take it as given
   baseRef: "main",
   // Cycles build on one shared integration branch instead of a branch per run: each cycle
   // starts from its head, and a cycle that completes, passes the gate and passes the merge
   // review is fast-forwarded into it. Work that is not merged stays reachable through the
-  // cycle's exp/<run>/cycle-NN tag. review: an independent LLM review (lib/review.mjs) before
+  // cycle's exp/<run>/cycle-NN tag. The branch name is configurable. review: an independent LLM review (lib/review.mjs) before
   // every merge; reviewModel defaults to managerModel.
   integration: { branch: "experimental/main", review: true, reviewModel: null },
   // Extra model ids the relay will serve besides `model` (for example a subagent model).
@@ -79,7 +85,7 @@ export function resolveConfig(raw) {
   if (!Array.isArray(cfg.extraModels)) problems.push("extraModels: array of model ids");
   if (!/^[\w.-]+(:[\w.\/-]+)?$/.test(cfg.image)) problems.push("image: docker image reference");
   const ib = cfg.integration.branch;
-  if (!/^experimental\/[a-z0-9][a-z0-9._-]{0,40}$/.test(ib ?? "") || ib.includes("..")) problems.push("integration.branch: experimental/<name>");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,80}$/.test(ib ?? "") || ib.includes("..") || ib.endsWith("/") || ib.endsWith(".lock") || isProtectedBranch(ib) || ib === cfg.baseRef) problems.push("integration.branch: a valid branch name that is neither protected (main, master, release/...) nor the base ref");
   if (problems.length) throw new Error(`invalid run config:\n  ${problems.join("\n  ")}`);
   // branch: the cycle's working branch, local to the host mirror and the agent's bare repo (it is
   // never pushed to gitRemote); integration: the branch that is published.
@@ -89,11 +95,4 @@ export function resolveConfig(raw) {
 
 export function readConfig(file) {
   return resolveConfig(JSON.parse(fs.readFileSync(file, "utf8")));
-}
-
-/** Atomic JSON write (temp file + rename), so a crash never leaves half a state file. */
-export function writeJsonAtomic(file, value) {
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n");
-  fs.renameSync(tmp, file);
 }
