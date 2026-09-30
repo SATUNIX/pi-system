@@ -338,7 +338,9 @@ async function startServer(webUiRoot: string): Promise<StartResult> {
   let ownTokenFile = false;
   if (!authDisabled()) {
     token = operatorToken();
-    if (!token) {
+    // An operator-named token file that cannot be read is passed through unchanged, so the
+    // server refuses with its own clear error instead of us quietly substituting another token.
+    if (!token && !process.env.PI_CONSOLE_TOKEN_FILE) {
       token = crypto.randomBytes(32).toString("hex");
       childEnv.PI_CONSOLE_TOKEN_FILE = writeTokenFile(webUiRoot, token);
       delete childEnv.PI_CONSOLE_TOKEN;
