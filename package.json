@@ -21,7 +21,7 @@
     "url": "https://github.com/SATUNIX/pi-system/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "publishConfig": {
     "access": "public"
@@ -74,14 +74,14 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.76.0",
+    "@earendil-works/pi-coding-agent": ">=0.85.1",
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1",
-    "@earendil-works/pi-ai": "0.85.1",
-    "typescript": "^5.4.0",
-    "ajv": "^8.12.0"
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "ajv": "^8.12.0",
+    "typescript": "^5.4.0"
   },
   "scripts": {
     "verify": "node packages/core/verify.mjs",
@@ -147,6 +147,7 @@
     "smoke:observability-contracts": "node tests/observability-contracts-smoke.mjs",
     "smoke:orchestrate-commands": "node tests/orchestrate-commands-smoke.mjs",
     "smoke:package": "node packages/core/pack-check.mjs",
+    "smoke:clean-install": "node tests/clean-install-smoke.mjs",
     "smoke:progress-guard": "node tests/progress-guard-agsix-smoke.mjs",
     "smoke:profile": "node tests/profile-command-smoke.mjs",
     "smoke:profile-transaction": "node tests/profile-transaction-smoke.mjs",
@@ -186,6 +187,7 @@
     "smoke:workflow": "node tests/workflow-smoke.mjs",
     "smoke:workspace-root": "node tests/workspace-root-smoke.mjs",
     "smoke:core-manifest-guard": "node tests/core-manifest-guard-smoke.mjs",
+    "smoke:wiring": "node tests/wiring-smoke.mjs",
     "smoke:web-console": "node tests/web-console-smoke.mjs",
     "smoke:web-ui-server": "node tests/web-ui-server-smoke.mjs",
     "smoke:web-ui-static": "node tests/web-ui-static-smoke.mjs",

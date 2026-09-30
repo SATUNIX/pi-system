@@ -9,6 +9,6 @@
     "start": "node server/server.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   }
 }

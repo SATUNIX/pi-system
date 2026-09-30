@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        PI_CODING_AGENT_VERSION: ${PI_CODING_AGENT_VERSION:-0.76.0}
+        PI_CODING_AGENT_VERSION: ${PI_CODING_AGENT_VERSION:-0.87.1}
         PI_MCP_ADAPTER_VERSION: ${PI_MCP_ADAPTER_VERSION:-2.8.0}
     image: ${PI_AGENT_IMAGE:-pi-system:local}
     working_dir: /workspace

@@ -87,7 +87,7 @@ export function extractExtension(name, { firstPartyDir = FIRST_PARTY_DIR, dstBas
     type: "module",
     license: "MIT",
     pi: { extensions: [`extensions/${name}/index.ts`] },
-    peerDependencies: { "@earendil-works/pi-coding-agent": ">=0.76.0", typebox: "*" },
+    peerDependencies: { "@earendil-works/pi-coding-agent": ">=0.85.1", typebox: "*" },
   };
   fs.writeFileSync(path.join(dst, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
 

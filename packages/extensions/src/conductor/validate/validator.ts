@@ -92,7 +92,7 @@ export function parseValidatorOutput(output: unknown): Pick<ValidatorVerdictInpu
 function finalAssistantOutput(messages: Array<{ role?: unknown; content?: unknown }>): string { for (let i = messages.length - 1; i >= 0; i--) { const msg = messages[i] as { role?: string; content?: Array<{ type?: string; text?: string }> }; const text = msg.role === "assistant" ? msg.content?.find((part) => part.type === "text" && typeof part.text === "string")?.text : undefined; if (text) return text; } return ""; }
 function writePromptTempFile(prompt: string): { dir: string; file: string } { const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-conductor-validator-")); const file = path.join(dir, "validator-system-prompt.md"); fs.writeFileSync(file, prompt, { encoding: "utf8", mode: 0o600 }); return { dir, file }; }
 
-// Pi 0.76.0 exposes no first-class registered-tool invocation from ExtensionAPI or ctx.
+// pi (checked through 0.87) exposes no first-class registered-tool invocation from ExtensionAPI or ctx.
 export const runValidatorProcess: ValidatorRunner = async (cwd, task, signal, onUpdate) => {
   const roleFile = path.join(cwd, ".pi", "agents", "validator.md"); let role: string;
   try { role = fs.readFileSync(roleFile, "utf8"); } catch { return { ok: false, reason: "validator role is not materialized in .pi/agents" }; }

@@ -75,7 +75,7 @@ function parseModelString(value: string): { provider: string | null; id: string 
 // Resolution uses only the documented public surface (ctx.modelRegistry.find/getAll +
 // pi.setModel) — deliberately not the CLI's internal pattern resolver
 // (core/model-resolver.ts), which isn't part of this package's public API surface and
-// isn't safe to depend on across the pinned 0.76.0-0.79.6 compat range.
+// is not safe to depend on across the supported pi range.
 function resolveModel(modelRegistry: { find(provider: string, id: string): unknown; getAll(): Array<{ id: string }> }, value: string): unknown {
   const { provider, id } = parseModelString(value);
   if (provider) {

@@ -7,7 +7,7 @@ offline and is the CI default.
 ## Run
 
 Requirements: Node, Docker Desktop/Engine, a built `pi-system:local`
-image (Pi 0.76.0 was tested), and a provider in `~/.pi/agent/models.json`.
+image (Pi 0.76.0 was used for the recorded cycle evidence; the kit now pins 0.87.1), and a provider in `~/.pi/agent/models.json`.
 
 From the kit checkout:
 
