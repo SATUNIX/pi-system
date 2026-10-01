@@ -5,6 +5,7 @@ site_dir: site
 theme:
   name: mkdocs
 nav:
+  - Repository topology: repository-topology.md
   - Start Here: index.md
   - Guides:
       - Getting Started: getting-started.md

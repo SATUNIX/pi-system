@@ -7,3 +7,7 @@
   - Simplified: `/handoff <note>` appends a timestamped entry to HANDOFF.md (no model call).
   - The LM-powered version (session summary + prompt generation) is TODO in a future extension revision.
   - Removed @earendil-works/pi-agent-core and @earendil-works/pi-ai imports.
+  - Create notes exclusively and append through an open descriptor to avoid path-check races.
+    New notes use mode 0600. Native no-follow rejects final-component symlinks on supporting
+    platforms; Windows does not provide that native protection. Regression coverage:
+    `smoke:handoff`.

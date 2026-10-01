@@ -1,7 +1,11 @@
 # CI security
 
-What the pipelines check on every change, and where. They are GitHub Actions workflows in
-`.github/workflows/`. Releasing is described in [Releasing](releasing.md).
+GitLab validates canonical private development and the public export on every merge request
+and branch change. GitHub independently validates release PRs through `.github/workflows/`.
+The GitLab gate includes private role contracts, exact-file export classification, exported
+secret/private-data scans, exported `check:all` and strict documentation builds. Publication
+runs only as a manual protected version-tag job. See [Repository topology](repository-topology.md)
+and [Releasing](releasing.md).
 
 ## Workflows
 

@@ -3,7 +3,7 @@
 ## From the private GitLab source
 
 Before the public beta the kit was delivered from a private GitLab project
-(`gitlab.home.internal/lab/pi-system`, and before that `gitlab.home.internal/root/pi-system`).
+(recognised by source fingerprints, so private hostnames are not shipped).
 Those are **retired sources**. They are listed in `packages/core/distribution.json` under
 `git.legacySources`, and an install still registered from one is migrated to
 `github.com/SATUNIX/pi-system`.

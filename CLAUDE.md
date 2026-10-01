@@ -42,9 +42,8 @@ Documentation here describes **what the code does now**. These rules keep it tha
 3. **A claim about behaviour names the test that pins it**, or says plainly that nothing does.
 4. **Diagrams are Mermaid** in fenced blocks, and `npm run docs:mermaid` must pass.
 5. **No private hosts, addresses, accounts, e-mail addresses or machine paths**, and no
-   secret-like strings other than the synthetic fixtures the tests already use. The one exception
-   is the retired private source URLs that `packages/core/distribution.json` lists under
-   `git.legacySources` (with their tests and `docs/migration.md`): migration has to recognise them.
+   secret-like strings other than the synthetic fixtures the tests already use. Retired private sources are recognised by source fingerprints in
+   `packages/core/distribution.json`, never published as private hostnames.
 6. **Links stay inside `docs/`.** A link to a path outside `docs_dir` (for example
    `../packages/...`) aborts `python -m mkdocs build --strict`, which CI runs; keep such
    references as code spans.

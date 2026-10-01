@@ -1,26 +1,61 @@
 {
   "$schema": "../../../core/schema/extension.schema.json",
   "name": "orchestrator",
-  "summary": "Autonomous delegation layer. Materializes planner/implementer/reviewer/scout role agents into .pi/agents, scores task complexity, and — when a task is non-trivial — steers the main agent to run a plan → implement → validate flow via the subagent tool (context-sieve contribution, never direct system-prompt injection).",
+  "summary": "Delegation policy over the guarded subagent tool: classifies requests, writes budgeted context-sieve contributions, honours user and effort restrictions, and requires trusted verifier completion. Shipped roles are resolved directly; project role copies are not materialised.",
   "category": "planning",
   "tier": "T3",
   "layer": 4,
   "entry": "index.ts",
-  "hooks": ["session_start", "input", "tool_result", "turn_end"],
-  "registers": { "tools": [], "commands": ["/orchestrate", "/orchestrate-plan", "/orchestrate-implement-review"] },
-  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest", "lite"],
+  "hooks": [
+    "session_start",
+    "input",
+    "tool_result",
+    "turn_end"
+  ],
+  "registers": {
+    "tools": [],
+    "commands": [
+      "/orchestrate",
+      "/orchestrate-plan",
+      "/orchestrate-implement-review"
+    ]
+  },
+  "profiles": [
+    "quick",
+    "balanced",
+    "long-horizon",
+    "autonomous",
+    "self-improving",
+    "pentest",
+    "lite"
+  ],
   "enabledByDefault": true,
-  "platforms": ["windows", "linux", "darwin"],
+  "platforms": [
+    "windows",
+    "linux",
+    "darwin"
+  ],
   "runtime": {
-    "nodeBuiltins": ["node:fs", "node:path", "node:url"],
+    "nodeBuiltins": [
+      "node:fs",
+      "node:path",
+      "node:url"
+    ],
     "npm": [],
     "piPeers": [],
     "services": [],
     "models": []
   },
-  "pulls": ["subagent"],
-  "env": ["PI_KIT_ORCH_THRESHOLD", "PI_KIT_ORCH_DISABLE"],
-  "provenance": { "origin": "custom" },
+  "pulls": [
+    "subagent"
+  ],
+  "env": [
+    "PI_KIT_ORCH_THRESHOLD",
+    "PI_KIT_ORCH_DISABLE"
+  ],
+  "provenance": {
+    "origin": "custom"
+  },
   "homeRepo": null,
   "status": "beta"
 }

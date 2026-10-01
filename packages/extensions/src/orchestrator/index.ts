@@ -76,11 +76,14 @@ function isReadOnlyRequest(text: string): boolean {
   return !/\b(?:and|then)\s+(?:also\s+)?(?:implement|fix|edit|build|apply|modify)\b/.test(request);
 }
 
-function directive(score: number): string {
+export const DIRECTIVE_BUDGET_TOKENS = 800;
+
+export function directive(score: number): string {
   return [
-    `## Autonomous delegation (task complexity: ${score})`,
+    `## Delegation policy (task complexity: ${score})`,
     "",
-    "This request is non-trivial, so do NOT implement it directly in this context. Delegate through",
+    "The installed orchestration policy authorises delegation at this complexity; complexity alone",
+    "does not grant permission. Follow any user restriction and the current effort budget. Delegate through",
     "the `subagent` tool (built-in roles: scout, planner, implementer, reviewer) and keep your own",
     "context lean — let sub-agents hold the detail. Each subagent task must be self-contained (exact",
     "paths, acceptance criteria, expected output): a subagent cannot see this conversation. Standard flow:",
@@ -99,8 +102,8 @@ function directive(score: number): string {
     "",
     "If these coordination tools are available (full install), use them: record the planner's work",
     "units with `task_create` (and `task_next` to hand the next unblocked one to an implementer), and",
-    "record the reviewer's result with `record_verdict` — treat `verdict_status` = PASS as the",
-    "definition of done. Set a mission goal with `/goal <one-line goal>` so it survives compaction.",
+    "call `verify_completion` after review: only a passing trusted verifier completes the board.",
+    "A subagent PASS recorded with `record_verdict` is untrusted. Set `/goal` to survive compaction.",
     "",
     "Read the relevant runbook skill's SKILL.md before acting (small models often skip skills",
     "otherwise) — `skill_search` finds it; e.g. `agent-orchestration`, `task-decomposition`, and",
@@ -144,8 +147,8 @@ function implementReviewDirective(task: string): string {
     "3. **reviewer** — validate the result. If its Verdict is FAIL, loop back to an implementer with",
     "   the reviewer's must-fix list. Do NOT report the task done until the reviewer passes.",
     "",
-    "Record the reviewer's result with `record_verdict` if available — treat `verdict_status` = PASS",
-    "as the definition of done.",
+    "Call `verify_completion` after review: only its trusted PASS completes the verifier board.",
+    "A subagent PASS via `record_verdict` remains untrusted.",
     "",
     "Skill: `agent-orchestration`, `self-reflection-and-recovery`.",
   ].join("\n");
@@ -160,7 +163,7 @@ function writeContributionContent(cwd: string, content: string): void {
       JSON.stringify({
         id: "orchestrator",
         priority: 80,
-        budgetTokens: 500,
+        budgetTokens: DIRECTIVE_BUDGET_TOKENS,
         content,
       }),
       "utf8",
