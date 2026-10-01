@@ -9,11 +9,25 @@ function handoffFilePath(cwd: string): string {
 function appendHandoff(filePath: string, note: string): void {
   const timestamp = new Date().toISOString();
   const entry = `\n## ${timestamp}\n\n${note.trim()}\n`;
+  const appendFlags = fs.constants.O_WRONLY | fs.constants.O_APPEND;
+  let fd: number;
+  let created = false;
   try {
-    fs.writeFileSync(filePath, `# Handoff Notes\n${entry}`, { flag: "wx" }); // created only if absent, in one step
+    fd = fs.openSync(filePath, appendFlags | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+    created = true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
-    fs.appendFileSync(filePath, entry);
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    // Native no-follow blocks final-component symlinks where supported. Non-blocking
+    // open lets the regular-file check reject a FIFO without waiting for a reader.
+    fd = fs.openSync(filePath, appendFlags | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
+  }
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error("Handoff notes require a regular file");
+    // Keep the opened file even if another process replaces the path. Never truncate
+    // existing notes, including a file created concurrently with the exclusive open.
+    fs.writeFileSync(fd, created ? `# Handoff Notes\n${entry}` : entry);
+  } finally {
+    fs.closeSync(fd);
   }
 }
 
@@ -23,7 +37,7 @@ export default function (pi: ExtensionAPI) {
   // in. It is now opt-in (PI_KIT_HANDOFF_AUTO=1); /handoff <note> is the deliberate path, and
   // the memory vault's per-turn recaps cover automatic continuity.
   pi.on("session_shutdown", async (_event, ctx) => {
-    if (process.env.PI_KIT_INTERNAL_CHILD === "1") return;
+    if (process.env.PI_KIT_INTERNAL_CHILD === "1" || process.env.PI_SUBAGENT_CHILD === "1") return;
     if (process.env.PI_KIT_HANDOFF_AUTO !== "1") return;
     const entries = ctx.sessionManager.getEntries();
     // Collect last few tool results as a brief summary
@@ -50,12 +64,12 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const note = args.trim();
       if (!note) {
-        ctx.ui.notify("Usage: /handoff <note>", "warning");
+        if (ctx.hasUI) ctx.ui.notify("Usage: /handoff <note>", "warning");
         return;
       }
       const filePath = handoffFilePath(ctx.cwd);
       appendHandoff(filePath, note);
-      ctx.ui.notify(`Handoff note written to ${path.basename(filePath)}`, "info");
+      if (ctx.hasUI) ctx.ui.notify(`Handoff note written to ${path.basename(filePath)}`, "info");
     },
   });
 }

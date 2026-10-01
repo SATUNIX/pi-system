@@ -6,21 +6,45 @@
   "tier": "T1",
   "layer": 3,
   "entry": "index.ts",
-  "hooks": ["agent_end"],
-  "registers": { "tools": [], "commands": [] },
-  "profiles": ["quick", "balanced", "long-horizon", "autonomous", "self-improving", "pentest"],
+  "hooks": [
+    "agent_start",
+    "agent_end"
+  ],
+  "registers": {
+    "tools": [],
+    "commands": []
+  },
+  "profiles": [
+    "quick",
+    "balanced",
+    "long-horizon",
+    "autonomous",
+    "self-improving",
+    "pentest"
+  ],
   "enabledByDefault": true,
-  "platforms": ["windows", "linux", "darwin"],
+  "platforms": [
+    "windows",
+    "linux",
+    "darwin"
+  ],
   "runtime": {
-    "nodeBuiltins": ["node:child_process"],
+    "nodeBuiltins": [
+      "node:child_process"
+    ],
     "npm": [],
     "piPeers": [],
     "services": [],
     "models": []
   },
   "pulls": [],
-  "env": [],
-  "provenance": { "origin": "vendored" },
+  "env": [
+    "PI_KIT_NOTIFY",
+    "PI_KIT_NOTIFY_MIN_SECONDS"
+  ],
+  "provenance": {
+    "origin": "vendored"
+  },
   "homeRepo": null,
   "status": "stable"
 }

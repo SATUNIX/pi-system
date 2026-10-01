@@ -49,7 +49,10 @@ export function normalizeContribution(raw: unknown): Contribution | null {
 // Deterministic assembly order: higher priority first, ties broken by id so contributions
 // with equal priority do not depend on readdir order.
 export function compareContributions(a: Contribution, b: Contribution): number {
-  return b.priority - a.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  if (b.priority !== a.priority) return b.priority - a.priority;
+  if (a.id < b.id) return -1;
+  if (a.id > b.id) return 1;
+  return 0;
 }
 
 // Two injection channels:
@@ -295,7 +298,7 @@ export default function (pi: ExtensionAPI) {
       totalTokens: estimateTokens(system.assembled.join("\n\n")),
       budget: budgetTokens,
       dropped: [...system.dropped, ...message.dropped],
-      included: system.included,
+      included: [...system.included, ...message.included],
       truncated: [...system.truncatedIds, ...message.truncatedIds],
       message: { tokens: estimateTokens(messageText), included: message.included, skippedUnchanged },
       contextWindow: window,

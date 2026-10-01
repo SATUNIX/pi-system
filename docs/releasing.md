@@ -129,3 +129,12 @@ npm run check:all            # everything CI runs, including the delivery, updat
 npm run security:lockfile    # lockfile integrity
 node packages/core/release-notes.mjs 0.2.4-beta.0   # preview the notes for a release
 ```
+
+## Canonical release preparation
+
+Prepare changes and the version in private GitLab first. The protected version-tag pipeline
+constructs and validates a public export, then an operator starts the manual publication job.
+It creates a GitHub release branch and draft PR without copying private history. Merge after
+GitHub checks pass, then create the public tag on that reviewed public commit. The GitHub
+workflow above handles optional release/package publication after that step.
+See [repository topology](repository-topology.md).

@@ -144,6 +144,10 @@ SOFTWARE.
   - Simplified: `/handoff <note>` appends a timestamped entry to HANDOFF.md (no model call).
   - The LM-powered version (session summary + prompt generation) is TODO in a future extension revision.
   - Removed @earendil-works/pi-agent-core and @earendil-works/pi-ai imports.
+  - Create notes exclusively and append through an open descriptor to avoid path-check races.
+    New notes use mode 0600. Native no-follow rejects final-component symlinks on supporting
+    platforms; Windows does not provide that native protection. Regression coverage:
+    `smoke:handoff`.
 
 ### `notify`
 
@@ -153,6 +157,7 @@ SOFTWARE.
   - Upstream uses `require("child_process")` dynamically; changed to static `import { execFile } from "node:child_process"` for clarity and self-containment compliance
   - Windows notification path unchanged (upstream already handles WT_SESSION)
   - `provenance.origin` set to `"vendored"`
+  - Kit changes (UX-08): skips print/JSON sessions (no UI) and delegated children, only notifies for runs of at least 10 s (`PI_KIT_NOTIFY_MIN_SECONDS`), adds `PI_KIT_NOTIFY=off|osc|bell|notify-send`, and escapes single quotes in the Windows toast script
 
 ### `plan-mode`
 

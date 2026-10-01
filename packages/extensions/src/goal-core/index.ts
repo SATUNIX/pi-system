@@ -42,6 +42,20 @@ function contribFile(cwd: string): string {
 function readGoal(cwd: string): string | null {
   try {
     const raw = fs.readFileSync(goalFile(cwd), "utf8");
+    // B-019: a multi-line goal is persisted twice — `goal:` keeps the first line so the
+    // naive single-line readers in verify-gate/verifier-board (and older goal-core) are
+    // unaffected, and `goal_full:` carries a JSON-encoded single-line scalar that preserves
+    // the exact text, including line breaks, for goal-core's own round trip. Files written
+    // by the old code (`goal:` only) read back exactly as before.
+    const full = raw.match(/^goal_full:\s*(.*)$/m);
+    if (full?.[1] !== undefined) {
+      try {
+        const parsed = JSON.parse(full[1].trim());
+        if (typeof parsed === "string" && parsed.trim()) return parsed;
+      } catch {
+        /* malformed goal_full — fall back to the `goal:` scalar below */
+      }
+    }
     const m = raw.match(/^goal:\s*(.*)$/m);
     return (m?.[1] ?? raw).trim() || null;
   } catch {
@@ -71,7 +85,10 @@ function writeContribution(cwd: string, goal: string): void {
 function setGoal(cwd: string, goal: string): void {
   const dir = path.join(cwd, ".pi");
   fs.mkdirSync(dir, { recursive: true });
-  const yaml = `goal: ${goal}\ncreated: ${new Date().toISOString()}\n`;
+  const firstLine = goal.split(/\r?\n/)[0];
+  const yaml = /[\r\n]/.test(goal)
+    ? `goal: ${firstLine}\ngoal_full: ${JSON.stringify(goal)}\ncreated: ${new Date().toISOString()}\n`
+    : `goal: ${goal}\ncreated: ${new Date().toISOString()}\n`;
   fs.writeFileSync(goalFile(cwd), yaml, "utf8");
   writeContribution(cwd, goal);
 }

@@ -34,7 +34,7 @@ import { AUTO_PROMOTE_TYPES, RECAP_SYSTEM, digestTurn, isTrivial, parseRecap, re
 //
 // Subagent children never recap or recall: they are isolated from the operator's history.
 
-const isChild = () => process.env.PI_KIT_INTERNAL_CHILD === "1";
+const isChild = () => process.env.PI_KIT_INTERNAL_CHILD === "1" || process.env.PI_SUBAGENT_CHILD === "1";
 const RECALL_CHARS = 2400; // ~600 tokens for the continuity + recall message
 
 export interface MemoryVaultDeps {

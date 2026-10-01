@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async (_event, ctx) => {
-    if (process.env.PI_KIT_INTERNAL_CHILD === "1") return;
+    if (process.env.PI_KIT_INTERNAL_CHILD === "1" || process.env.PI_SUBAGENT_CHILD === "1") return;
     const { stdout: status, code } = await pi.exec("git", ["status", "--porcelain"]);
     if (code !== 0 || status.trim().length === 0) return;
 

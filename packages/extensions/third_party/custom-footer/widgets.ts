@@ -85,4 +85,3 @@ export function pick<T>(list: T[], avoid?: T): T {
   if (item === avoid) item = list[(list.indexOf(item) + 1) % list.length];
   return item;
 }
-

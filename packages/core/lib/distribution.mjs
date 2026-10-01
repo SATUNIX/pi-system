@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // How the kit is delivered to users: git (release tags and the main branch of the kit's git
 // repository) or npm (dist-tags of the published package). packages/core/distribution.json
 // holds the setting; PI_KIT_DELIVERY and PI_SYSTEM_GIT_SOURCE override it per machine.
@@ -97,7 +98,7 @@ export function parseGitSource(source) {
 /** True when `source` (any ref, any URL form) is one of the retired private sources in `legacySources` (host/path keys). */
 export function isLegacyGitSource(source, legacySources = []) {
   const key = parseGitSource(source)?.key;
-  return Boolean(key && legacySources.some((legacy) => legacy.toLowerCase() === key));
+  return Boolean(key && legacySources.some((legacy) => legacy.toLowerCase() === key || legacy === `sha256:${createHash("sha256").update(key).digest("hex")}`));
 }
 
 /** The settings source for a git ref: `null` (next) is the unpinned repository, otherwise `<repo>@<ref>`. */

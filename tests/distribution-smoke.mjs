@@ -19,7 +19,7 @@ import { findPackageEntry, removeOtherKitEntries } from "../packages/core/lib/se
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GIT = "git:github.com/SATUNIX/pi-system";
-const LEGACY = "git:gitlab.home.internal/lab/pi-system";
+const LEGACY = "git:legacy.example.invalid/lab/pi-system";
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -51,13 +51,13 @@ const tests = {
     assert.equal(d.delivery, "git");
     assert.equal(d.git.source, GIT);
     assert.equal(d.git.tagPrefix, "v");
-    assert.deepEqual(d.git.legacySources, ["gitlab.home.internal/lab/pi-system", "gitlab.home.internal/root/pi-system"]);
+    assert.ok(d.git.legacySources.every((s) => /^sha256:[a-f0-9]{64}$/.test(s)));
     assert.equal(readDistribution(undefined, { PI_KIT_DELIVERY: "npm" }).delivery, "npm");
     // The old SSH instructions told users to export the private source; it must not stick.
-    const stale = readDistribution(undefined, { PI_SYSTEM_GIT_SOURCE: "git:git@gitlab.home.internal:lab/pi-system" });
+    const stale = readDistribution(undefined, { PI_SYSTEM_GIT_SOURCE: "git:git@legacy.example.invalid:lab/pi-system" });
     assert.equal(stale.git.source, GIT, "a retired override falls back to the public source");
-    assert.equal(stale.git.ignoredEnvSource, "git:git@gitlab.home.internal:lab/pi-system");
-    assert.ok(isLegacyGitSource("https://gitlab.home.internal/root/pi-system.git", d.git.legacySources));
+    assert.equal(stale.git.ignoredEnvSource, "git:git@legacy.example.invalid:lab/pi-system");
+    assert.ok(isLegacyGitSource("https://legacy.example.invalid/root/pi-system.git", d.git.legacySources));
     assert.ok(!isLegacyGitSource(GIT, d.git.legacySources));
     assert.equal(readDistribution(undefined, { PI_SYSTEM_GIT_SOURCE: "git:git@h.x:o/pi-system" }).git.source, "git:git@h.x:o/pi-system");
     assert.throws(() => readDistribution(undefined, { PI_KIT_DELIVERY: "ftp" }), /unknown kit delivery/);
@@ -154,11 +154,11 @@ const tests = {
       // extension removed and one added by hand.
       writeJson(path.join(agent, "settings.json"), { packages: [{ source: LEGACY, extensions: ["packages/extensions/src/secret-guard/index.ts", "packages/extensions/third_party/todo/index.ts", "packages/extensions/src/save/index.ts"] }] });
       writeJson(path.join(agent, ".pi-kit.json"), { kitSource: LEGACY, channel: "next", profile: "lite", extensions: ["secret-guard", "todo"], scope: "global" });
-      const run = dryRun(installer, ["--profile", "lite", "--yes", "--mode", "git"], { agent, env: { PI_SYSTEM_GIT_SOURCE: "git:git@gitlab.home.internal:lab/pi-system" } });
+      const run = dryRun(installer, ["--profile", "lite", "--yes", "--mode", "git"], { agent, env: { PI_SYSTEM_GIT_SOURCE: "git:git@legacy.example.invalid:lab/pi-system" } });
       // --channel is not given, so `next` (the recorded channel) is kept: no network is needed.
       assert.equal(run.status, 0, run.out);
-      assert.match(run.out, /Ignoring PI_SYSTEM_GIT_SOURCE=git:git@gitlab.home.internal:lab\/pi-system/);
-      assert.match(run.out, /Migrating the kit from the retired private source git:gitlab.home.internal\/lab\/pi-system/);
+      assert.match(run.out, /Ignoring PI_SYSTEM_GIT_SOURCE=git:git@legacy.example.invalid:lab\/pi-system/);
+      assert.match(run.out, /Migrating the kit from the retired private source git:legacy.example.invalid\/lab\/pi-system/);
       assert.equal(run.mode, "git (channel next)", run.out);
       assert.equal(run.source, GIT, "registers the public source, never the private one");
       assert.match(run.out, /would write overrides/, "hand edits are captured before the old entry goes");

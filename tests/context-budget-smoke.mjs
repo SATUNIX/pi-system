@@ -147,6 +147,10 @@ async function testDynamicContributionsUseMessageChannel() {
     fs.writeFileSync(path.join(dir, "custom.json"), JSON.stringify({ id: "custom", priority: 5, budgetTokens: 100, content: "EXPLICIT MESSAGE", channel: "message" }));
     const r1 = await pi.handlers.get("before_agent_start")({ systemPrompt: "base" });
     assert.match(r1.systemPrompt, /STATIC GUIDELINES/);
+    // B-020: the top-level `included` telemetry must merge both channels, not just system.
+    const budget = JSON.parse(fs.readFileSync(path.join(dir, "sieve-budget.json"), "utf8"));
+    assert.ok(budget.included.includes("guidelines"), "top-level included must list the system-channel contribution");
+    assert.ok(budget.included.includes("memory-local"), "top-level included must list the message-channel contribution");
     assert.doesNotMatch(r1.systemPrompt, /RECALLED MEMORY/, "dynamic content must not rewrite the system prompt");
     assert.equal(r1.message.display, false);
     assert.match(r1.message.content, /RECALLED MEMORY[\s\S]*EXPLICIT MESSAGE/, "message-channel blocks are merged by priority");
@@ -192,7 +196,7 @@ async function testOversizedContributionFileSkippedBeforeParse() {
     const { MAX_CONTRIBUTION_BYTES } = sieveModule;
     writeContrib(ws, "small", 5, 1000, "SMALL_MARKER");
     const dir = path.join(ws, ".pi", "ctx-contributions");
-    const oversized = "OVERSIZED_MARKER" + "x".repeat(MAX_CONTRIBUTION_BYTES);
+    const oversized = `OVERSIZED_MARKER${"x".repeat(MAX_CONTRIBUTION_BYTES)}`;
     fs.writeFileSync(path.join(dir, "oversized.json"), JSON.stringify({ id: "oversized", priority: 1, budgetTokens: 1000, content: oversized }));
     assert.ok(fs.statSync(path.join(dir, "oversized.json")).size > MAX_CONTRIBUTION_BYTES, "the oversized fixture must exceed the cap");
     const result = await pi.handlers.get("before_agent_start")({ systemPrompt: "base" });
